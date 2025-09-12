@@ -1,4 +1,5 @@
-clif_data_location: "/Volumes/lyonslab/_clif_data/v_2.1"
-project_location: "/Users/lyonspa/Desktop/LyonsLab/022_clif_risk-tools_oncology"
+clif_data_path: "/projects/CLIF-analysis/critill_rclif_2_1/critill_rclif_2_1_tables/"
+project_location: "/projects/CLIF-analysis/clif_projects/CLIF_OxygenationMetrics/CLIF_PFvsSF_Performance"
 file_type: "parquet"
 site_lowercase: "Hopkins"
+site_timezone: "America/New_York"

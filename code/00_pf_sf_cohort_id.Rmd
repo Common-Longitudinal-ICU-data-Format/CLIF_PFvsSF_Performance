@@ -1,0 +1,156 @@
+---
+title: "00_pf_sf_cohort_id"
+author: "Chad H. Hochberg and Nicholas Ingraham"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+#Install Following Libraries For this Project
+packages_to_install =
+  c("tidyverse",
+    "data.table",
+    "collapse",
+    "yaml",
+    "fst",
+    "arrow",
+    "tableone",
+    "viridis",
+    "sandwich",
+    "rprojroot")
+
+#Can Load For Each Individual RMarkdown
+packages_to_load =
+  c(
+    "data.table",
+    "tidyverse",
+    "collapse",
+    "arrow",
+    "data.table",
+    "rprojroot")
+options(dplyr.summarise.inform = FALSE)
+
+fn_install_if_mi = function(p) {
+  if (!requireNamespace(p, quietly = TRUE)) {
+    try(install.packages(p, dependencies = TRUE), silent = TRUE)
+  }
+}
+
+fn_load_quiet = function(p) {
+  suppressPackageStartupMessages(library(p, character.only = TRUE))
+}
+
+invisible(lapply(packages_to_install, fn_install_if_mi))
+invisible(lapply(packages_to_load,   fn_load_quiet))
+options(dplyr.summarise.inform = FALSE)
+rm(packages_to_install, packages_to_load, fn_install_if_mi, fn_load_quiet); gc()
+
+#Set Working Director as the Project Root
+project_root <- file.path( find_root(rprojroot::has_dir("CLIF_PFvsSF_Performance")),
+  "CLIF_PFvsSF_Performance")
+knitr::opts_knit$set(root.dir = project_root)
+getwd()
+```
+
+
+```{r Optimize Use of Cores - Code from Pat Lyons}
+### threads and ram ------------------------------------------------------------
+
+os_type   = Sys.info()[["sysname"]]
+all_cores = parallel::detectCores(logical = TRUE)
+all_cores = if (is.na(all_cores)) 1L else as.integer(all_cores)
+
+get_ram_gb = function() {
+  tryCatch({
+    if (os_type == "Darwin") {
+      # macOS: sysctl reports total RAM in bytes
+      bytes = suppressWarnings(
+        as.numeric(system("sysctl -n hw.memsize", intern = TRUE))
+      )
+      if (length(bytes) > 0 && !is.na(bytes)) bytes / 1024^3 else NA_real_
+    } else {
+      # Windows & Linux: ps is usually reliable
+      mem_info <- ps::ps_system_memory()
+      key <- intersect(c("available", "avail"), names(mem_info))
+      val <- if (length(key) > 0) mem_info[[key]] / 1024^3 else NA_real_
+  
+      if (is.finite(val)) val else {
+        # Linux fallback: read /proc/meminfo directly
+        if (file.exists("/proc/meminfo")) {
+          kb = suppressWarnings(
+            as.numeric(system("awk '/MemAvailable/ {print $2}' /proc/meminfo", intern = TRUE))
+          )
+          if (length(kb) > 0 && !is.na(kb)) kb / 1024^2 else NA_real_
+        } else {
+          NA_real_
+        }
+      }
+    }
+  }, error = function(e) NA_real_)
+}
+
+avail_ram_gb = get_ram_gb()
+
+## choose threads conservatively (00 is light; keep headroom) ------------------
+
+reserve_cores   = 1L
+gb_per_thread   = 0.50
+max_by_cores    = max(1L, all_cores - reserve_cores)
+max_by_memory   = if (is.finite(avail_ram_gb)) max(1L, floor(avail_ram_gb / gb_per_thread)) else max_by_cores
+n_threads       = as.integer(max(1L, min(max_by_cores, max_by_memory, 8L)))
+n_math_threads  = as.integer(max(1L, min(n_threads, 8L)))
+
+## apply thread settings -------------------------------------------------------
+
+data.table::setDTthreads(threads = n_threads)
+collapse::set_collapse(nthreads  = n_threads)
+options(arrow.use_threads        = TRUE)
+Sys.setenv(ARROW_NUM_THREADS     = n_threads)
+options(mc.cores                 = n_threads)
+
+# concise summary
+message(
+  sprintf("Env OK | OS=%s | Cores=%d | Threads=%d | MathThreads=%d | Avail RAM≈%s GB",
+          os_type, all_cores, n_threads, n_math_threads,
+          ifelse(is.finite(avail_ram_gb), round(avail_ram_gb, 1), "NA"))
+)
+```
+```{r Open Config File and Set Site Variables}
+config = yaml::read_yaml(paste0(project_root, '/config/config.yaml'))
+allowed_files = c("parquet", "csv", "fst")
+
+### user entered site details ---------------------------------------------------
+site             = tolower(config$site_lowercase)
+file_type        = tolower(config$file_type)  
+tables_location  = config$clif_data_path 
+project_location = config$project_location
+
+### file_type must be one of c(parquet, csv) -----------------------------------
+
+if (!(file_type %in% allowed_files)) {
+  stop(
+    paste0(
+      "Invalid '", file_type,
+      "'. Expected one of: ", 
+      paste(allowed_files, collapse = ", "), call. = FALSE
+    )
+  )
+}
+
+### pull time zone from site details -------------------------------------------
+
+site_time_zone = config$site_time_zone
+
+### file locations -------------------------------------------------------------
+
+if (!dir.exists(paste0(project_location, "/proj_tables"))) {
+  dir.create(paste0(project_location, "/proj_tables"))
+}
+if (!dir.exists(paste0(project_location, "/proj_output"))) {
+  dir.create(paste0(project_location, "/proj_output"))
+}
+```
+
+

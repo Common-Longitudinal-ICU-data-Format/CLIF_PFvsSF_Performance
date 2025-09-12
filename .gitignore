@@ -27,6 +27,6 @@ initialize_renv.R
 # ignore filtered CLIF tables stored as Rdata
 *.RData
 
-# ignore pdf reports and rendered html
-*.pdf
-*.html
+# ignore proj_output and proj_tables
+proj_output/
+proj_tables/
