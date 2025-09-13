@@ -52,6 +52,18 @@ project_root <- file.path( find_root(rprojroot::has_dir("CLIF_PFvsSF_Performance
   "CLIF_PFvsSF_Performance")
 knitr::opts_knit$set(root.dir = project_root)
 getwd()
+
+#Use Dplyr functions as default
+filter <- dplyr::filter
+mutate <- dplyr::mutate
+select <- dplyr::select
+arrange <- dplyr::arrange
+group_by <- dplyr::group_by
+summarise <- dplyr::summarise
+lead <- dplyr::lead
+lag <- dplyr::lag
+coalesce <- dplyr::coalesce
+n <- dplyr::n
 ```
 
 
@@ -141,7 +153,30 @@ if (!(file_type %in% allowed_files)) {
 
 ### pull time zone from site details -------------------------------------------
 
-site_time_zone = config$site_time_zone
+site_time_zone = config$site_timezone
+
+check_timezone <- function(site_timezone, intended_timezone = Sys.timezone()) {
+  if (site_timezone != intended_timezone) {
+    cat("Warning: You specified", site_timezone, "but your system time zone is", intended_timezone, "\n")
+    response <- readline(prompt = "Was that intentional? (yes/no): ")
+    
+    if (tolower(response) %in% c("no", "n")) {
+      new_timezone <- readline(prompt = "Please enter the correct timezone: ")
+      cat("Timezone updated to", new_timezone, "\n")
+      return(new_timezone)
+    } else {
+      cat("Proceeding with the originally specified timezone:", site_timezone, "\n")
+      return(site_timezone)
+    }
+    
+  } else {
+    cat("Timezone is set to", site_timezone, "\n")
+    return(site_timezone)
+  }
+}
+
+#Time Zone Check
+result <- check_timezone(site_time_zone)
 
 ### file locations -------------------------------------------------------------
 
@@ -152,5 +187,283 @@ if (!dir.exists(paste0(project_location, "/proj_output"))) {
   dir.create(paste0(project_location, "/proj_output"))
 }
 ```
+```{r Required CLIF Table Paths}
+#Vector of Required Tables
+required_tables = 
+  c(
+    "patient", 
+    "hospital_diagnosis",
+    "hospitalization", 
+    "adt", 
+    "vitals", 
+    "labs", 
+    "medication_admin_continuous", 
+    "respiratory_support",
+    "code_status"
+  )
+
+
+clif_table_filenames = 
+  list.files(
+    path       = tables_location, 
+    pattern    = paste0("^clif_.*\\.", file_type, "$"), 
+    full.names = TRUE
+  )
+
+clif_table_basenames = 
+  basename(clif_table_filenames) |>
+  str_remove(paste0("\\.", file_type, "$")) |> # remove extension
+  str_remove("^clif_") |>                      # remove leading 'clif_'
+  str_remove("(_\\d{4}(_\\d{4})*)$")           # remove any date ranges in file name
+
+table_file_map     = setNames(clif_table_filenames, clif_table_basenames)
+missing_tables     = setdiff(required_tables, clif_table_basenames)
+required_filenames = table_file_map[required_tables]
+
+if (length(missing_tables) > 0) {
+  stop(paste("Error: Missing required tables:", paste(missing_tables, collapse = ", ")))
+} else {
+  message("All required tables are present.")
+}
+
+rm(allowed_files, missing_tables); gc()
+
+## load tables -----------------------------------------------------------------
+
+if (file_type == "parquet") {
+  data_list = lapply(required_filenames, open_dataset)
+} else if (file_type == "csv") {
+  data_list = lapply(required_filenames, \(f) read_csv_arrow(f))
+} else if (file_type == "fst") {
+  data_list = lapply(required_filenames, \(f) {
+    tmp = read.fst(f, as.data.table = TRUE)
+    arrow_table(tmp)
+  })
+} else {
+  stop("Unsupported file format")
+}
+
+names(data_list) = names(required_filenames)
+```
+```{r Specify Global Variables - Time Period and Other Parameters}
+STUDY_START <- as.POSIXct("2021-01-01", tz=site_time_zone) # Start time
+STUDY_END <- as.POSIXct("2024-12-31", tz=site_time_zone) # End time
+
+STABILITY_WINDOW_MINS <- 24 * 60 # Minimum number of minutes of NIV to be included
+MAX_NIV_BREAK_MINS <- 2 * 60 # Maximum amount of minutes allowed off NIV within STABILITY_WINDOW_MINS from starting  
+NIV_NAMES <- c("cpap", "nippv", "high flow nc") # Device names that are included as NIV
+
+HOSPITAL_BLOCK_TIME_HRS <- 6 # Maximum number of hours allowed between hospitalizations to make them blocked together
+
+# Age limits for study, defined by outlier_thresholds file
+AGE_MIN <- 18
+AGE_MAX <- 120
+
+#SpO2, PaO2, FIO2 Outliers
+SPO2_MIN <- 80
+PAO2_MIN <- 40
+PAO2_MAX <- 700
+FIO2_MIN <- 21
+FIO2_MAX <- 100
+
+#Blank Table to Build Consort Data
+consort_table <- data.frame(
+  step     = character(),
+  included = numeric(),
+  excluded = numeric(),   # should be numeric to match NA_real_
+  stringsAsFactors = FALSE
+)
+```
+
+
+#COHORT IDENTIFICATION
+#Age >= 18
+#Within Study Time Frame Noted Above
+```{r Hospital Blocks Within Time Frame}
+# Select only hospitalizations that fit the below criteria
+# Only set the starting time admission (study end cutoff below as to not remove ends of hospital blocks)
+hospitalizations <- data_list$hospitalization |>
+   filter(
+    age_at_admission >= AGE_MIN & age_at_admission < AGE_MAX,
+    admission_dttm >= STUDY_START & admission_dttm <= STUDY_END,
+    admission_dttm < discharge_dttm & !is.na(discharge_dttm)
+  ) |>
+  select(
+    patient_id, hospitalization_id, admission_dttm, discharge_dttm,
+    age_at_admission, discharge_category) |>
+  arrange(patient_id, admission_dttm) |>
+  distinct() |>
+  compute()
+
+# Collect as data table
+hospitalizations <- as.data.table(hospitalizations)
+
+# Order by patient ID and admission date/time
+setorder(hospitalizations, patient_id, admission_dttm)
+
+# Create column taht stores the time of previous discharge
+hospitalizations[, prev_discharge := shift(discharge_dttm, n = 1), by = patient_id]
+
+# Create column that stores the gap in hours between current admission and prior discharge
+hospitalizations[, gap_hours := as.numeric(difftime(admission_dttm, prev_discharge, units = "hours"))]
+
+# Flag a hospitalization if it represents a new hospital block
+hospitalizations[, new_block := is.na(prev_discharge) | gap_hours > HOSPITAL_BLOCK_TIME_HRS]
+
+# Compute cumulative block number per patient (e.g., first hospital block =1 , second = 2, etc.)
+hospitalizations[, block_num := cumsum(replace_na(new_block, TRUE)), by = patient_id]
+
+# Determine end of hospitalization time for discharge location
+hospitalizations[, end_ts := coalesce(discharge_dttm, admission_dttm)]
+
+#Remove helper columns
+hospitalizations[, c("prev_discharge", "gap_hours", "new_block") := NULL]
+
+# Create functions to return NA (if it is NA) or the min/max of a group
+max_or_na <- function(x) if(all(is.na(x))) as.POSIXct(NA) else max(x, na.rm = TRUE)
+min_or_na <- function(x) if(all(is.na(x))) as.POSIXct(NA) else min(x, na.rm = TRUE)
+
+# Store information on grouped hospitalizations (hospital blocks)
+hospitalizations <- hospitalizations[, `:=`(
+  # Stores the patient age on first admission within block
+  age_at_admission = min_or_na(age_at_admission),
+  # Stores the start of the hospital block time
+  final_admission_dttm = min_or_na(admission_dttm),
+  # Stores the end of the hospital block time
+  final_discharge_dttm = max_or_na(discharge_dttm),
+  # Number of hospitalizations within a block
+  num_hospitalizations = .N,
+  # Stores the discharge location from last admission within block
+  discharge_location = discharge_category[which.max(end_ts)]
+), by = .(patient_id, block_num)]
+
+
+# Create unique hospital block IDs
+hospitalizations[, hospital_block_id := paste0(patient_id, "_", block_num)]
+
+#Extract Unique IDs
+hid_jid_crosswalk = select(hospitalizations, ends_with("id")) |> as_tibble()
+
+# Create One Row per Hospitalization Block and Extract Info For Consort
+hospitalizations <- hospitalizations[
+  order(hospital_block_id, admission_dttm), 
+  .SD[1], 
+  by = hospital_block_id
+]
+
+#For Consort 
+consort_table <- rbind(
+  consort_table,
+  data.frame(
+    step = "N Encounters for Adults In Registry During Study Time Frame", 
+    included = length(unique(hospitalizations$hospital_block_id)), 
+    excluded = NA_real_)
+)
+consort_table
+```
+#Admitted Via the ED
+```{r Admitted Via the ED}
+#Define If Patient First Admitted to ED
+adt_info <- data_list$adt |>
+  inner_join(hid_jid_crosswalk) |> #Filter Out Hospitalizations Not initial Steps
+  filter(tolower(location_category) %in% c('ed', 'ward', 'icu', 'stepdown')) |>
+  arrange(hospital_block_id, in_dttm) |>
+  group_by(hospital_block_id) |>
+  as.data.table() #Faster To do Next Steps in Data Table
+
+#Select Admission Hospital, Dishcarge Hospital and Type and Define if ED First
+adt_info <- adt_info[, .(
+  admit_hospital = hospital_id[1],
+  discharge_hospital  = hospital_id[.N],
+  admit_location_type = location_type[1],
+  discharge_location_type  = location_type[.N],
+  first_location_category = tolower(location_category[1]),
+  ed_first            = tolower(location_category[1]) == "ed"
+), by = hospital_block_id]
+
+adt_info <- adt_info |>
+  filter(ed_first==T)
+
+#Merge with Hospitalizations - As Inner Join Starts Windowing Down the Cohort
+hospitalizations <- hospitalizations |>
+  collapse::join(adt_info, 
+                 on = 'hospital_block_id',
+                 how = 'inner')
+
+#For Consort 
+consort_table <- rbind(
+  consort_table,
+  data.frame(
+    step = "N Encounters Initially Presenting to ED", 
+    included = length(unique(hospitalizations$hospital_block_id)), 
+    excluded = NA_real_
+)) |>
+  #This Step Keeps Track of Exclusions
+  mutate(excluded=case_when(
+    row_number()==n() ~ lag(included)-included
+  ))
+print(consort_table)
+
+#Update hid_hid_crosswalk
+hid_jid_crosswalk <- hid_jid_crosswalk |>
+  join(hospitalizations, 
+       on = 'hospital_block_id', 
+       how = 'semi') #This will Filter to Hospital ID Blocks in Hospitalizations Table
+
+rm(adt_info); gc()
+```
+#Define Respiratory Support
+```{r Received HIFNC, NIV or IMV Within 7 Days of Admit for At Least 24 Hours}
+#Load Respiratory Support and Filter to Relevant Time Frame 
+#Will Keep Track of Fio2 Values Here as Well
+
+#To Asseess for Start of Respiratory Support within 7 Days of Admission Will COllect up to 8 days of Data (needs at least 24 hours)
+day_cutoff <- 8*86400 #Eight Days in Seconds 
+
+resp_devices <- data_list$respiratory_support |>
+  #Just Evaluate Devices for Now
+  filter(!is.na(device_category)) |>
+  #Filter to Relevant Hospital Blocks
+  inner_join(hid_jid_crosswalk %>% select(hospital_block_id, hospitalization_id)) |>
+  #Filter to Relevant Time Frame (within 7 days) - THis means keep up to 8 days
+  left_join(hospitalizations %>% 
+              select(hospital_block_id, final_admission_dttm)) |>
+  mutate(
+    cutoff_dttm = final_admission_dttm + as.difftime(day_cutoff, units = "secs")
+  ) |>
+  filter(recorded_dttm <= cutoff_dttm) |>
+  as.data.table() #Pull into R for Further Manipulation
+
+#Filter to Only Encounters with Any IMV/NIV
+resp_devices <- resp_devices[
+  , .SD[any(tolower(device_category) %in% c("imv", "nippv", "cpap", "high flow nc"))],
+  by = hospital_block_id
+]
+
+#Only Need to Evaluate Device Transitions and Last Row
+resp_devices[, device_change := 
+  shift(device_category, type = "lead") != device_category, 
+  by = hospital_block_id
+]
+resp_devices[, last_row := .I == .N, by = hospital_block_id]
+resp_devices[, first_row := .I == 1, by = hospital_block_id]
+#Now Filter
+resp_devices <- resp_devices[device_change==T | first_row==T | last_row==T]
+
+#Now Define Time in Respiratory Failure; This Means at Least 24 Hours of IMV, NIPPV or HFNC (or combination)
+LEFT OFF HERE
+
+
+#Carry Forward Fio2 and Time of Documentation Within Device Category
+fio2_data <- resp_support[
+  , fio2_dttm := fifelse(!is.na(fio2_set), recorded_dttm, NA_POSIXct_)
+]
+#Now Fill Up and Down by Hospital_block Within Device_category for fio2_set and fio2_dttm
+resp_support_blocks[, fio2_carried := nafill(fio2_set, type = "locf"), by = .(hospital_block_id, device_category)]
+resp_support_blocks[, fio2_dttm := nafill(fio2_dttm, type = "locf"), by = .(hospital_block_id, device_category)]
+resp_support_blocks[, fio2_carried := nafill(fio2_set, type = "nocb"), by = .(hospital_block_id, device_category)]
+resp_support_blocks[, fio2_dttm := nafill(fio2_dttm, type = "nocb"), by = .(hospital_block_id, device_category)]
+```
+
 
 
