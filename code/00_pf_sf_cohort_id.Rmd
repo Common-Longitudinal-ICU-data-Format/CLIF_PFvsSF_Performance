@@ -11,6 +11,7 @@ knitr::opts_chunk$set(echo = TRUE)
 #Install Following Libraries For this Project
 packages_to_install =
   c("tidyverse",
+    "tidytable",
     "data.table",
     "collapse",
     "yaml",
@@ -261,10 +262,24 @@ AGE_MAX <- 120
 
 #SpO2, PaO2, FIO2 Outliers
 SPO2_MIN <- 80
+SPO2_MAX <- 100
 PAO2_MIN <- 40
 PAO2_MAX <- 700
-FIO2_MIN <- 21
-FIO2_MAX <- 100
+FIO2_MIN <- 0.21
+FIO2_MAX <- 1.00
+
+#VENT OUTLIERS
+PEEP_MIN <- 0
+PEEP_MAX <- 45
+TV_MIN <- 50
+TV_MAX <- 1500
+
+#HIFNC OUTLIERS
+HF_LPM_MIN <- 0
+HF_LPM_MAX <- 90
+
+#Respiratory Failure Duration (in Hours) - Minimum to Enter Study
+RF_DURATION <- 24
 
 #Blank Table to Build Consort Data
 consort_table <- data.frame(
@@ -361,6 +376,8 @@ consort_table <- rbind(
 )
 consort_table
 ```
+
+
 #Admitted Via the ED
 ```{r Admitted Via the ED}
 #Define If Patient First Admitted to ED
@@ -412,22 +429,25 @@ hid_jid_crosswalk <- hid_jid_crosswalk |>
 
 rm(adt_info); gc()
 ```
+
+
 #Define Respiratory Support
 ```{r Received HIFNC, NIV or IMV Within 7 Days of Admit for At Least 24 Hours}
 #Load Respiratory Support and Filter to Relevant Time Frame 
-#Will Keep Track of Fio2 Values Here as Well
+#Perform Limited Respiratory Waterfill
+#Assess For Periods of > 24 Hours of Respiratory Support
 
 #To Asseess for Start of Respiratory Support within 7 Days of Admission Will COllect up to 8 days of Data (needs at least 24 hours)
-day_cutoff <- 8*86400 #Eight Days in Seconds 
+day_cutoff <- 8*24*60*60 #Eight Days in Seconds 
 
-resp_devices <- data_list$respiratory_support |>
+resp_info <- data_list$respiratory_support |>
   #Just Evaluate Devices for Now
   filter(!is.na(device_category)) |>
   #Filter to Relevant Hospital Blocks
   inner_join(hid_jid_crosswalk %>% select(hospital_block_id, hospitalization_id)) |>
   #Filter to Relevant Time Frame (within 7 days) - THis means keep up to 8 days
   left_join(hospitalizations %>% 
-              select(hospital_block_id, final_admission_dttm)) |>
+              select(hospital_block_id, final_admission_dttm, final_discharge_dttm)) |>
   mutate(
     cutoff_dttm = final_admission_dttm + as.difftime(day_cutoff, units = "secs")
   ) |>
@@ -435,34 +455,150 @@ resp_devices <- data_list$respiratory_support |>
   as.data.table() #Pull into R for Further Manipulation
 
 #Filter to Only Encounters with Any IMV/NIV
-resp_devices <- resp_devices[
+resp_info <- resp_info[
   , .SD[any(tolower(device_category) %in% c("imv", "nippv", "cpap", "high flow nc"))],
   by = hospital_block_id
 ]
 
+#Address Some Outlier Issues Here
+## Check fio2_set 
+fio2_mean <- resp_info |> 
+  select(fio2_set) |> 
+  summarise(fio2_mean = mean(fio2_set, na.rm = TRUE)) |> 
+  collect() |>
+  pull() # fixing if its less than one # You will get a warning but it will be fixed on its own with IF statement 
+if(fio2_mean > 1) { 
+  cat('Mean FiO2 > 1, changing to fraction. fio2_mean=', fio2_mean, '\n')
+  resp_devices <- resp_devices |> mutate(fio2_set = fio2_set / 100) |> compute() 
+  } else {
+  cat('Mean FiO2 <1, leaving as fraction. fio2_mean=', fio2_mean, '\n')
+  }
+
+#Address Initial Outliers
+resp_info <- resp_info |>
+  fmutate(
+    # fio2_set
+    fio2_set = fcase(
+      fio2_set > FIO2_MAX, NA_real_, 
+      fio2_set < FIO2_MIN, NA_real_,
+      default = fio2_set),
+    # Set tidal_volume_set
+    tidal_volume_set = fcase(
+      tidal_volume_set > TV_MAX, NA_real_, 
+      tidal_volume_set < TV_MIN, NA_real_,
+      default = tidal_volume_set),
+    # PEEP SET
+    peep_set = fcase(
+      peep_set > PEEP_MAX, NA_real_, 
+      peep_set < PEEP_MIN, NA_real_,
+      default = peep_set))
+    
+#Waterfall Filling
+resp_info <- resp_info |>
+  tidytable::group_by(hospital_block_id, device_category) |>
+  fmutate(
+    fio2_carried=fio2_set,
+    fio2_dttm=fifelse(!is.na(fio2_set), recorded_dttm, NA_POSIXct_),
+    lpm_carried=lpm_set, 
+    tidal_volume_carried=tidal_volume_set,
+    peep_carried=peep_set
+  ) |>
+  tidytable::fill(fio2_carried, fio2_dttm, lpm_carried, tidal_volume_carried, peep_carried, .direction = 'downup')
+
 #Only Need to Evaluate Device Transitions and Last Row
-resp_devices[, device_change := 
+resp_devices = resp_info[, device_change := 
   shift(device_category, type = "lead") != device_category, 
   by = hospital_block_id
 ]
-resp_devices[, last_row := .I == .N, by = hospital_block_id]
-resp_devices[, first_row := .I == 1, by = hospital_block_id]
+resp_devices <- resp_devices |>
+  group_by(hospital_block_id) |>
+  mutate(
+    first_row=fifelse(row_number()==1, 1L, 0L),
+    last_row=fifelse(row_number()==n(), 1L, 0L)
+  ) 
+
 #Now Filter
-resp_devices <- resp_devices[device_change==T | first_row==T | last_row==T]
+resp_devices <- resp_devices |>
+  filter((device_change==T | is.na(device_change)) | first_row==1L | last_row==1L)
 
-#Now Define Time in Respiratory Failure; This Means at Least 24 Hours of IMV, NIPPV or HFNC (or combination)
-LEFT OFF HERE
+#Now Define Time in Respiratory Failure; This Means at Least 24 Continuous Hours of IMV, NIPPV or HFNC (or combination)
+resp_episodes <- resp_devices |>
+  fmutate(
+    #Respiratory Support For Purposes of this Study
+    resp_support =fcase(
+      tolower(device_category) %in% c('imv', 'nippv', 'cpap'), 1L,
+      tolower(device_category) %in% c('high flow nc', 'high_flow_nc') & lpm_carried>=30, 1L,
+      default = 0L)) 
 
+#Repeat Process to Filter Just to Changes
+resp_episodes <- resp_episodes |>
+  group_by(hospital_block_id) |>
+  mutate(
+    changing_support = lead(resp_support) != resp_support,
+    first_row=fifelse(row_number()==1, 1L, 0L),
+    last_row=fifelse(row_number()==n(), 1L, 0L)
+  ) 
 
-#Carry Forward Fio2 and Time of Documentation Within Device Category
-fio2_data <- resp_support[
-  , fio2_dttm := fifelse(!is.na(fio2_set), recorded_dttm, NA_POSIXct_)
-]
-#Now Fill Up and Down by Hospital_block Within Device_category for fio2_set and fio2_dttm
-resp_support_blocks[, fio2_carried := nafill(fio2_set, type = "locf"), by = .(hospital_block_id, device_category)]
-resp_support_blocks[, fio2_dttm := nafill(fio2_dttm, type = "locf"), by = .(hospital_block_id, device_category)]
-resp_support_blocks[, fio2_carried := nafill(fio2_set, type = "nocb"), by = .(hospital_block_id, device_category)]
-resp_support_blocks[, fio2_dttm := nafill(fio2_dttm, type = "nocb"), by = .(hospital_block_id, device_category)]
+#Now Filter to Only On/OFF Transitions in Respiratory Support
+resp_episodes <- resp_episodes |>
+  filter((changing_support==T | is.na(changing_support)) | first_row==1L | last_row==1L) |>
+  group_by(hospital_block_id) |>
+  mutate(
+    next_dttm = fifelse(
+      last_row==T, 
+      final_discharge_dttm,
+      lead(recorded_dttm)),
+   #Number Episodes Based on New Starts THis will be For Cumulative Duration of Resp Support Calculation
+   new_start=fcase(
+      (first_row==1L & resp_support==1L), 1L, 
+      (changing_support==T & resp_support==1L), 1L,
+      default=0L),
+    resp_support_episode_num=cumsum(new_start==1L),
+    resp_support_duration = fifelse(
+      resp_support==1L, 
+      as.numeric(difftime(next_dttm, recorded_dttm, units='hours')), 
+      NA_real_)) |>
+    #Now Group by HOspital Block and Episode Number for Total Duration
+    group_by(hospital_block_id, resp_support_episode_num) |>
+    fmutate(resp_support_duration=sum(resp_support_duration, na.rm=T)) |>
+    ungroup()
+  
+#Select First Episode That is >=24 Hours and Start Before Cutoff Day
+resp_episodes_on_study <- resp_episodes |>
+  fmutate(
+    resp_failure_start=fcase(
+       resp_support==1L, recorded_dttm),
+    resp_failure_stop=fcase(
+        resp_support==0L, as.POSIXct(next_dttm))) |>
+  filter(resp_support==1L & resp_support_duration>=RF_DURATION,
+         resp_failure_start<=cutoff_dttm) |> #Have to Do this Again As we Used Data up to Day 8
+  group_by(hospital_block_id) |>
+  arrange(hospital_block_id, recorded_dttm) |>
+  ffirst() |>
+  ungroup()
+
+#Update Consort Table
+#For Consort 
+consort_table <- rbind(
+  consort_table,
+  data.frame(
+    step = "N Encounters Receiving More Than 24 Continuous Hours of Respiratory Support in First 7 Days", 
+    included = length(unique(resp_episodes_on_study$hospital_block_id)), 
+    excluded = NA_real_
+)) |>
+  #This Step Keeps Track of Exclusions
+  mutate(excluded=case_when(
+    row_number()==n() ~ lag(included)-included
+  ))
+print(consort_table)
+
+#Filter Resp Info To Just These Patients
+resp_info <- resp_info |>
+  semi_join(resp_episodes_on_study, by='hospital_block_id')
+
+#Filter hid_jid_cosswalk to just these patients
+hid_jid_crosswalk <- hid_jid_crosswalk |>
+  semi_join(resp_episodes_on_study, by='hospital_block_id')
 ```
 
 
