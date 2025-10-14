@@ -281,6 +281,9 @@ HF_LPM_MAX <- 90
 #Respiratory Failure Duration (in Hours) - Minimum to Enter Study
 RF_DURATION <- 24
 
+#TIME from Spo2/Pao2 to Most Recent FiO2; 4 Hours
+TIME_TO_SF_PF <- 4
+
 #Blank Table to Build Consort Data
 consort_table <- data.frame(
   step     = character(),
@@ -606,6 +609,9 @@ resp_info <- resp_info |>
 #Filter hid_jid_cosswalk to just these patients
 hid_jid_crosswalk <- hid_jid_crosswalk |>
   semi_join(resp_episodes_on_study, by='hospital_block_id')
+
+#REmove Tables no Longer Neededd
+rm(resp_devices); gc()
 ```
 
 
@@ -613,6 +619,7 @@ Exclusions
 #First Airway is Tracheostomy
 #No Available Data on FiO2 in the First 24 Hours
 #Not Comfort Care Status in First 24 Hours of Respiratory Support
+#No Eligible PF or SF Measures (that is PF or SF measured within 4 Hours of FIO2 Documentation)
 
 ```{r Exclusions}
 #Add Tracheostomy Present in First 24 Hours as Variable
@@ -725,7 +732,9 @@ Primary: Worst P/F and Worst S/F in First 24 Hours
 Secondary: Median P/F and Median S/F in First 24 Hours
 Groupings: For Worst PF/SF Measures Resp Support Mode is Mode on Which PF/SF Was Measured
 For Median PF/SF it is the most support HIFNC>NIPPV>IMV in First 24 Hours
-```{r Generate Exposures}
+
+#At End of this Block We Will Have Data to Implement Final Exclusion of No Eligible PF or SF Measures in First 24 Hours
+```{r Generate PF and SF Exposurem Measures}
 #Table for Respiratory Info Filtered to Patients in Cohort
 resp_first_24 <- resp_info |>
   semi_join(hid_jid_crosswalk, by = 'hospital_block_id') |>
@@ -747,7 +756,196 @@ resp_first_24 <- resp_info |>
   ungroup()
 
 #Bring in ABG Data
+abgs = data_list[["labs"]] |>
+  semi_join(hid_jid_crosswalk, by='hospitalization_id') |>
+  filter(tolower(lab_category) %in% c(
+    'ph_arterial',
+    'po2_arterial',
+    'pco2_arterial')) |>
+  left_join(hid_jid_crosswalk, by = 'hospitalization_id') |>
+  left_join(resp_episodes_on_study, by='hospital_block_id', multiple=T) |>
+  select(hospital_block_id, lab_category, lab_value_numeric, lab_collect_dttm, resp_failure_start) |>
+  filter(lab_collect_dttm>=resp_failure_start & lab_collect_dttm<=resp_failure_start+dhours(24)) |>
+  as.data.table() |>
+  funique() |>
+  tidytable::pivot_wider(names_from = lab_category, values_from=lab_value_numeric, 
+                         id_cols = c('hospital_block_id', 'lab_collect_dttm'), 
+                         values_fn = median) |>
+  #Outlier Filtering
+  mutate(po2_arterial=fifelse(po2_arterial>PAO2_MAX | po2_arterial<PAO2_MIN, NA_real_, po2_arterial)) |>
+  rename(recorded_dttm=lab_collect_dttm) |>
+  select(hospital_block_id, recorded_dttm, ph_arterial, po2_arterial, pco2_arterial)
 
 #Bring in SpO2 Data
+spo2 = data_list[["vitals"]] |>
+  semi_join(hid_jid_crosswalk, by='hospitalization_id') |>
+  filter(tolower(vital_category)=='spo2') |>
+  left_join(hid_jid_crosswalk, by = 'hospitalization_id') |>
+  left_join(resp_episodes_on_study, by='hospital_block_id', multiple=T) |>
+  filter(
+    recorded_dttm>=resp_failure_start & recorded_dttm<=resp_failure_start+dhours(24),
+    vital_value>=SPO2_MIN & vital_value<=SPO2_MAX) |>
+  as.data.table() |>
+  funique() |>
+  rename(spo2=vital_value) |>
+  select(hospital_block_id, recorded_dttm, spo2)
+  
+#Merge Into Respiratory Table
+resp_first_24 <- resp_first_24 |>
+  tidytable::full_join(abgs, by = c('hospital_block_id', 'recorded_dttm')) |>
+  tidytable::full_join(spo2, by = c('hospital_block_id', 'recorded_dttm')) |>
+  group_by(hospital_block_id) |>
+  fill(device_category, .direction = 'downup') |>
+  group_by(hospital_block_id, device_category) |>
+  mutate(
+    fio2_carried=fio2_set, 
+    fio2_dttm=fifelse(!is.na(fio2_set), fio2_dttm, NA_POSIXct_)) |>
+  arrange(hospital_block_id, recorded_dttm) |>
+  fill(fio2_carried, fio2_dttm, .direction = 'downup') |>
+  #Only Need to Keep Pao2 and SpO2 Measures
+  ungroup()
+
+#Mark if Measure (Spo2 or Pao2 Measured within 4 Hours of Fio2 Documentation)
+resp_first_24_long <- resp_first_24 |>
+  #Can Use a PF or SF if Measured Within 4 Hours of Last Fio2 Documentation
+  #Can Use SF if SpO2 <=97%
+  mutate(
+    eligible_measure_by_time=fifelse(
+         as.numeric(difftime(recorded_dttm, fio2_dttm, units = "hours"))<=TIME_TO_SF_PF, 1L, 0L, 0L),
+    eligible_sf_by_spo2=fifelse(
+      spo2<=97, 1L, 0L, 0L),
+    eligible_spo2=fifelse(eligible_measure_by_time==1L & eligible_sf_by_spo2==1L, 1L, 0L, 0L)) |>
+  #Now Define Worst S/F and Worst P/F in the First 24 Hours
+  group_by(hospital_block_id, eligible_measure_by_time) |>
+  mutate(
+    pf_ratio=po2_arterial/fio2_carried,
+    pf_24_min=fifelse(eligible_measure_by_time==1, min(pf_ratio, na.rm=T, default = NA_real_), NA_real_),
+    pf_24_mean=fifelse(eligible_measure_by_time==1, mean(pf_ratio, na.rm=T, default = NA_real_), NA_real_),
+    pf_24_median=fifelse(eligible_measure_by_time==1, median(pf_ratio, na.rm=T, default = NA_real_), NA_real_),
+    #Mark Which PF Is Minimum
+    this_pf_temp=fifelse(pf_ratio==pf_24_min, 1L, 0L, 0L)
+  ) |>
+  group_by(hospital_block_id) |>
+  mutate(
+    across(
+      c(pf_24_min, pf_24_mean, pf_24_median),~ ifelse(is.finite(.), ., NA_real_)),
+    this_pf = row_number() == min(which(this_pf_temp == 1), na.rm = TRUE), 
+    min_pf_dttm=fifelse(this_pf==1, recorded_dttm, NA_POSIXct_), 
+    min_pf_device=fifelse(this_pf==1, device_category, NA_character_),
+    ph_pf=fifelse(this_pf==1, ph_arterial, NA_real_),
+    paco2_pf=fifelse(this_pf==1, pco2_arterial, NA_real_),
+    min_pf_pao2=fifelse(this_pf==1, po2_arterial, NA_real_),
+    min_pf_fio2=fifelse(this_pf==1, fio2_carried, NA_real_)
+    ) |>
+  fill(max_resp_support24, min_pf_dttm, min_pf_device, pf_24_min, pf_24_mean, pf_24_median, ph_pf, paco2_pf, min_pf_pao2, min_pf_fio2, .direction='downup') |>
+  #Now Spo2
+  group_by(hospital_block_id, eligible_spo2) |>
+  mutate(
+    sf_ratio=spo2/fio2_carried, 
+    sf_24_min=fifelse(eligible_spo2==1, min(sf_ratio, na.rm=T, default = NA_real_), NA_real_),
+    sf_24_mean=fifelse(eligible_spo2==1, mean(sf_ratio, na.rm=T, default = NA_real_), NA_real_),
+    sf_24_median=fifelse(eligible_spo2==1, median(sf_ratio, na.rm=T, default = NA_real_), NA_real_),
+    #Mark Which SF Is Minimum
+    this_sf_temp=fifelse(sf_ratio==sf_24_min, 1L, 0L, 0L)) |>
+  group_by(hospital_block_id) |>
+  mutate(
+    across(
+      c(sf_24_min, sf_24_mean, sf_24_median),~ ifelse(is.finite(.), ., NA_real_)),
+    this_sf = row_number() == min(which(this_sf_temp == 1), na.rm = TRUE), 
+    min_sf_dttm=fifelse(this_sf==1, recorded_dttm, NA_POSIXct_), 
+    min_sf_device=fifelse(this_sf==1, device_category, NA_character_),
+    min_sf_spo2=fifelse(this_sf==1, spo2, NA_real_),
+    min_sf_fio2=fifelse(this_sf==1, fio2_carried, NA_real_)
+    ) |>
+  fill(min_sf_dttm, min_sf_device, sf_24_min, sf_24_mean, sf_24_median, min_sf_spo2, min_sf_fio2, .direction='downup') |>
+  ungroup() |>
+  select(hospital_block_id, recorded_dttm, eligible_measure_by_time, eligible_spo2, max_resp_support24, fio2_dttm, fio2_carried, spo2, po2_arterial, min_pf_dttm, min_pf_device, pf_24_min, pf_24_mean, pf_24_median, ph_pf, paco2_pf, this_pf, po2_arterial, pf_ratio, ph_arterial, pco2_arterial,spo2, this_sf, min_sf_dttm, min_sf_device, sf_24_min, sf_24_mean, sf_24_median, min_sf_spo2, min_sf_fio2)
+
+rm(abgs, spo2, resp_first_24); gc()
+```
+```{r Exclude Those with no Eligible PF/SF}
+#Exclude if NO Eligible PF or SF (Within 4 Hours of FIO2 Documentation)
+exclude <- resp_first_24_long |>
+  group_by(hospital_block_id) |>
+  filter(sum(eligible_measure_by_time, na.rm=T)==0) |>
+  ungroup() |>
+  distinct(hospital_block_id)
+
+if (nrow(exclude)>0) {
+  hid_jid_crosswalk <- hid_jid_crosswalk |> filter(!hospital_block_id %in% exclude$hospital_block_id)
+  resp_first_24_long <- resp_first_24_long |>
+    filter(!hospital_block_id %in% exclude$hospital_block_id)
+} else {
+  cat('\nNo Patients Excluded for Lack of SF or PF Eligible Measurements')
+}
+
+#For Consort 
+consort_table <- rbind(
+  consort_table,
+  data.frame(
+    step = "n, with Eligible PF and/or SF Ratios", 
+    included = length(unique(hid_jid_crosswalk$hospital_block_id)), 
+    excluded = NA_real_
+)) |>
+  #This Step Keeps Track of Exclusions
+  mutate(excluded=case_when(
+    row_number()==n() ~ lag(included)-included, 
+    TRUE ~ excluded
+  ))
+
+
+rm(exclude)
+```
+```{r Finally Randomly Select One Encounter For Each Patient}
+set.seed(32284)
+randomly_select <- hid_jid_crosswalk |>
+  distinct(patient_id, hospital_block_id) |>
+  group_by(patient_id) |>
+  slice_sample(n=1)
+
+hid_jid_crosswalk <- hid_jid_crosswalk |>
+  filter(hospital_block_id %in% randomly_select$hospital_block_id)
+
+#For Consort 
+consort_table <- rbind(
+  consort_table,
+  data.frame(
+    step = "n, Randomly Selected 1 Encounter Per Patient", 
+    included = length(unique(hid_jid_crosswalk$hospital_block_id)), 
+    excluded = NA_real_
+)) |>
+  #This Step Keeps Track of Exclusions
+  mutate(excluded=case_when(
+    row_number()==n() ~ lag(included)-included, 
+    TRUE ~ excluded
+  ))
+
+#Filter respiratory Tables to the Final Cohort
+resp_episodes_on_study <- resp_episodes_on_study |>
+  filter(hospital_block_id %in% hid_jid_crosswalk$hospital_block_id)
+resp_first_24_long <- resp_first_24_long |>
+  filter(hospital_block_id %in% hid_jid_crosswalk$hospital_block_id)
+
+rm(randomly_selected)
+```
+
+```{r Create Summary of PF/SF Measures and Exposure Categories}
+
+```
+
+```{r Covariates - Demographics}
+
+```
+
+```{r Covariates - Elixhauser}
+
+```
+
+```{r Covariates - SOFA Score}
+
+```
+
+```{r Covaraites - Hospital and ICU Type}
+
 ```
 
