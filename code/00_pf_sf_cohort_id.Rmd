@@ -20,7 +20,8 @@ packages_to_install =
     "tableone",
     "viridis",
     "sandwich",
-    "rprojroot")
+    "rprojroot", 
+    "comorbidity")
 
 #Can Load For Each Individual RMarkdown
 packages_to_load =
@@ -859,7 +860,7 @@ resp_first_24_long <- resp_first_24 |>
     ) |>
   fill(min_sf_dttm, min_sf_device, sf_24_min, sf_24_mean, sf_24_median, min_sf_spo2, min_sf_fio2, .direction='downup') |>
   ungroup() |>
-  select(hospital_block_id, recorded_dttm, eligible_measure_by_time, eligible_spo2, max_resp_support24, fio2_dttm, fio2_carried, spo2, po2_arterial, min_pf_dttm, min_pf_device, pf_24_min, pf_24_mean, pf_24_median, ph_pf, paco2_pf, this_pf, po2_arterial, pf_ratio, ph_arterial, pco2_arterial,spo2, this_sf, min_sf_dttm, min_sf_device, sf_24_min, sf_24_mean, sf_24_median, min_sf_spo2, min_sf_fio2)
+  select(hospital_block_id, recorded_dttm, eligible_measure_by_time, eligible_spo2, max_resp_support24, fio2_dttm, fio2_carried, fio2_set, spo2, po2_arterial, min_pf_dttm, min_pf_device, pf_24_min, min_pf_pao2, min_pf_fio2, pf_24_mean, pf_24_median, ph_pf, paco2_pf, this_pf, po2_arterial, pf_ratio, ph_arterial, pco2_arterial,spo2, this_sf, min_sf_dttm, min_sf_device, sf_24_min, sf_24_mean, sf_24_median, min_sf_spo2, min_sf_fio2)
 
 rm(abgs, spo2, resp_first_24); gc()
 ```
@@ -893,7 +894,6 @@ consort_table <- rbind(
     TRUE ~ excluded
   ))
 
-
 rm(exclude)
 ```
 ```{r Finally Randomly Select One Encounter For Each Patient}
@@ -926,19 +926,120 @@ resp_episodes_on_study <- resp_episodes_on_study |>
 resp_first_24_long <- resp_first_24_long |>
   filter(hospital_block_id %in% hid_jid_crosswalk$hospital_block_id)
 
-rm(randomly_selected)
+rm(randomly_select); gc()
 ```
 
 ```{r Create Summary of PF/SF Measures and Exposure Categories}
+#Summary Table of PF and SF Measures at Patient Level 
+resp_first_24_summary <- resp_first_24_long |>
+  group_by(hospital_block_id) |>
+   mutate(
+    n_spo2=sum(!is.na(spo2)),
+    n_fio2=sum(!is.na(fio2_set)), 
+    n_pao2=sum(!is.na(po2_arterial)),
+    n_eligible_sf_spo2_lt98 = max(cumsum(fifelse(eligible_spo2 == 1, 1, 0, 0)), na.rm = TRUE), 
+    n_eligible_sf_spo2_gt97 = max(cumsum(fifelse(eligible_measure_by_time == 1 & spo2 > 97, 1, 0, 0)), na.rm = TRUE),
+    n_eligible_pf = max(cumsum(fifelse(eligible_measure_by_time == 1 & !is.na(po2_arterial), 1, 0, 0)), na.rm = TRUE)
+  ) |>
+  filter(row_number()==1) |>
+  ungroup() |>
+  select(
+    hospital_block_id, max_resp_support24, min_pf_dttm, min_pf_device, pf_24_min, min_pf_pao2, min_pf_fio2, pf_24_mean, pf_24_median, 
+    ph_pf, paco2_pf, min_sf_dttm, min_sf_device, sf_24_min, sf_24_mean, sf_24_median, min_sf_spo2, min_sf_fio2, n_spo2, n_fio2, n_pao2,     n_eligible_sf_spo2_lt98, n_eligible_sf_spo2_gt97, n_eligible_pf)
 
 ```
 
-```{r Covariates - Demographics}
+```{r Covariates - Demographics and Hospital Outcomes}
+demos_outcomes <- hospitalizations |>
+  semi_join(hid_jid_crosswalk, by='hospitalization_id') |>
+  select(patient_id, hospital_block_id, final_admission_dttm, final_discharge_dttm, age_at_admission, discharge_category, discharge_location, admit_hospital_id=admit_hospital, discharge_hospital_id=discharge_hospital) |>
+  #Define Hospital Outcomes
+  mutate(
+    inhosp_death=fifelse(tolower(discharge_category)=='expired', 1L, 0L),
+    hospice_discharge=fifelse(tolower(discharge_category)=='hospice', 1L, 0L),
+    inhosp_death_hospice=fifelse(inhosp_death==1 | hospice_discharge==1, 1L, 0L))
 
+
+patient = data_list[['patient']] |>
+  semi_join(demos_outcomes, by='patient_id') |>
+  select(patient_id, race_category, ethnicity_category, sex_category) |>
+  mutate(
+    female = if_else(tolower(sex_category) == 'female', 1L, 0L),
+    new_race_cat = case_when(
+      tolower(race_category) == 'asian' ~ 'asian', 
+      tolower(race_category) == 'black or african american' ~ 'black',
+      tolower(race_category) == 'white' & tolower(ethnicity_category) %in% c('non-hispanic', 'unknown') ~ 'white',
+      tolower(race_category) == 'white' & tolower(ethnicity_category) == 'hispanic' ~ 'hispanic',
+      is.na(race_category) & tolower(ethnicity_category) == 'hispanic' ~ 'hispanic',
+      TRUE ~ 'other'
+    )
+  ) |>
+  as.data.table()
+  
+cohort_build <- demos_outcomes |>
+  left_join(patient, by='patient_id')
+
+rm(hospitalizations, patient, demos_outcomes)
 ```
 
 ```{r Covariates - Elixhauser}
+## add elixhauser -------------------------------------------------------------- code from Patrick Lyons
 
+### vector common codes to avoid for RAM's sake (to repl w/ keep list) ---------
+
+unused_vect = c(
+  "Z79.899",
+  "E78.5",
+  "Z87.891",
+  "K21.9",
+  "Z20.822",
+  "F17.210",
+  "Z79.01",
+  "N17.9"
+)
+
+### only relevant codes from relevant encounters -------------------------------
+
+elix = 
+  dplyr::filter(data_list$hospital_diagnosis, hospitalization_id %in% hid_jid_crosswalk$hospitalization_id) |>
+  dplyr::filter(!toupper(diagnosis_code) %in% unused_vect) |>
+  dplyr::select(hospitalization_id, poa_present, diagnosis_code) |>
+  dplyr::collect() |>
+  funique()
+
+### assign elixhauser diagnosis dummies ----------------------------------------
+
+elix = 
+  comorbidity::comorbidity(
+    elix, 
+    id      = "hospitalization_id", 
+    code    = "diagnosis_code", 
+    map     = "elixhauser_icd10_quan", 
+    assign0 = T
+  )
+
+### link to joined-hosp-id -----------------------------------------------------
+
+elix = elix |>
+  left_join(hid_jid_crosswalk %>% select(hospitalization_id, hospital_block_id), by = 'hospitalization_id') |>
+  fgroup_by(hospital_block_id) |>
+  fmax()
+
+### calculate vw scores --------------------------------------------------------
+
+vw_elixhauser       = comorbidity::score(elix, weights = "vw", assign0 = T)
+elixhauser_count =  elix |>
+   mutate(elixhauser_count = rowSums(across(3:33), na.rm = TRUE)) |>
+   fselect(hospital_block_id, elixhauser_count)
+elix      = cbind(elix, vw_elixhauser = vw_elixhauser) |> fselect(hospital_block_id, vw_elixhauser) |>
+  left_join(elixhauser_count %>% select(hospital_block_id, elixhauser_count), by = 'hospital_block_id')
+
+
+
+cohort_build <- cohort_build |>
+  left_join(elix, by='hospital_block_id')
+
+rm(elix, elixhauser_count, vw_elixhauser); gc()
 ```
 
 ```{r Covariates - SOFA Score}
