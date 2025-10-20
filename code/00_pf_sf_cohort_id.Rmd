@@ -188,6 +188,9 @@ if (!dir.exists(paste0(project_location, "/proj_tables"))) {
 if (!dir.exists(paste0(project_location, "/proj_output"))) {
   dir.create(paste0(project_location, "/proj_output"))
 }
+if (!dir.exists(paste0(project_location, "/proj_output/graphs"))) {
+  dir.create(paste0(project_location, "/proj_output/graphs"))
+}
 ```
 ```{r Required CLIF Table Paths}
 #Vector of Required Tables
@@ -201,7 +204,8 @@ required_tables =
     "labs", 
     "medication_admin_continuous", 
     "respiratory_support",
-    "code_status"
+    "code_status",
+    "patient_assessments"
   )
 
 
@@ -947,7 +951,23 @@ resp_first_24_summary <- resp_first_24_long |>
     hospital_block_id, max_resp_support24, min_pf_dttm, min_pf_device, pf_24_min, min_pf_pao2, min_pf_fio2, pf_24_mean, pf_24_median, 
     ph_pf, paco2_pf, min_sf_dttm, min_sf_device, sf_24_min, sf_24_mean, sf_24_median, min_sf_spo2, min_sf_fio2, n_spo2, n_fio2, n_pao2,     n_eligible_sf_spo2_lt98, n_eligible_sf_spo2_gt97, n_eligible_pf)
 
+#Define Respiratory Support at Time of Inclusion
+resp_first_24_summary <- resp_first_24_summary |>
+  mutate(
+    resp_support_category=tolower(fcase(
+      !is.na(pf_24_min), min_pf_device,
+      !is.na(sf_24_min), min_sf_device,
+      default = max_resp_support24
+  )),
+    resp_support_category=str_replace_all(resp_support_category, " ", "_"), #Snake Case
+    exposure_group=fcase(
+      !is.na(pf_24_min) & is.na(sf_24_min), 'pf_only',
+      !is.na(pf_24_min) & !is.na(sf_24_min), 'sf_pf',
+      is.na(pf_24_min) & !is.na(sf_24_min), 'sf_only',
+      is.na(pf_24_min) & is.na(sf_24_min), 'undefined_oxygenation'
+    ))
 ```
+
 
 ```{r Covariates - Demographics and Hospital Outcomes}
 demos_outcomes <- hospitalizations |>
@@ -1042,11 +1062,490 @@ cohort_build <- cohort_build |>
 rm(elix, elixhauser_count, vw_elixhauser); gc()
 ```
 
-```{r Covariates - SOFA Score}
+```{r Covariates - BMI and SOFA Score}
+#Calculate BMI
+bmi <- data_list[['vitals']] |>
+  filter(tolower(vital_category) %in% c('weight_kg', 'height_cm')) |>
+  semi_join(hid_jid_crosswalk,  by = 'hospitalization_id') |>
+  left_join(hid_jid_crosswalk,  by = 'hospitalization_id') |>
+  left_join(resp_episodes_on_study %>% select(hospital_block_id, resp_failure_start, resp_failure_stop)) |>
+  #Filter Outliers
+  filter((tolower(vital_category)=='height_cm' & vital_value>=76.2 & vital_value<=244) |
+         (tolower(vital_category)=='weight_kg' & vital_value>=20 & vital_value<=1100)) |>
+  as.data.table() |>
+  #Pick Height and Weight Closest to Enrollment
+  #First Calculate Time Difference
+  mutate(
+    time_diff=as.duration(as.POSIXct(resp_failure_start)-as.POSIXct(recorded_dttm))/dhours(1),
+  #Define if Before or After t_entrollment
+    before_enrollment=fifelse(time_diff>=0, 1, 0)) |>
+  group_by(patient_id, hospital_block_id, vital_category) |> #With this Grouping You keep Closest Before and After resp_failure_start
+  mutate(keep=fifelse(
+    abs(time_diff)==min(abs(time_diff)), 1, 0
+  )) |>
+  filter(keep==1) |>
+  #Now Select Height/Weight (Preferrably This is Prior to Enrollment)
+  group_by(patient_id, hospital_block_id) |>
+  mutate(study_height_cm=fcase(
+    keep==1 & before_enrollment==1 & vital_category=='height_cm', vital_value
+  )) |>
+  mutate(study_weight_kg=fcase(
+      keep==1 & before_enrollment==1 & vital_category=='weight_kg', vital_value
+  )) |>
+  fill(study_height_cm, study_weight_kg, .direction = 'downup') |>
+  #IF missing Can Use First Value After Enrollment
+  mutate(study_height_cm=fifelse(
+    is.na(study_height_cm) & keep==1 & 
+      before_enrollment==0 & vital_category=='height_cm', 
+    vital_value, study_height_cm
+  )) |>
+  mutate(study_weight_kg=fifelse(
+     is.na(study_weight_kg) &  keep==1 & before_enrollment==0 & vital_category=='weight_kg', 
+     vital_value, study_weight_kg
+  )) |>
+  fill(study_height_cm, study_weight_kg, .direction = 'downup') |>
+  filter(row_number()==1) |>
+  ungroup() |>
+  #Calculate BMI
+  mutate(bmi=study_weight_kg/((study_height_cm/100)^2)) |>
+  select(patient_id, hospital_block_id, study_height_cm, study_weight_kg, bmi)
+
+#Calculate Norepinephrine Equivalent
+pressor_data <- data_list[['medication_admin_continuous']] |>
+  filter(med_group=='vasoactives') |>
+  semi_join(hid_jid_crosswalk,  by = 'hospitalization_id') |>
+  left_join(hid_jid_crosswalk,  by = 'hospitalization_id') |>
+  left_join(resp_episodes_on_study %>% select(hospital_block_id, resp_failure_start, resp_failure_stop)) |>
+  filter(admin_dttm>=resp_failure_start & admin_dttm<=(resp_failure_start+dhours(24))) |>
+  left_join(bmi %>% select(hospital_block_id, study_weight_kg), by ='hospital_block_id') |> #For Weights
+  arrange(patient_id, hospital_block_id, admin_dttm) |>
+  as.data.table() |>
+  mutate(med_dose=as.character(med_dose),
+        med_dose = as.numeric(parse_number(med_dose)), 
+  #Define if a Pressor Needs Weight Based Dosing
+        med_dose_unit=tolower(med_dose_unit),
+        needs_wt_based=fifelse((med_dose_unit=="mcg/min" | med_dose_unit=="mg/min" | med_dose_unit=="ng/min"), 1, 0)) |>
+  #Filter if Epinephrine or Phenylephrine is Given in Bolus Dsing 'mg' as this is code dosing
+  filter(!(med_category=='epinephrine' & med_dose_unit %in% c('mg', 'mcg')), 
+         !(med_category=='phenylephrine' & med_dose_unit=='mcg'),
+         !(med_dose_unit %in% c('mg', 'ml/hr', 'units', 'milli-units/kg/hr'))) |>
+  mutate(wt_dose=fcase(
+    needs_wt_based==0, med_dose,
+    needs_wt_based==1, med_dose/study_weight_kg)) |>
+  #Filter Out Outliers
+  filter(!(med_category=='norepinephrine' & wt_dose>=6),
+         !(med_category=='epinephrine' & wt_dose>=6),
+         !(med_category=='vasopressin' & wt_dose>=0.2)) |>
+  group_by(hospital_block_id) |>
+  mutate(norepi_dose=fcase(med_category=="norepinephrine" , wt_dose)) |>
+  fill(norepi_dose, .direction ="down") |>
+  mutate(norepi_on=fcase(
+    norepi_dose > 0 , 1,
+    (is.na(norepi_dose) | norepi_dose==0) , 0 )) |>
+  mutate(norepi_dose=fifelse(is.na(norepi_dose), 0, norepi_dose)) |> #Need to Have Dose be Zero if No Dose Got Carried Forward
+  mutate(epi_dose=fcase(
+    med_category=="epinephrine" , wt_dose
+  )) |>
+  fill(epi_dose, .direction = "down") |>
+  mutate(epi_on=fcase(
+    epi_dose>0 , 1,
+    (is.na(epi_dose) | epi_dose==0) , 0 )) |>
+  mutate(epi_dose=fifelse(is.na(epi_dose), 0, epi_dose)) |>
+  mutate(phenyl_dose=fcase(
+    med_category=="phenylephrine" , wt_dose
+  )) |>
+  fill(phenyl_dose, .direction = "down") |>
+  mutate(phenyl_on=fcase(
+    phenyl_dose>0 , 1,
+    (is.na(phenyl_dose) | phenyl_dose==0) , 0 )) |>
+  mutate(phenyl_dose=fifelse(is.na(phenyl_dose), 0, phenyl_dose)) |>
+  mutate(vaso_dose=fcase(
+    med_category=="vasopressin" , wt_dose
+  )) |>
+  fill(vaso_dose, .direction = "down") |>
+  mutate(vaso_on=fcase(
+    vaso_dose>0 , 1,
+    (is.na(vaso_dose) | vaso_dose==0) , 0 )) |>
+  mutate(vaso_dose=fifelse(is.na(vaso_dose), 0, vaso_dose)) |>
+  mutate(angiotensin_dose=fcase(
+    med_category=="angiotensin" , wt_dose
+  )) |>
+  fill(angiotensin_dose, .direction = "down") |>
+  mutate(angiotensin_on=fcase(
+    angiotensin_dose>0 , 1,
+    (is.na(angiotensin_dose) | angiotensin_dose==0) , 0 )) |>
+  mutate(angiotensin_dose=fifelse(is.na(angiotensin_dose), 0, angiotensin_dose)) |>
+  mutate(dopa_dose=fcase(
+    med_category=="dopamine" , wt_dose
+  )) |>
+  fill(dopa_dose, .direction = "down") |>
+  mutate(dopa_on=fcase(
+    dopa_dose>0 , 1,
+    (is.na(dopa_dose) | dopa_dose==0) , 0 )) |>
+  mutate(dopa_dose=fifelse(is.na(dopa_dose), 0, dopa_dose)) |>
+  mutate(dobut_dose=fcase(
+    med_category=="dobutamine" , wt_dose
+  )) |>
+  fill(dobut_dose, .direction = "down") |>
+  mutate(milrinone_dose=fcase(
+    med_category=="milrinone" , wt_dose
+  )) |>
+  fill(milrinone_dose, .direction = "down") |>
+  mutate(milrinone_on=fcase(
+    dopa_dose>0 , 1,
+    (is.na(milrinone_dose) | milrinone_dose==0) , 0 )) |>
+  mutate(isoproterenol_dose=fcase(
+    med_category=="isoproterenol" , wt_dose
+  )) |>
+  fill(isoproterenol_dose, .direction = "down") |>
+  mutate(isoproterenol_on=fcase(
+    isoproterenol_dose>0 , 1,
+    (is.na(isoproterenol_dose) |isoproterenol_dose==0) , 0 )) |>
+  ungroup() |>
+  #See Kotani et al for Norepi dose equivalents for Epi, Phenyl, Vaso, Dopa, Angiotensin)
+  mutate(pressor_on=(norepi_on + epi_on + phenyl_on + vaso_on + dopa_on + angiotensin_on), 
+         norepi_equivalent=norepi_dose + epi_dose+ vaso_dose*2.5+ angiotensin_dose*0.0025+ dopa_dose/100+ phenyl_dose*0.06,
+         sofa_pressor=case_when(dopa_dose>15 | epi_dose>0.1 | norepi_dose>0.1 ~4, 
+                                dopa_dose>5 | (epi_dose>0 & epi_dose <=0.1) | (norepi_dose>0 & norepi_dose<=0.1) ~3, 
+                                (dopa_dose>0 & dopa_dose<=5) | dobut_dose>0~2 , 
+                                pressor_on==0~0), 
+         sofa_pressor=case_when(is.na(sofa_pressor)~0, is.na(sofa_pressor)==F ~sofa_pressor)) 
+
+#Select max sofa pressor in 24h period
+sofa_pressors <- pressor_data |>
+  group_by(hospital_block_id) |>
+  mutate(max_sofa_pressor=max(sofa_pressor, na.rm = TRUE)) |>
+  filter(row_number()==1) |>
+  select(hospital_block_id, max_sofa_pressor) |> #, norepi_dose, epi_dose, vaso_dose, angiotensin_dose, dopa_dose, phenyl_dose) |>
+  ungroup()
+
+#Now Select Max NEE In this 24 Hour Period 
+norepi_equivalent <- pressor_data |>
+  group_by(hospital_block_id) |>
+  mutate(max_norepi_equivalent=max(norepi_equivalent, na.rm = TRUE)) |>
+  filter(row_number()==1) |>
+  mutate(nee_pressor_dose=case_when(
+    max_norepi_equivalent==0~0, 
+    max_norepi_equivalent>0 & max_norepi_equivalent<=0.1~1, 
+    max_norepi_equivalent>.1~2)) |>
+  select(hospital_block_id, nee_pressor_dose, max_norepi_equivalent) |> #, norepi_dose, epi_dose, vaso_dose, angiotensin_dose, dopa_dose, phenyl_dose) |>
+  ungroup()
+
+# Calculate lowest GCS for sofa in 24h of Resp Failure Assessment
+sofa_gcs <- data_list[['patient_assessments']] |>
+  filter(tolower(assessment_category) %in% c("gcs_total")) |>
+  semi_join(hid_jid_crosswalk,  by = 'hospitalization_id') |>
+  left_join(hid_jid_crosswalk,  by = 'hospitalization_id') |>
+  left_join(resp_episodes_on_study %>% select(hospital_block_id, resp_failure_start, resp_failure_stop)) |>
+  filter(recorded_dttm>=resp_failure_start & recorded_dttm<=(resp_failure_start+dhours(24))) |>
+  #Filter Outliers  
+  filter(numerical_value<=15 & numerical_value>=3) |>
+  mutate(sofa_gcs=case_when(numerical_value==15~0,  
+                            numerical_value==13 | numerical_value==14~1, 
+                            numerical_value>=10 & numerical_value<=12~2, numerical_value>=6 & numerical_value<=9~3,
+                            numerical_value<6~4)) |> 
+  group_by(hospital_block_id) |>
+  mutate(max_sofa_gcs=max(sofa_gcs, na.rm = TRUE)) |>
+  select(hospital_block_id, max_sofa_gcs) |> 
+  as.data.table() |>
+  group_by(hospital_block_id) |>
+  filter(row_number()==1) |>
+  ungroup()
+
+# Calculate lowest RASS for sofa in 24h prior to enrollment
+sofa_rass <- data_list[['patient_assessments']] |>
+  filter(tolower(assessment_category) %in% c("rass")) |>
+  semi_join(hid_jid_crosswalk,  by = 'hospitalization_id') |>
+  left_join(hid_jid_crosswalk,  by = 'hospitalization_id') |>
+  left_join(resp_episodes_on_study %>% select(hospital_block_id, resp_failure_start, resp_failure_stop)) |>
+  filter(recorded_dttm>=resp_failure_start & recorded_dttm<=(resp_failure_start+dhours(24))) |>
+  #Filter Outliers  
+  filter(numerical_value<=4 & numerical_value>-6) |>
+  mutate(max_sofa_rass=
+             case_when(numerical_value>-1~0,  
+                       numerical_value==-1~1, 
+                       numerical_value==-2~2, 
+                       numerical_value==-3~3, 
+                       numerical_value==-4 | numerical_value==-5~4)) |> 
+  as.data.table() |>
+  select(hospital_block_id, max_sofa_rass) |>
+  group_by(hospital_block_id) |>
+  fmax()
+
+#Calculate Lowest MAP 24h prior to enrollment for SOFA
+sofa_map <-  data_list[['vitals']] |>
+  filter(tolower(vital_category) %in% c("map")) |>
+  semi_join(hid_jid_crosswalk,  by = 'hospitalization_id') |>
+  left_join(hid_jid_crosswalk,  by = 'hospitalization_id') |>
+  left_join(resp_episodes_on_study %>% select(hospital_block_id, resp_failure_start, resp_failure_stop)) |>
+  filter(recorded_dttm>=resp_failure_start & recorded_dttm<=(resp_failure_start+dhours(24))) |>
+  #Filter Outliers MAP>250
+  filter(vital_value<=250) |>
+  mutate(max_sofa_map=case_when(
+    vital_value<70~1, 
+    vital_value>=70~0)) |>
+  select(hospital_block_id, max_sofa_map) |>
+  as.data.table() |>
+  group_by(hospital_block_id) |>
+  fmax()
+
+#For Labs Allow For Carried Forward Labs Up to 72 Hours
+#Calculate highest bilirubin in 24h prior to enrollment for sofa
+sofa_bili <-  data_list[['labs']] |>
+  filter(lab_category %in% c('bilirubin_total')) |>
+  semi_join(hid_jid_crosswalk,  by = 'hospitalization_id') |>
+  left_join(hid_jid_crosswalk,  by = 'hospitalization_id') |>
+  left_join(resp_episodes_on_study %>% select(hospital_block_id, resp_failure_start, resp_failure_stop)) |>
+  filter(lab_collect_dttm>=(resp_failure_start-dhours(72)) & lab_collect_dttm<=(resp_failure_start+dhours(24))) |>
+  #Filter Outliers  
+  filter(lab_value_numeric<=80) |>
+  mutate(
+    bili_24=if_else(
+      lab_collect_dttm>=resp_failure_start & lab_collect_dttm<=(resp_failure_start+dhours(24)), 1L, 0L),
+    sofa_bili=case_when(
+        lab_value_numeric<1.2 ~ 0,  
+        lab_value_numeric>=1.2 & lab_value_numeric<2 ~ 1, 
+        lab_value_numeric>=2 & lab_value_numeric<6 ~ 2, 
+        lab_value_numeric>=6 & lab_value_numeric<12 ~ 3, 
+        lab_value_numeric>=12 ~ 4)) |> 
+  select(hospital_block_id, lab_collect_dttm, sofa_bili, bili_24) |>
+  as.data.table() |>
+  group_by(hospital_block_id, bili_24) |>
+  mutate(
+    max_sofa_bili=if_else(
+      bili_24==1L, fmax(sofa_bili), NA_real_)) |>
+  group_by(hospital_block_id) |>
+  arrange(hospital_block_id, lab_collect_dttm) |>
+  fill(max_sofa_bili, .direction='downup') |>
+  mutate(max_sofa_bili=fifelse(
+      is.na(max_sofa_bili) & row_number()==n(), sofa_bili, max_sofa_bili)) |>
+  fill(max_sofa_bili, .direction='downup') |>
+  filter(row_number()==1) |>
+  select(hospital_block_id, max_sofa_bili) |> 
+  ungroup()
+
+#Calculate lowest platelets in 24h prior to enrollment for sofa
+sofa_plt <-  data_list[['labs']] |>
+  filter(lab_category %in% c('platelet_count')) |>
+  semi_join(hid_jid_crosswalk,  by = 'hospitalization_id') |>
+  left_join(hid_jid_crosswalk,  by = 'hospitalization_id') |>
+  left_join(resp_episodes_on_study %>% select(hospital_block_id, resp_failure_start, resp_failure_stop)) |>
+  filter(lab_collect_dttm>=(resp_failure_start-dhours(72)) & lab_collect_dttm<=(resp_failure_start+dhours(24))) |>
+  #Filter Outliers  
+  filter(lab_value_numeric<=2000) |>
+  mutate(
+    plt_24=if_else(
+      lab_collect_dttm>=resp_failure_start & lab_collect_dttm<=(resp_failure_start+dhours(24)), 1L, 0L),
+    sofa_plt=case_when(
+        lab_value_numeric<20~4,  
+        lab_value_numeric>=20 & lab_value_numeric<50~3, 
+        lab_value_numeric>=50 & lab_value_numeric<100~2, 
+        lab_value_numeric>=100 & lab_value_numeric<150~1, 
+        lab_value_numeric>=150~ 0, 
+        lab_value_numeric>=12 ~ 4)) |> 
+  select(hospital_block_id, lab_collect_dttm, sofa_plt, plt_24) |>
+  as.data.table() |>
+  group_by(hospital_block_id, plt_24) |>
+  mutate(
+    max_sofa_plt=if_else(
+      plt_24==1L, fmax(sofa_plt), NA_real_)) |>
+  group_by(hospital_block_id) |>
+  arrange(hospital_block_id, lab_collect_dttm) |>
+  fill(max_sofa_plt, .direction='downup') |>
+  mutate(max_sofa_plt=fifelse(
+      is.na(max_sofa_plt) & row_number()==n(), sofa_plt, max_sofa_plt)) |>
+  fill(max_sofa_plt, .direction='downup') |>
+  filter(row_number()==1) |>
+  select(hospital_block_id, max_sofa_plt) |> 
+  ungroup()
+
+
+#Calculate highest cr in 24h prior to enrollment for sofa
+sofa_cr <-  data_list[['labs']] |>
+  filter(lab_category %in% c('creatinine')) |>
+  semi_join(hid_jid_crosswalk,  by = 'hospitalization_id') |>
+  left_join(hid_jid_crosswalk,  by = 'hospitalization_id') |>
+  left_join(resp_episodes_on_study %>% select(hospital_block_id, resp_failure_start, resp_failure_stop)) |>
+  filter(lab_collect_dttm>=(resp_failure_start-dhours(72)) & lab_collect_dttm<=(resp_failure_start+dhours(24))) |>
+  #Filter Outliers  
+  filter(lab_value_numeric<=20) |>
+  mutate(
+    cr_24=if_else(
+      lab_collect_dttm>=resp_failure_start & lab_collect_dttm<=(resp_failure_start+dhours(24)), 1L, 0L),
+    sofa_cr=case_when(
+      lab_value_numeric<1.2 ~ 0,  
+      lab_value_numeric>=1.2 & lab_value_numeric<2 ~ 1, 
+      lab_value_numeric>=2 & lab_value_numeric<3.5 ~ 2, 
+      lab_value_numeric>=3.5 & lab_value_numeric<5 ~ 3, 
+      lab_value_numeric>=5 ~ 4)) |> 
+  select(hospital_block_id, lab_collect_dttm, sofa_cr, cr_24) |>
+  as.data.table() |>
+  group_by(hospital_block_id, cr_24) |>
+  mutate(
+    max_sofa_cr=if_else(
+      cr_24==1L, fmax(sofa_cr), NA_real_)) |>
+  group_by(hospital_block_id) |>
+  arrange(hospital_block_id, lab_collect_dttm) |>
+  fill(max_sofa_cr, .direction='downup') |>
+  mutate(max_sofa_cr=fifelse(
+      is.na(max_sofa_cr) & row_number()==n(), sofa_cr, max_sofa_cr)) |>
+  fill(max_sofa_cr, .direction='downup') |>
+  filter(row_number()==1) |>
+  select(hospital_block_id, max_sofa_cr) |> 
+  ungroup()
+
+#Merge BMI data into Cohort Build
+cohort_build <- cohort_build |>
+  left_join(bmi, by=c('patient_id', 'hospital_block_id')) |>
+  left_join(norepi_equivalent, by=c('hospital_block_id')) |>
+  #Will interpret missing information on vasopressors as evidence of no vasopressors (no vasoactives listed in MAR)
+  fmutate(
+    nee_pressor_dose=fifelse(
+      is.na(nee_pressor_dose), 0, nee_pressor_dose),
+    max_norepi_equivalent=fifelse(
+      is.na(max_norepi_equivalent), 0, max_norepi_equivalent))
+
+#Process Cohort SOFA scores and keep track of SOFA missingness prior to imputation as 0
+cohort_sofa <- resp_first_24_summary |>
+  mutate(
+    max_sofa_resp=fcase(
+        # Use actual PaO2/FiO2 if available; Otherwise SF
+        !is.na(pf_24_min) & pf_24_min < 100 & 
+          max_resp_support24 %in% c('high_flow_nc', 'imv','nippv'), 4,
+        !is.na(pf_24_min) & pf_24_min < 200 & 
+          max_resp_support24 %in% c('high_flow_nc', 'imv','nippv'), 3,
+        !is.na(pf_24_min) & pf_24_min < 300, 2,
+        !is.na(pf_24_min) & pf_24_min < 400, 1,
+        !is.na(pf_24_min) & pf_24_min >= 400, 1,
+        # Use S/F Equivalents if PF Not Available, Use CUtoffs from Matthay Global ARDS
+        !is.na(sf_24_min) & sf_24_min < 148 & 
+          max_resp_support24 %in% c('high_flow_nc', 'imv','nippv'), 4,
+        !is.na(sf_24_min) & sf_24_min < 235 & 
+          max_resp_support24 %in% c('high_flow_nc', 'imv','nippv'), 3,
+        !is.na(sf_24_min) & sf_24_min < 315, 2,
+        !is.na(sf_24_min) & sf_24_min < 400, 1,
+        !is.na(sf_24_min) & sf_24_min >= 400, 1,
+        #IF both S/F and P/F Missing Use 1 for NIV, Hiflow, 2 for Vent
+        is.na(sf_24_min) & is.na(pf_24_min) & 
+          max_resp_support24 %in% c('imv'), 2,
+        is.na(sf_24_min) & is.na(pf_24_min) & 
+          max_resp_support24 %in% c('high_flow_nc', 'nippv'), 1,
+        default=NA_real_)) |>
+  select(hospital_block_id, max_sofa_resp) |>
+  left_join(sofa_bili, by=c('hospital_block_id')) |>
+  left_join(sofa_cr, by=c('hospital_block_id')) |>
+  left_join(sofa_plt, by=c('hospital_block_id')) |>
+  left_join(sofa_pressors, by=c('hospital_block_id')) |>
+  left_join(sofa_map, by=c('hospital_block_id')) |>
+  left_join(sofa_gcs, by=c('hospital_block_id')) |>
+  left_join(sofa_rass, by=c('hospital_block_id')) |>
+  #GENERAT SOFA CV AND SOFA CNS SCORES
+  mutate(
+    max_sofa_cv=fcase(
+      max_sofa_pressor>=2, max_sofa_pressor, 
+      default =max_sofa_map), 
+   max_sofa_cns=fifelse(
+     !is.na(max_sofa_gcs), max_sofa_gcs, max_sofa_rass))
+    
+
+#Describe SOFA Missingness and Save CSV of SOFA Missingness Prior to Imputation as 0
+sofa_missing <- cohort_sofa %>%
+  pivot_longer(
+    cols = -hospital_block_id, # Retain hospital_block_id as ID
+    names_to = "variable",      # Name of the column to contain the names of the variables
+    values_to = "value"         # Name of the column to contain the values of the variables
+  ) |>
+  group_by(variable) |>
+  summarise(
+    missing=sum(is.na(value)),
+    missing_fraction=missing/n()
+  )
+#Write to CSV
+write_csv(sofa_missing, paste0(project_location, '/proj_output/', site, '_sofa_missing.csv'))
+
+#Now Calculate Max Score
+cohort_sofa <- cohort_sofa |>
+  mutate(max_sofa_total=
+           rowSums(across(c(max_sofa_resp, max_sofa_bili, max_sofa_cr, 
+                            max_sofa_plt, max_sofa_cv, max_sofa_cns)), na.rm = TRUE))
+
+cohort_build <- cohort_build |>
+  left_join(cohort_sofa)
+
+rm(bmi, cohort_sofa, sofa_missing, sofa_bili, sofa_cr, sofa_gcs, sofa_map, sofa_plt, sofa_pressors, sofa_rass, pressor_data, norepi_equivalent) ; gc()
 
 ```
 
-```{r Covaraites - Hospital and ICU Type}
+```{r Covaraites - Hospital ID and ICU or IMC}
+#Create Data Frame For Defining This
+location_data <- data_list$adt |>
+  select(hospitalization_id, hospital_id, hospital_type, in_dttm, out_dttm, location_category, location_type) |>
+  semi_join(hid_jid_crosswalk,  by = 'hospitalization_id') |>
+  left_join(hid_jid_crosswalk %>% select(hospitalization_id, hospital_block_id),  by = 'hospitalization_id') |>
+  left_join(resp_episodes_on_study %>% select(hospital_block_id, resp_failure_start)) |>
+  group_by(hospital_block_id) |>
+  arrange(hospital_block_id, in_dttm) |>
+  as.data.table()
 
+#Hospital First - This will the Hospital Where the Patient Was at the Start of Respiratory Failure
+location_data <- location_data |>
+  group_by(hospital_block_id, hospital_id) |>
+  mutate(
+    last_hospital_time=max(out_dttm), 
+    hospital_id=fifelse(
+      resp_failure_start<last_hospital_time, hospital_id, NA_character_),
+    hospital_type=fifelse(
+      resp_failure_start<last_hospital_time, hospital_type, NA_character_)) |>
+  group_by(hospital_block_id) |>
+  arrange(hospital_block_id, in_dttm) |>
+  fill(hospital_id, hospital_type, .direction = 'downup') |>
+  #Patient in ICU Within 48 Hours of Respiratory Failure Start?
+  mutate(
+    keep=fcase(
+      in_dttm<=resp_failure_start & out_dttm>=resp_failure_start, 1L,
+      in_dttm>=resp_failure_start & in_dttm<=(resp_failure_start+dhours(48)), 1L, 
+      resp_failure_start<min(in_dttm), 1L, #Few Patients have Initiation of Vitals Before 'in_dttm' listed (generally by minutes)
+      default=0L),
+    keep=cumsum(keep)) |>
+  #Only Need to Consider Locations within 488 Hours Respiratory Start
+  filter(
+    keep>=1L,
+    in_dttm<=(resp_failure_start+dhours(48))) |>
+  mutate(
+    imc_admit = as.integer(any(tolower(location_category) == 'stepdown')),
+    icu_admit = as.integer(any(tolower(location_category) == 'icu')),
+    ward_admit = as.integer(imc_admit == 0L & icu_admit == 0L & any(tolower(location_category) == 'ward')),
+    location_type = if_else(location_type=='NA', NA_character_, location_type), #Hopkins Patch
+    icu_type = coalesce(location_type)  # Keep location_type if not missing, else NA
+  ) |>
+  select(hospital_block_id, hospital_id, hospital_type, icu_admit, imc_admit, ward_admit, icu_type) |>
+  fill(icu_type, .direction = 'updown') |>
+  filter(row_number()==1) |>
+  ungroup()
+  
+check_missing_adt <- data_list$adt |>
+  select(hospitalization_id, hospital_id, hospital_type, in_dttm, out_dttm, location_category, location_type) |>
+  semi_join(hid_jid_crosswalk,  by = 'hospitalization_id') |>
+  left_join(hid_jid_crosswalk %>% select(hospitalization_id, hospital_block_id),  by = 'hospitalization_id') |>
+  anti_join(location_data, by = 'hospital_block_id') |>
+  left_join(resp_episodes_on_study %>% select(hospital_block_id, resp_failure_start)) |>
+  as.data.table()
+
+#Bring Into Cohort Build
+cohort_build <- cohort_build |>
+  left_join(location_data, by='hospital_block_id')
+
+rm(location_data); gc()
+```
+
+```{r Complete Analytic Cohort}
+analytic_cohort <- cohort_build |>
+  left_join(resp_episodes_on_study, by='hospital_block_id') |>
+  left_join(resp_first_24_summary, by='hospital_block_id')
+```
+
+```{r Save Analytic Datasets}
+write_parquet(analytic_cohort, paste0(project_location, '/proj_tables/analytic_cohort.parquet'))
+write_parquet(resp_first_24_long, paste0(project_location, '/proj_tables/resp_first_24_long.parquet'))
 ```
 
