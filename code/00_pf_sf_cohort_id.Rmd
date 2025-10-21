@@ -478,7 +478,7 @@ fio2_mean <- resp_info |>
   pull() # fixing if its less than one # You will get a warning but it will be fixed on its own with IF statement 
 if(fio2_mean > 1) { 
   cat('Mean FiO2 > 1, changing to fraction. fio2_mean=', fio2_mean, '\n')
-  resp_devices <- resp_devices |> mutate(fio2_set = fio2_set / 100) |> compute() 
+  resp_info <- resp_info |> mutate(fio2_set = fio2_set / 100) |> compute() 
   } else {
   cat('Mean FiO2 <1, leaving as fraction. fio2_mean=', fio2_mean, '\n')
   }
@@ -636,6 +636,7 @@ trach_fio2 <- resp_info |>
       recorded_dttm>=resp_failure_start & 
         recorded_dttm<=resp_failure_start+dhours(24)) |>
   group_by(hospital_block_id) |>
+  fmutate(tracheostomy = fifelse(is.na(tracheostomy), 0L, tracheostomy)) |> 
   fmutate(
     trach_first_24=fifelse(mean(tracheostomy, na.rm=T)>0, 1L, 0L),
     no_fio2=(sum(!is.na(fio2_set))==0)
@@ -762,6 +763,7 @@ resp_first_24 <- resp_info |>
 
 #Bring in ABG Data
 abgs = data_list[["labs"]] |>
+  mutate(hospitalization_id = as.character(hospitalization_id)) |>
   semi_join(hid_jid_crosswalk, by='hospitalization_id') |>
   filter(tolower(lab_category) %in% c(
     'ph_arterial',
@@ -783,6 +785,7 @@ abgs = data_list[["labs"]] |>
 
 #Bring in SpO2 Data
 spo2 = data_list[["vitals"]] |>
+    mutate(hospitalization_id = as.character(hospitalization_id)) |>
   semi_join(hid_jid_crosswalk, by='hospitalization_id') |>
   filter(tolower(vital_category)=='spo2') |>
   left_join(hid_jid_crosswalk, by = 'hospitalization_id') |>
@@ -868,6 +871,7 @@ resp_first_24_long <- resp_first_24 |>
 
 rm(abgs, spo2, resp_first_24); gc()
 ```
+
 ```{r Exclude Those with no Eligible PF/SF}
 #Exclude if NO Eligible PF or SF (Within 4 Hours of FIO2 Documentation)
 exclude <- resp_first_24_long |>
@@ -1023,33 +1027,37 @@ unused_vect = c(
 elix = 
   dplyr::filter(data_list$hospital_diagnosis, hospitalization_id %in% hid_jid_crosswalk$hospitalization_id) |>
   dplyr::filter(!toupper(diagnosis_code) %in% unused_vect) |>
-  dplyr::select(hospitalization_id, poa_present, diagnosis_code) |>
+  # Join hospital_block_id early
+  left_join(hid_jid_crosswalk %>% select(hospitalization_id, hospital_block_id), by = 'hospitalization_id') |>
+  dplyr::select(hospital_block_id, poa_present, diagnosis_code) |>  # Use hospital_block_id
   dplyr::collect() |>
   funique()
+
 
 ### assign elixhauser diagnosis dummies ----------------------------------------
 
 elix = 
   comorbidity::comorbidity(
     elix, 
-    id      = "hospitalization_id", 
+    id      = "hospital_block_id",  # Use hospital_block_id as the ID
     code    = "diagnosis_code", 
     map     = "elixhauser_icd10_quan", 
     assign0 = T
   )
 
-### link to joined-hosp-id -----------------------------------------------------
-
-elix = elix |>
-  left_join(hid_jid_crosswalk %>% select(hospitalization_id, hospital_block_id), by = 'hospitalization_id') |>
-  fgroup_by(hospital_block_id) |>
-  fmax()
+############# TOOK THIS OUT... DID AGGREGATION TO ENCOUNTERS ABOVE
+# ### link to joined-hosp-id -----------------------------------------------------
+# 
+# elix = elix |>
+#   left_join(hid_jid_crosswalk %>% select(hospitalization_id, hospital_block_id), by = 'hospitalization_id') |>
+#   fgroup_by(hospital_block_id) 
+#   fmax()
 
 ### calculate vw scores --------------------------------------------------------
 
 vw_elixhauser       = comorbidity::score(elix, weights = "vw", assign0 = T)
 elixhauser_count =  elix |>
-   mutate(elixhauser_count = rowSums(across(3:33), na.rm = TRUE)) |>
+   mutate(elixhauser_count = rowSums(across(2:32), na.rm = TRUE)) |>
    fselect(hospital_block_id, elixhauser_count)
 elix      = cbind(elix, vw_elixhauser = vw_elixhauser) |> fselect(hospital_block_id, vw_elixhauser) |>
   left_join(elixhauser_count %>% select(hospital_block_id, elixhauser_count), by = 'hospital_block_id')
@@ -1065,6 +1073,7 @@ rm(elix, elixhauser_count, vw_elixhauser); gc()
 ```{r Covariates - BMI and SOFA Score}
 #Calculate BMI
 bmi <- data_list[['vitals']] |>
+  mutate(hospitalization_id = as.character(hospitalization_id)) |>
   filter(tolower(vital_category) %in% c('weight_kg', 'height_cm')) |>
   semi_join(hid_jid_crosswalk,  by = 'hospitalization_id') |>
   left_join(hid_jid_crosswalk,  by = 'hospitalization_id') |>
@@ -1274,6 +1283,7 @@ sofa_rass <- data_list[['patient_assessments']] |>
 
 #Calculate Lowest MAP 24h prior to enrollment for SOFA
 sofa_map <-  data_list[['vitals']] |>
+  mutate(hospitalization_id = as.character(hospitalization_id)) |>
   filter(tolower(vital_category) %in% c("map")) |>
   semi_join(hid_jid_crosswalk,  by = 'hospitalization_id') |>
   left_join(hid_jid_crosswalk,  by = 'hospitalization_id') |>
@@ -1292,6 +1302,7 @@ sofa_map <-  data_list[['vitals']] |>
 #For Labs Allow For Carried Forward Labs Up to 72 Hours
 #Calculate highest bilirubin in 24h prior to enrollment for sofa
 sofa_bili <-  data_list[['labs']] |>
+  mutate(hospitalization_id = as.character(hospitalization_id)) |>
   filter(lab_category %in% c('bilirubin_total')) |>
   semi_join(hid_jid_crosswalk,  by = 'hospitalization_id') |>
   left_join(hid_jid_crosswalk,  by = 'hospitalization_id') |>
@@ -1326,6 +1337,7 @@ sofa_bili <-  data_list[['labs']] |>
 
 #Calculate lowest platelets in 24h prior to enrollment for sofa
 sofa_plt <-  data_list[['labs']] |>
+  mutate(hospitalization_id = as.character(hospitalization_id)) |>
   filter(lab_category %in% c('platelet_count')) |>
   semi_join(hid_jid_crosswalk,  by = 'hospitalization_id') |>
   left_join(hid_jid_crosswalk,  by = 'hospitalization_id') |>
@@ -1362,6 +1374,7 @@ sofa_plt <-  data_list[['labs']] |>
 
 #Calculate highest cr in 24h prior to enrollment for sofa
 sofa_cr <-  data_list[['labs']] |>
+  mutate(hospitalization_id = as.character(hospitalization_id)) |>
   filter(lab_category %in% c('creatinine')) |>
   semi_join(hid_jid_crosswalk,  by = 'hospitalization_id') |>
   left_join(hid_jid_crosswalk,  by = 'hospitalization_id') |>
