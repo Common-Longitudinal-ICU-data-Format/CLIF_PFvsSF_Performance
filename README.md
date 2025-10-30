@@ -66,6 +66,10 @@ Please run these one after the other. The 01 file can run off of tables that are
 
 Detailed instructions on the code workflow are provided in the [code directory](code/README.md)
 
+## 4. Upload Results
+Please upload all the tables in proj_output (all summary tables) to the BOX folder. 
+
+
 ---
 
 
