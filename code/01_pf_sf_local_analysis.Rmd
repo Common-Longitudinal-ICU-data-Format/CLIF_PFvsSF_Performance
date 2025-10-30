@@ -1,5 +1,5 @@
 ---
-title: "00_pf_sf_cohort_id"
+title: "01_pf_sf_local_analysis"
 author: "Chad H. Hochberg and Nicholas Ingraham"
 date: "`r Sys.Date()`"
 output: html_document
@@ -15,14 +15,14 @@ packages_to_install =
     "data.table",
     "collapse",
     "yaml",
-    "fst",
     "arrow",
     "tableone",
     "viridis",
     "sandwich",
     "rprojroot", 
     "comorbidity",
-    "caret")
+    "caret",
+    "scales")
 
 #Can Load For Each Individual RMarkdown
 packages_to_load =
@@ -36,7 +36,8 @@ packages_to_load =
     "tableone",
     "viridis",
     "sandwich",
-    "caret")
+    "caret",
+    "scales")
 options(dplyr.summarise.inform = FALSE)
 
 fn_install_if_mi = function(p) {
@@ -197,6 +198,75 @@ if (!dir.exists(paste0(project_location, "/proj_output/graphs"))) {
   dir.create(paste0(project_location, "/proj_output/graphs"))
 }
 ```
+```{r Function to Decompose Table 1 Summaries for 'Easy' Pooling}
+tab_decomp <- function(table) {
+  
+  results_list <- list()  # Prepare an empty list to store results
+
+  
+#First Do Continuous Table  
+if (!is.null(table$ContTable)) {
+  strata <- rownames(table$ContTable)
+  for (i in strata) {
+    # Extract the relevant names and data for the current strata
+    rows <- rownames(table$ContTable[[i]])
+    cols <- colnames(table$ContTable[[i]])
+    
+    x <- as_tibble(table$ContTable[[i]])
+    colnames(x) <- cols
+    
+    # Create a new tibble with the desired structure
+    x <- x |>
+      mutate(
+        strata = i, 
+        variable = rows) |>
+      relocate(strata, variable, .before = 1)
+    
+    results_list[[i]] <- x  # Append result to the list
+  }
+  # Combine all results into a single tibble
+  cont_table <- rowbind(results_list)
+  
+} else {
+  cat('\n No Continuous Table for These Variables\n')
+  cont_table <- NULL  # Assign NULL if there are no continuous tables
+} 
+  #Now Categorical Table
+ results_list <- list() #Reinitialize List
+if (!is.null(table$CatTable)) {  
+    strata <- rownames(table$CatTable)
+  for (i in strata) {
+    category <- table$MetaData$varFactors
+    for (z in category) {
+    # Extract the relevant names and data for the current strata
+    rows <- rownames(table$CatTable[[i]][[z]])
+    cols <- colnames(table$CatTable[[i]][[z]])
+    
+    x <- as_tibble(table$CatTable[[i]][[z]])
+    colnames(x) <- cols
+    
+    # Create a new tibble with the desired structure
+    x <- x |>
+      mutate(
+        strata = i, 
+        variable = z) |>
+      relocate(strata, variable, level, .before = 1)
+    
+    results_list[[length(results_list) + 1]] <- x  # Append result to the list
+    }
+      }
+  # Combine all results into a single tibble
+  cat_table <- rowbind(results_list)
+} else {
+  cat('\n No Categorical Table for These Variables\n')
+  cat_table <- NULL  # Assign NULL if there are no categorical tables
+} 
+  #Put Two Tables into  a List
+  table_list <- list(continuous = cont_table, categorical = cat_table)
+  return(table_list)
+  }
+
+```
 
 ```{r Open Analytic Data}
 # Define the required parquet files
@@ -225,72 +295,215 @@ data_list = lapply(table_file_map, open_dataset)
 
 rm(common_names, table_file_map, filtered_tables, table_filename, required_tables); gc()
 
-```
-```{r Function to Decompose Table 1 Summaries for 'Easy' Pooling}
-tab_decomp <- function(table) {
-  
-  results_list <- list()  # Prepare an empty list to store results
-  strata <- rownames(table$ContTable)
-  
-#First Do Continuous Table  
-  for (i in strata) {
-    # Extract the relevant names and data for the current strata
-    rows <- rownames(table$ContTable[[i]])
-    cols <- colnames(table$ContTable[[i]])
-    
-    x <- as_tibble(table$ContTable[[i]])
-    colnames(x) <- cols
-    
-    # Create a new tibble with the desired structure
-    x <- x |>
-      mutate(
-        strata = i, 
-        variable = rows) |>
-      relocate(strata, variable, .before = 1)
-    
-    results_list[[i]] <- x  # Append result to the list
-  }
-  # Combine all results into a single tibble
-  cont_table <- rowbind(results_list)
-  
-  results_list <- list() #Reinitialize List
-  #Now Categorical Table
-  for (i in strata) {
-    category <- table$MetaData$varFactors
-    for (z in category) {
-    # Extract the relevant names and data for the current strata
-    rows <- rownames(table$CatTable[[i]][[z]])
-    cols <- colnames(table$CatTable[[i]][[z]])
-    
-    x <- as_tibble(table$CatTable[[i]][[z]])
-    colnames(x) <- cols
-    
-    # Create a new tibble with the desired structure
-    x <- x |>
-      mutate(
-        strata = i, 
-        variable = z) |>
-      relocate(strata, variable, level, .before = 1)
-    
-    results_list[[length(results_list) + 1]] <- x  # Append result to the list
-    }
-  }
-  # Combine all results into a single tibble
-  cat_table <- rowbind(results_list)
-  
-  #Put Two Tables into  a List
-  table_list <- list(continuous = cont_table, categorical = cat_table)
-  return(table_list)
-  }
-
-```
-
-
-
-```{r Describe Cohort- Table 1}
+## Load Analytic Cohort--------------------------------------------------------
 analytic_cohort <- data_list$analytic_cohort |>
   mutate(clif_site='site') |> #Distinct from Hospital ID
   as.data.table()
+
+## How many Hospitals?--------------------------------------------------------
+site_n_hospitals <- length(unique(analytic_cohort$hospital_id[!is.na(analytic_cohort$hospital_id)]))
+analytic_cohort <- analytic_cohort |>
+  mutate(site_n_hospitals=site_n_hospitals)
+```
+
+```{r Define Severity Categories and Continuous Bins}
+#Define PF Oxygenation Categories Defined by Points or Ranges - Directly from Matthay Paper
+PF_NO_HYPOXEMIA <- 300
+PF_MILD <- c(200,300)
+PF_MOD <- c(100,200)
+PF_SEV <- 100
+
+#Define SF Oxygenation Categories Defined by Points or Ranges - Directly from Matthay Paper
+SF_NO_HYPOXEMIA <- 315
+SF_MILD <- c(235,315)
+SF_MOD <- c(148,235)
+SF_SEV <- 148
+
+#Where Exposure Group is SF Only, SF defines Severity; SF_PF, PF defines severity, PF Only, PF
+analytic_cohort <- analytic_cohort |>
+ mutate(oxygenation_category=fcase(
+    exposure_group %in% c("pf_only", "sf_pf") & pf_24_min > PF_NO_HYPOXEMIA, 'not_hypoxemic',
+    exposure_group %in% c("pf_only", "sf_pf") & pf_24_min > PF_MILD[1] & pf_24_min <= PF_MILD[2], 'mild_hypoxemia',
+    exposure_group %in% c("pf_only", "sf_pf") & pf_24_min > PF_MOD[1] & pf_24_min <= PF_MOD[2], 'moderate_hypoxemia',
+    exposure_group %in% c("pf_only", "sf_pf") & pf_24_min <= PF_SEV, 'severe_hypoxemia',
+    
+    # If you want to include SF severity ranges
+    exposure_group %in% "sf_only" & sf_24_min > SF_NO_HYPOXEMIA, 'not_hypoxemic',
+    exposure_group %in% "sf_only" & sf_24_min > SF_MILD[1] & sf_24_min <= SF_MILD[2], 'mild_hypoxemia',
+    exposure_group %in% "sf_only" & sf_24_min > SF_MOD[1] & sf_24_min <= SF_MOD[2], 'moderate_hypoxemia',
+    exposure_group %in% "sf_only" & sf_24_min <= SF_SEV, 'severe_hypoxemia',
+    default='undefined'))
+
+#Now Define SOFA2 Scores Based on PF or SF
+#Define PF Oxygenation Categories Defined by Points or Ranges - Directly from Matthay Paper
+PF_SOFA_0 <- 300
+PF_SOFA_1 <- c(225, 300)
+PF_SOFA_2 <- c(150, 225)
+PF_SOFA_3 <- c(75, 150)
+PF_SOFA_4 <- 75
+
+#Define SF Oxygenation Categories Defined by Points or Ranges - Directly from Matthay Paper
+SF_SOFA_0 <- 300
+SF_SOFA_1 <- c(250, 300)
+SF_SOFA_2 <- c(200, 250)
+SF_SOFA_3 <- c(120, 200)
+SF_SOFA_4 <- 120
+
+analytic_cohort <- analytic_cohort %>%
+  mutate(
+    sofa2_resp = fcase(
+      exposure_group %in% c("pf_only", "sf_pf") & pf_24_min > PF_SOFA_0, 0,
+      exposure_group %in% c("pf_only", "sf_pf") & pf_24_min > PF_SOFA_1[1] & pf_24_min <= PF_SOFA_1[2], 1,
+      exposure_group %in% c("pf_only", "sf_pf") & pf_24_min > PF_SOFA_2[1] & pf_24_min <= PF_SOFA_2[2], 2,
+      exposure_group %in% c("pf_only", "sf_pf") & pf_24_min > PF_SOFA_3[1] & pf_24_min <= PF_SOFA_3[2], 3,
+      exposure_group %in% c("pf_only", "sf_pf") & pf_24_min <= PF_SOFA_4, 4,
+      # For SF
+      exposure_group == "sf_only" & sf_24_min > SF_SOFA_0, 0,
+      exposure_group == "sf_only" & sf_24_min > SF_SOFA_1[1] & sf_24_min <= SF_SOFA_1[2], 1,
+      exposure_group == "sf_only" & sf_24_min > SF_SOFA_2[1] & sf_24_min <= SF_SOFA_2[2], 2,
+      exposure_group == "sf_only" & sf_24_min > SF_SOFA_3[1] & sf_24_min <= SF_SOFA_3[2], 3,
+      exposure_group == "sf_only" & sf_24_min <= SF_SOFA_4, 4,
+      default = NA_real_  # Assign NA if none of the conditions are met
+    ),
+    sofa2_cat = factor(sofa2_resp)  # Convert to factor
+  )
+
+#Define Which Metric Is Used Primarily To Define Score
+analytic_cohort <- analytic_cohort |>
+  mutate(primary_metric=fcase(
+    exposure_group %in% c("pf_only", "sf_pf"), 'pf',
+    exposure_group %in% "sf_only", 'sf'
+  ))
+```
+
+```{r Define Primary and Secondary Outcomes}
+#Primary: In-hospital Death or Discharge to Hospice by Day 28
+#Secondary: In-hospital Death or Discharge to Hospice by Day 60
+analytic_cohort <- analytic_cohort |>
+  mutate(
+    days_to_dc=as.duration(final_discharge_dttm-resp_failure_start)/ddays(1),
+    death_hospice28=fifelse(days_to_dc<28 & inhosp_death_hospice==1L, 1, 0),
+    death_hospice60=fifelse(days_to_dc<60 & inhosp_death_hospice==1L, 1, 0))
+```
+
+
+```{r When Were These Patients Admitted and To Which Hospitals}
+#Create local CLIF site figure for troubleshooting
+#Create Counts of Admits by Quarter by Site and Hospital
+#Define Calendar Time for Time of Enrollment
+analytic_cohort <- analytic_cohort |>  
+  mutate(
+    year=year(resp_failure_start),
+    calendar_month=month(resp_failure_start)) |>
+  arrange(year, calendar_month)
+
+#Report Out Minimum and Maximum Times
+cat('\nAt', site, 'the first eligible patient was enrolled on', as.character(first(analytic_cohort$resp_failure_start)), 
+    '\n and the last on', as.character(last(analytic_cohort$resp_failure_start)), '\n')
+
+#Create a Study Month Data Frame to Merge to Create Study Month; Can Adjust ym() to accomadte desired period; for this analysis 2018 through 2024
+study_month <- data.frame(start_date=seq(ym("202101"), ym("202512"), by= "months")) |>
+  mutate(calendar_month=month(start_date)) |>
+  mutate(year=year(start_date)) |>
+  arrange(year, calendar_month) |>
+  mutate(study_month=seq(1:n())) |>
+  select(-start_date) |>
+  mutate(study_quarter=ceiling(study_month/3))
+
+#Join Back with Analytic Cohort
+analytic_cohort <- analytic_cohort |>
+  left_join(study_month)
+
+#How Many Respiratory Failure Patients Per Month?
+#Create a Table of N of Patients and Number paralyticsd Per Study Quarter
+arf_per_quarter <- analytic_cohort |> 
+  group_by(study_quarter, exposure_group) |>
+  reframe(
+    'site' = first(site),
+    'site_n_hospitals' = first(site_n_hospitals),
+    'year' = mean(year),
+    'n_patients' = n()
+  ) 
+#Save Locally At Each Site but Don't Export as May have 1 Patient Per Month
+write_csv(arf_per_quarter, paste0(project_location, '/proj_tables/', site,'_arf_per_quarter.csv'))
+
+arf_per_quarter_hospital <- analytic_cohort |> 
+  group_by(study_quarter, exposure_group, hospital_id) |>
+  reframe(
+    'site' = first(site),
+    'site_n_hospitals' = first(site_n_hospitals),
+    'year' = mean(year),
+    'n_patients' = n()
+  ) 
+#Save Locally At Each Site but Don't Export as May have 1 Patient Per Month
+write_csv(arf_per_quarter_hospital, paste0(project_location, '/proj_tables/', site,'_arf_per_quarter_hospital.csv'))
+
+#Visualize Resp Failure Over Time
+quarter_labels <- c(
+'Jan-Mar\n2021', 'Apr-Jun\n2021', 'Jul-Sep\n2021', 'Oct-Dec\n2021',
+'Jan-Mar\n2022', 'Apr-Jun\n2022', 'Jul-Sep\n2022', 'Oct-Dec\n2022',
+'Jan-Mar\n2023', 'Apr-Jun\n2023', 'Jul-Sep\n2023', 'Oct-Dec\n2023',
+'Jan-Mar\n2024', 'Apr-Jun\n2024', 'Jul-Sep\n2024', 'Oct-Dec\n2024',
+'Jan-Mar\n2025')
+
+#Select the Relevant Months from This Vector Using the min_month, max_month
+min_quarter <- min(analytic_cohort$study_quarter)
+max_quarter <- max(analytic_cohort$study_quarter)
+site_quarter_labels <- quarter_labels[min_quarter:max_quarter]
+max_quarter_n <- arf_per_quarter |>
+  group_by(study_quarter) |>
+  mutate(sum_n=sum(n_patients)) |>
+  ungroup() 
+max_quarter_n <- max(max_quarter_n$sum_n)
+
+#Visualize Resp Failure Cases Admits Over Time by Hospital
+ggplot(analytic_cohort, aes(x=study_quarter, fill=hospital_id)) +
+  geom_bar(position = 'stack') +
+  theme_classic() +
+  scale_x_continuous(breaks=seq(min_quarter, max_quarter, by=1),
+                     labels = site_quarter_labels,
+                     name = 'Months-Year') +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1, size = 4.75)) +
+  scale_y_continuous(
+    breaks=seq(0, max_quarter_n, by=50),
+    name = 'Number of Admissions') +
+  scale_fill_viridis_d()
+ggsave(paste0(site, '_enrollment_per_quarter.pdf'),
+       path = paste0(project_location, '/proj_output/graphs/'))
+
+#Visualize Resp Failure Cases Admits Over Time by Exposure Type
+ggplot(analytic_cohort, aes(x=study_quarter, fill=exposure_group)) +
+  geom_bar(position = 'stack') +
+  theme_classic() +
+  scale_x_continuous(breaks=seq(min_quarter, max_quarter, by=1),
+                     labels = site_quarter_labels,
+                     name = 'Months-Year') +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1, size = 4.75)) +
+  scale_y_continuous(
+    breaks=seq(0, max_quarter_n, by=50),
+    name = 'Number of Admissions') +
+  scale_fill_viridis_d()
+ggsave(paste0(site, '_exposure_group_per_quarter.pdf'),
+       path = paste0(project_location, '/proj_output/graphs/'))
+
+```
+
+
+```{r Describe Cohort- Table 1}
+#IF resp_support_category is nasal cannula or room air (all errors at JHU) use maximal resp support
+#If this happens to more than 3% of the sample initiate a break
+resp_cat <- c('cpap', 'high_flow_nc', 'imv', 'nippv')
+percent_resp_change <- round((mean(!analytic_cohort$resp_support_category %in% resp_cat, na.rm=T)*100), digits=2)
+if (percent_resp_change<3) {
+  analytic_cohort <- analytic_cohort |>
+    mutate(resp_support_category=fifelse(
+      !resp_support_category %in% resp_cat, max_resp_support24, resp_support_category))
+    cat('\n',percent_resp_change, '% of resp support categories have been changed to maximum respiratory support \n')
+} else {
+  stop(
+    sprintf("Found %d%of cohort with ineligible resp_suport defined (for example room air, nasal cannula), will need to check the 00_cohort file.", percent_resp_change
+  ))
+}
 
 to_tab <- c(
   'age_at_admission',
@@ -305,7 +518,14 @@ to_tab <- c(
   'icu_admit',
   'imc_admit',
   'ward_admit',
-  'resp_support_category')
+  'icu_type',
+  'resp_support_category',
+  'max_resp_support24',
+  'sf_24_min',
+  'pf_24_min',
+  'days_to_dc',
+  'death_hospice28',
+  'death_hospice60')
 
 factors_tab <- c(
   'female',
@@ -314,7 +534,11 @@ factors_tab <- c(
   'icu_admit',
   'imc_admit',
   'ward_admit',
-  'resp_support_category'
+  'icu_type',
+  'resp_support_category',
+  'max_resp_support24',
+  'death_hospice28',
+  'death_hospice60'
 )
 
 table1 <- CreateTableOne(
@@ -324,33 +548,538 @@ table1 <- CreateTableOne(
   strata='exposure_group', 
   addOverall = T)
 
+summary(table1)
+
 table1_list <- tab_decomp(table1)
 write_csv(table1_list$continuous, paste0(project_location, '/proj_output/', site, '_table1_cont_by_exposure.csv'))
 write_csv(table1_list$categorical, paste0(project_location, '/proj_output/', site, '_table1_cat_by_exposure.csv'))
 
+#Repeat But Stratified by Resp Support Category
+for (i in resp_cat) {
+  # Subset for the current respiratory category
+  current_data <- subset(analytic_cohort, resp_support_category == i)
+  
+  # Check if there is data to analyze
+  if (nrow(current_data) == 0) {
+    warning(paste("No data available for respiratory category:", i))
+    next  # Skip to the next iteration
+  }
+  
+  # Create TableOne object
+  table1 <- CreateTableOne(
+    data = current_data, 
+    vars = to_tab, 
+    factorVars = factors_tab,
+    strata = 'exposure_group', 
+    addOverall = TRUE
+  )
+  
+  # Decompose the table
+  table1_list <- tab_decomp(table1)
+  
+  # Write to CSV
+  write_csv(table1_list$continuous, file.path(
+    project_location, 'proj_output', paste0(site, '_table1_cont_by_exposure_',i,'.csv')
+  ))
+  
+  write_csv(table1_list$categorical, file.path(
+    project_location, 'proj_output', paste0(site, '_table1_cat_by_exposure_',i,'.csv')
+  ))
+}
 
+#Repeat But Stratified by Oxygenation Severity
+table1 <- CreateTableOne(
+  data=analytic_cohort, 
+  vars=to_tab, 
+  factorVars = factors_tab,
+  strata='oxygenation_category', 
+  addOverall = T)
 
+table1_list <- tab_decomp(table1)
+write_csv(table1_list$continuous, paste0(project_location, '/proj_output/', site, '_table1_cont_by_oxygenation.csv'))
+write_csv(table1_list$categorical, paste0(project_location, '/proj_output/', site, '_table1_cat_by_oxygenation.csv'))
+
+#Repeat but Stratified by SOFA
+#Repeat But Stratified by Oxygenation Severity
+table1 <- CreateTableOne(
+  data=analytic_cohort, 
+  vars=to_tab, 
+  factorVars = factors_tab,
+  strata='sofa2_resp', 
+  addOverall = T)
+
+table1_list <- tab_decomp(table1)
+write_csv(table1_list$continuous, paste0(project_location, '/proj_output/', site, '_table1_cont_by_sofa2.csv'))
+write_csv(table1_list$categorical, paste0(project_location, '/proj_output/', site, '_table1_cat_by_sofa2.csv'))
 ```
 
 ```{r Describe PF/SF Measures - Table 2}
+analytic_cohort <- analytic_cohort |>
+  mutate(
+    n_eligible_spo2=n_eligible_sf_spo2_lt98+n_eligible_sf_spo2_gt97,
+    percent_sf_calculable=round(((n_eligible_sf_spo2_lt98/n_eligible_spo2)*100), digits=2)
+  )
+
+to_tab <- c(
+  'n_spo2',
+  'n_fio2',
+  'n_pao2',
+  'n_eligible_pf',
+  'n_eligible_spo2',
+  'n_eligible_sf_spo2_lt98',
+  'n_eligible_sf_spo2_gt97',
+  'percent_sf_calculable'
+)
+
+#By Exposure Group
+table2 <- CreateTableOne(
+  data=analytic_cohort, 
+  vars=to_tab, 
+  strata='exposure_group', 
+  addOverall = T)
+
+summary(table2)
+
+table2_list <- tab_decomp(table2)
+write_csv(table2_list$continuous, paste0(project_location, '/proj_output/', site, '_table2_o2metrics_cont_by_exposure.csv'))
+
+#By Respiratory Support
+table2 <- CreateTableOne(
+  data=analytic_cohort, 
+  vars=to_tab, 
+  strata='resp_support_category', 
+  addOverall = T)
+
+summary(table2)
+
+table2_list <- tab_decomp(table2)
+write_csv(table2_list$continuous, paste0(project_location, '/proj_output/', site, '_table2_o2metrics_cont_by_resp_support.csv'))
+
+#Plot Median Number of Eligible Spo2 and Calculable SF by Exposure Category and Resp Support
+#First Prepare Data - Notably This Can Also be Done with Combined Table in Federated Analysis
+sf_plot_overall <- table2_list$continuous |>
+  filter(variable %in% c('n_eligible_sf_spo2_gt97', 'n_eligible_sf_spo2_lt98')) |>
+  mutate(
+    variable = ifelse(
+      variable == 'n_eligible_sf_spo2_lt98', 'n_calculable_sf', variable),
+    variable = ifelse(
+      variable == 'n_eligible_sf_spo2_gt97', 'total_eligible_spo2', variable
+    ),
+    variable = factor(variable, 
+                     levels = c( "total_eligible_spo2", "n_calculable_sf"),
+                     ordered = TRUE),  # Adjust the order here
+    strata = factor(strata, 
+                    levels = c("Overall", "imv", "high_flow_nc", "nippv", "cpap"))
+  )
+
+ggplot(sf_plot_overall, aes(x = strata, y = n*mean, fill = variable)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Stacked Bar Plot of Eligible Spo2 and Calculable SF",
+       x = "Respiratory Support Category",
+       y = "Per Patient Median",
+       fill = "") +
+  scale_y_continuous(labels = comma) +
+  theme_minimal() +
+  scale_fill_brewer()
+ggsave(
+  filename=paste0(site,'_spo2s_by_respcategory.pdf'),
+  plot=last_plot(),
+  path = paste0(project_location, '/proj_output/graphs/'))
+
+#By Hospital
+#By Respiratory Support
+if (site_n_hospitals>1) {
+table2 <- CreateTableOne(
+  data=analytic_cohort, 
+  vars=to_tab, 
+  strata='hospital_id', 
+  addOverall = T)
+
+summary(table2)
+
+table2_list <- tab_decomp(table2)
+write_csv(table2_list$continuous, paste0(project_location, '/proj_output/', site, '_table2_o2metrics_cont_by_hospital_id.csv'))
+
+#Plot Median Number of Eligible Spo2 and Calculable SF by Exposure Category and Resp Support
+#First Prepare Data - Notably This Can Also be Done with Combined Table in Federated Analysis
+sf_plot_overall <- table2_list$continuous |>
+  filter(variable %in% c('n_eligible_sf_spo2_gt97', 'n_eligible_sf_spo2_lt98')) |>
+  mutate(
+    variable = ifelse(
+      variable == 'n_eligible_sf_spo2_lt98', 'n_calculable_sf', variable),
+    variable = ifelse(
+      variable == 'n_eligible_sf_spo2_gt97', 'total_eligible_spo2', variable
+    ),
+    variable = factor(variable, 
+                     levels = c( "total_eligible_spo2", "n_calculable_sf"),
+                     ordered = TRUE)
+  ) |>
+  group_by(strata) |>
+  mutate(ordering_variable=fifelse(
+    variable=='total_eligible_spo2', sum(n*mean, na.rm=T), NA_real_
+  )) |>
+  fill(ordering_variable, .direction='downup') |>
+  ungroup() |>
+  filter(strata!='Overall') |>
+  mutate(count=n*mean, 
+         strata = factor(strata, levels = unique(strata[order(-ordering_variable)]))) |>
+  ungroup()
+
+ggplot(sf_plot_overall, aes(x =strata, y = count, fill = variable)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Stacked Bar Plot of Eligible Spo2 and Calculable SF",
+       x = "Hospital",
+       y = "Per Patient Median",
+       fill = "") +
+  scale_y_continuous(labels = comma) +
+  theme_minimal() +
+  scale_fill_brewer()
+ggsave(
+  filename=paste0(site,'_spo2s_by_hospital.pdf'),
+  plot=last_plot(),
+  path = paste0(project_location, '/proj_output/graphs/'))
+} else {
+  cat('\n Single Hospital, no Graph or Table by Hospital')
+}
+
+#Finally Examine By Oxygenation and SOFA Categories
+table2 <- CreateTableOne(
+  data=analytic_cohort, 
+  vars=to_tab, 
+  strata='oxygenation_category', 
+  addOverall = T)
+
+summary(table2)
+
+table2_list <- tab_decomp(table2)
+write_csv(table2_list$continuous, paste0(project_location, '/proj_output/', site, '_table2_o2metrics_cont_by_oxygenation.csv'))
+
+#Plot Median Number of Eligible Spo2 and Calculable SF by Exposure Category and Resp Support
+#First Prepare Data - Notably This Can Also be Done with Combined Table in Federated Analysis
+sf_plot_overall <- table2_list$continuous |>
+  filter(variable %in% c('n_eligible_sf_spo2_gt97', 'n_eligible_sf_spo2_lt98')) |>
+  mutate(
+    variable = ifelse(
+      variable == 'n_eligible_sf_spo2_lt98', 'n_calculable_sf', variable),
+    variable = ifelse(
+      variable == 'n_eligible_sf_spo2_gt97', 'total_eligible_spo2', variable
+    ),
+    variable = factor(variable, 
+                     levels = c( "total_eligible_spo2", "n_calculable_sf"),
+                     ordered = TRUE)
+  ) |>
+  group_by(strata) |>
+  mutate(ordering_variable=fifelse(
+    variable=='total_eligible_spo2', sum(n*mean, na.rm=T), NA_real_
+  )) |>
+  fill(ordering_variable, .direction='downup') |>
+  ungroup() |>
+  filter(strata!='Overall') |>
+  mutate(count=n*mean, 
+         strata = factor(strata, levels = unique(strata[order(-ordering_variable)]))) |>
+  ungroup()
+
+ggplot(sf_plot_overall, aes(x =strata, y = count, fill = variable)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Stacked Bar Plot of Eligible Spo2 and Calculable SF",
+       x = "Oxygenation Severity",
+       y = "Per Patient Median",
+       fill = "") +
+  scale_y_continuous(labels = comma) +
+  theme_minimal() +
+  scale_fill_brewer()
+ggsave(
+  filename=paste0(site,'_spo2s_by_o2_severity.pdf'),
+  plot=last_plot(),
+  path = paste0(project_location, '/proj_output/graphs/'))
+
+#SOFA
+table2 <- CreateTableOne(
+  data=analytic_cohort, 
+  vars=to_tab, 
+  strata='sofa2_resp', 
+  addOverall = T)
+
+summary(table2)
+
+table2_list <- tab_decomp(table2)
+write_csv(table2_list$continuous, paste0(project_location, '/proj_output/', site, '_table2_o2metrics_cont_by_sofa.csv'))
+
+#Plot Median Number of Eligible Spo2 and Calculable SF by Exposure Category and Resp Support
+#First Prepare Data - Notably This Can Also be Done with Combined Table in Federated Analysis
+sf_plot_overall <- table2_list$continuous |>
+  filter(variable %in% c('n_eligible_sf_spo2_gt97', 'n_eligible_sf_spo2_lt98')) |>
+  mutate(
+    variable = ifelse(
+      variable == 'n_eligible_sf_spo2_lt98', 'n_calculable_sf', variable),
+    variable = ifelse(
+      variable == 'n_eligible_sf_spo2_gt97', 'total_eligible_spo2', variable
+    ),
+    variable = factor(variable, 
+                     levels = c( "total_eligible_spo2", "n_calculable_sf"),
+                     ordered = TRUE)
+  ) |>
+  group_by(strata) |>
+  mutate(ordering_variable=fifelse(
+    variable=='total_eligible_spo2', sum(n*mean, na.rm=T), NA_real_
+  )) |>
+  fill(ordering_variable, .direction='downup') |>
+  ungroup() |>
+  filter(strata!='Overall') |>
+  mutate(count=n*mean, 
+         strata = factor(strata, levels = unique(strata[order(-ordering_variable)]))) |>
+  ungroup()
+
+ggplot(sf_plot_overall, aes(x =strata, y = count, fill = variable)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Stacked Bar Plot of Eligible Spo2 and Calculable SF",
+       x = "SOFA-2 Respiratory Score",
+       y = "Per Patient Median",
+       fill = "") +
+  scale_y_continuous(labels = comma) +
+  theme_minimal() +
+  scale_fill_brewer()
+ggsave(
+  filename=paste0(site,'_spo2s_by_sofa2.pdf'),
+  plot=last_plot(),
+  path = paste0(project_location, '/proj_output/graphs/'))
+```
+
+```{r PF and SF Summary Table}
+# Initialize an empty list to store results
+pf_sf_tables <- list()
+
+# Define the measure variables
+variables <- c('pf_24_min', 'sf_24_min')
+
+# Calculate overall statistics for each variable
+for (v in variables) {
+  pf_sf_table <- analytic_cohort |>
+    filter(!is.na(primary_metric)) |>
+    reframe(
+      variable = v,  # Store the name of the variable
+      strata = 'Overall',
+      strata_cat='Overall',
+      n = sum(!is.na(.data[[v]])),
+      missing = sum(is.na(.data[[v]]), na.rm = TRUE),
+      mean = mean(.data[[v]], na.rm = TRUE),
+      sd = sd(.data[[v]], na.rm = TRUE),
+      p50 = median(.data[[v]], na.rm = TRUE),
+      p25 = quantile(.data[[v]], 0.25, na.rm = TRUE),
+      p75 = quantile(.data[[v]], 0.75, na.rm = TRUE),
+      min = min(.data[[v]], na.rm = TRUE),
+      max = max(.data[[v]], na.rm = TRUE)
+    )
+  
+  # Store the overall result in the list
+  pf_sf_tables[[v]] <- pf_sf_table
+}
+
+# Define strata for detailed calculations
+strata <- c('resp_support_category', 'new_race_cat', 'hospital_id')
+
+# Calculate stratified statistics
+for (v in variables) {
+  for (z in strata) {
+    pf_sf_table <- analytic_cohort |>
+      filter(!is.na(primary_metric)) |>
+      group_by(.data[[z]]) |>  # Group by the stratum
+      reframe(
+        variable = v,
+        strata = .data[[z]],  # Capture the current stratum
+        strata_cat = z,
+        n = sum(!is.na(.data[[v]])),
+        missing = sum(is.na(.data[[v]]), na.rm = TRUE),
+        mean = mean(.data[[v]], na.rm = TRUE),
+        sd = sd(.data[[v]], na.rm = TRUE),
+        p50 = median(.data[[v]], na.rm = TRUE),
+        p25 = quantile(.data[[v]], 0.25, na.rm = TRUE),
+        p75 = quantile(.data[[v]], 0.75, na.rm = TRUE),
+        min = min(.data[[v]], na.rm = TRUE),
+        max = max(.data[[v]], na.rm = TRUE)
+      )
+    
+    # Store the stratified result in the list
+    pf_sf_tables[[paste(v, z, sep = "_")]] <- pf_sf_table
+  }
+}
+
+# Combine all results into a single data frame
+pf_sf_tables <- bind_rows(pf_sf_tables) |> distinct()
+
+write_csv(pf_sf_tables, paste0(project_location, '/proj_output/',site,'_pf_sf_summary_table.csv'))
+```
+
+
+```{r Distributions of Hypoxemia Classifications in Patients Using SF or PF}
+to_tab <- c(
+  'oxygenation_category',
+  'sofa2_cat'
+)
+
+factors_tab <- c(
+  'oxygenation_category',
+  'sofa2_cat'
+)
+
+table_agreement <- CreateTableOne(
+  data=analytic_cohort, 
+  vars=to_tab, 
+  strata='primary_metric', 
+  addOverall = T)
+
+summary(table_agreement)
+
+#Output 'Full' Statistics on Agreement by Oxygenation Criteria and SOFA Criteria Here
+table_agreement_list <- tab_decomp(table_agreement)
+write_csv(table_agreement_list$categorical, paste0(project_location, '/proj_output/', site, '_table_agreement.csv'))
+
+#Now Create Loop to Generate Contingency Tables for Federated Pooling - Include Local P-values Here
+contingency_cohort <- analytic_cohort |> filter(oxygenation_category!='undefined')
+# Measures and strata definitions
+measures <- c('oxygenation_category', 'sofa2_cat')
+strata <- c('new_race_cat', 'resp_support_category', 'hospital_id')
+
+# Initialize a list to store contingency tables
+contingency_tables <- list()
+
+for (x in measures) {
+  for (z in strata) {
+    # Create new stratified_metric
+    df <- contingency_cohort |>
+      mutate(stratified_metric = paste(primary_metric, .data[[z]], sep = '_'))  # Access column value dynamically
+    
+    # Create the contingency table for the current measure and strata
+    contingency <- table(df[[x]], df$stratified_metric)
+    
+    # Print the contingency table
+    cat("\nContingency Table for:", x, "by", z, '\n')
+    print(contingency)
+    
+    # Print the proportions table by column
+    cat("\nProportions Table (by column):\n")
+    print(prop.table(contingency, margin = 2))
+    
+    # Perform Chi-squared test
+    chisq <- chisq.test(contingency)
+    
+    # Convert contingency to data frame and add Chi-squared statistic and p-value
+    contingency_df <- as.data.frame(contingency) |>
+      mutate(
+        chi.sq=fcase(row_number()==1, chisq$statistic),
+        p.value=fcase(row_number()==1, chisq$p.value),
+      #Censor Any Frequency with < 5
+        less_than_5=fifelse(Freq<5, 1L, 0L),
+        Freq=fifelse((less_than_5)==1L, NA_real_, Freq))
+    
+    # Rename columns Var1 and Var2 to the current measure and strata
+    names(contingency_df)[1] <- x  # Rename first column to the current measure
+    names(contingency_df)[2] <- z  # Rename second column to the current strata
+    
+  
+    # Store the results in the list with meaningful names
+    contingency_tables[[paste(x, z, sep = "_")]] <- contingency_df
+  }
+}
+
+# Check the names and content of your contingency_tables
+for (name in names(contingency_tables)) {
+  cat("\nContigency Table List:", name)
+}
+
+#Save Local Contingency Tables with P-Values from Chi2
+contingency_tables
+saveRDS(contingency_tables, file=paste0(project_location, '/proj_output/',site,'_contingency_list.rds'))
 
 ```
 
 
-```{r Construct confusion matrix for PF vs SF Classification}
 
+```{r Aggregate Outcome Counts}
+# Define the measure variables
+analytic_cohort <- analytic_cohort |>
+  mutate(
+    measure_value=fcase(
+      primary_metric=='sf', sf_24_min,
+      primary_metric=='pf', pf_24_min,
+      default = NA_real_),
+    measure_value_5=(floor(measure_value/5))*5,
+    measure_value_10=(floor(measure_value/10))*10,
+    measure_value_15=(floor(measure_value/15))*15,
+    measure_value_20=(floor(measure_value/20))*20
+  )
+
+# Initialize a list to store aggregated outcomes
+aggregate_outcomes_list <- list()
+
+variables <- c('measure_value_5')
+for (v in variables) {
+  # Conduct aggregation for each variable
+  aggregate_outcomes <- analytic_cohort |>
+    filter(!is.na(primary_metric)) |>
+    group_by(.data[[v]]) |>
+    reframe(
+      variable = v,  # Store the name of the variable
+      strata = 'Overall',
+      strata_cat = 'Overall',
+      n_in_group = n(),
+      n_deathhosp28 = sum(death_hospice28, na.rm = TRUE),
+      n_deathhosp60 = sum(death_hospice60, na.rm = TRUE)
+    ) |>
+  mutate(
+      less_than_5=(n_in_group<=5),
+      n_in_group=fifelse(less_than_5==T, NA_real_, n_in_group),
+      n_deathhosp28=fifelse(less_than_5==T, NA_real_, n_deathhosp28),
+      n_deathhosp60=fifelse(less_than_5==T, NA_real_, n_deathhosp60)
+    )
+  
+# Store the result in the list, using the variable name for indexing
+aggregate_outcomes_list[[v]] <- aggregate_outcomes
+}
+
+# Define strata for detailed calculations
+strata <- c('resp_support_category', 'new_race_cat', 'hospital_id')
+# Initialize a list to store stratified outcomes
+stratified_outcomes_list <- list()
+# Calculate stratified statistics
+for (v in variables) {
+  for (z in strata) {
+    aggregate_outcomes <- analytic_cohort |>
+      filter(!is.na(primary_metric)) |>
+      group_by(.data[[z]], .data[[v]]) |>  # Group by the stratum
+      reframe(
+        variable = v,
+        strata = .data[[z]],  # Capture the current stratum
+        strata_cat = z,
+        n_in_group=n(),
+        n_deathhosp28=sum(death_hospice28, na.rm=T),
+        n_deathhosp60=sum(death_hospice60, na.rm=T)
+      )  |>
+     mutate(
+      less_than_5=(n_in_group<=5),
+      n_in_group=fifelse(less_than_5==T, NA_real_, n_in_group),
+      n_deathhosp28=fifelse(less_than_5==T, NA_real_, n_deathhosp28),
+      n_deathhosp60=fifelse(less_than_5==T, NA_real_, n_deathhosp60)
+    )
+    
+    # Store the stratified result in the list
+    stratified_outcomes_list[[paste(v, z, sep = "_")]] <- aggregate_outcomes
+  }
+}
+
+# Combine all overall and stratified results into a single data frame
+aggregate_outcomes <- bind_rows(aggregate_outcomes_list) |>
+  distinct() 
+stratified_outcomes <- bind_rows(stratified_outcomes_list) |>
+  distinct()
+aggregate_outcomes <- rowbind(aggregate_outcomes, stratified_outcomes, fill=T) |>
+  mutate(site=site)
+
+#Save Aggregate Outcomes
+write_csv(aggregate_outcomes, paste0(project_location, '/proj_output/',site,'_aggregate_outcomes.csv'))
 ```
 
-
-```{r Generate PF and SF groupings by 5 For Generate of Federated Logistic Regression Models with ROC Evaluation}
-
-```
-
-```{r Repeat Confusion Matrix Stratified by Race}
-
-```
-
-```{r Repeat Event Outcome Generation by PF vs SF Groupings Stratified By Race}
-
+```{r}
+cat('This code is DONE!!! Thank you for your support for this CLIF project!')
 ```
 

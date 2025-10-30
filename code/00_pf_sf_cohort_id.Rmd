@@ -272,6 +272,7 @@ PAO2_MIN <- 40
 PAO2_MAX <- 700
 FIO2_MIN <- 0.21
 FIO2_MAX <- 1.00
+PF_MAX <- 600
 
 #VENT OUTLIERS
 PEEP_MIN <- 0
@@ -500,7 +501,11 @@ resp_info <- resp_info |>
     peep_set = fcase(
       peep_set >= PEEP_MAX, NA_real_, 
       peep_set <= PEEP_MIN, NA_real_,
-      default = peep_set))
+      default = peep_set),
+    #For Nasal Cannula with high flow or high Fio2 mark as hiflow
+    device_category=fifelse(
+      device_category=='nasal_cannula' & lpm_set>=20 & fio2_set>=0.3, 
+         'high flow nc', device_category))
     
 #Waterfall Filling
 resp_info <- resp_info |>
@@ -827,6 +832,7 @@ resp_first_24_long <- resp_first_24 |>
   group_by(hospital_block_id, eligible_measure_by_time) |>
   mutate(
     pf_ratio=po2_arterial/fio2_carried,
+    pf_ratio=fifelse(pf_ratio>=PF_MAX, NA_real_, pf_ratio),
     pf_24_min=fifelse(eligible_measure_by_time==1, min(pf_ratio, na.rm=T, default = NA_real_), NA_real_),
     pf_24_mean=fifelse(eligible_measure_by_time==1, mean(pf_ratio, na.rm=T, default = NA_real_), NA_real_),
     pf_24_median=fifelse(eligible_measure_by_time==1, median(pf_ratio, na.rm=T, default = NA_real_), NA_real_),
