@@ -1566,5 +1566,6 @@ analytic_cohort <- cohort_build |>
 ```{r Save Analytic Datasets}
 write_parquet(analytic_cohort, paste0(project_location, '/proj_tables/analytic_cohort.parquet'))
 write_parquet(resp_first_24_long, paste0(project_location, '/proj_tables/resp_first_24_long.parquet'))
+write_csv(consort_table, paste0(project_location, '/proj_tables/',site,'_consort_data.csv'))
 ```
 
