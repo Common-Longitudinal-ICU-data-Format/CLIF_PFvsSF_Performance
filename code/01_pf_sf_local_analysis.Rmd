@@ -993,6 +993,87 @@ saveRDS(contingency_tables, file=paste0(project_location, '/proj_output/',site,'
 
 ```
 
+```{r Mortality by PF/SF Category}
+to_tab <- c(
+  'death_hospice28',
+  'death_hospice60'
+)
+
+factors_tab <- c(
+  'death_hospice28',
+  'death_hospice60'
+)
+
+#Create Strata of Combination of Primary Metric and Oxygenation Category
+analytic_cohort <- analytic_cohort |>
+  mutate(
+    o2_strata=paste0(primary_metric, '-', oxygenation_category),
+    sofa_strata=paste0(primary_metric, '-', sofa2_resp))
+strata <- c('o2_strata', 'sofa_strata')
+table_mortality_list <- list()
+for (s in strata) {
+table_mortality <- CreateTableOne(
+  data=analytic_cohort, 
+  vars=to_tab, 
+  factorVars = factors_tab,
+  strata=s, 
+  addOverall = T)
+
+#Output 'Full' Statistics on Agreement by Oxygenation Criteria and SOFA Criteria Here
+table_mortality_list[[s]] <- tab_decomp(table_mortality)
+}
+
+#Extract Categorical Table
+table_mortality_list <- lapply(table_mortality_list, function(x) as.data.frame(x$categorical))
+mortality_table <- do.call(rbind, lapply(table_mortality_list, as.data.frame)) |>
+  distinct() |>
+  mutate(
+      less_than_5=(n<=5),
+      n=fifelse(less_than_5==T, NA_integer_, n),
+      freq=fifelse(less_than_5==T, NA_integer_, as.integer(freq)),
+      percent=as.numeric(percent))
+write_csv(mortality_table, paste0(project_location, '/proj_output/',site,'_aggregate_by_o2cat.csv'))
+
+
+#Repeat by Hospital
+strata <- c("o2_strata", "sofa_strata")
+hospital_id <- unique(analytic_cohort$hospital_id)
+
+out_list <- list()
+for (h in hospital_id) {
+  df <- dplyr::filter(analytic_cohort, hospital_id == h)
+  if (nrow(df) == 0) next
+  
+  for (s in strata) {
+    tm <- CreateTableOne(
+      data = df,
+      vars = to_tab,
+      factorVars = factors_tab,
+      strata = s,
+      addOverall = TRUE
+    )
+    td <- tab_decomp(tm)
+    cat_df <- as.data.frame(td$categorical) |>
+      mutate(hospital_id=h)
+    
+    # add identifiers
+    cat_df$hospital_id <- h
+    cat_df$strata_type <- s
+    
+    # unique key per hospital–strata
+    out_list[[paste(h, s, sep = "__")]] <- cat_df
+  }}
+mortality_by_hospital <- dplyr::bind_rows(out_list, .id = "key") |>
+  select(-key) |>
+  mutate(
+      less_than_5=(n<=5),
+      n=fifelse(less_than_5==T, NA_integer_, n),
+      freq=fifelse(less_than_5==T, NA_integer_, as.integer(freq)),
+      percent=as.numeric(percent)
+    ) |>
+  distinct()
+write_csv(mortality_by_hospital, paste0(project_location, '/proj_output/',site,'_aggregate_by_o2cat_hospital.csv'))
+```
 
 
 ```{r Aggregate Outcome Counts}
@@ -1017,7 +1098,7 @@ for (v in variables) {
   # Conduct aggregation for each variable
   aggregate_outcomes <- analytic_cohort |>
     filter(!is.na(primary_metric)) |>
-    group_by(.data[[v]]) |>
+    group_by(primary_metric, .data[[v]]) |>
     reframe(
       variable = v,  # Store the name of the variable
       strata = 'Overall',
@@ -1046,7 +1127,7 @@ for (v in variables) {
   for (z in strata) {
     aggregate_outcomes <- analytic_cohort |>
       filter(!is.na(primary_metric)) |>
-      group_by(.data[[z]], .data[[v]]) |>  # Group by the stratum
+      group_by(primary_metric, .data[[z]], .data[[v]]) |>  # Group by the stratum
       reframe(
         variable = v,
         strata = .data[[z]],  # Capture the current stratum
