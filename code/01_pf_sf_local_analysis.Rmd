@@ -1073,6 +1073,88 @@ mortality_by_hospital <- dplyr::bind_rows(out_list, .id = "key") |>
     ) |>
   distinct()
 write_csv(mortality_by_hospital, paste0(project_location, '/proj_output/',site,'_aggregate_by_o2cat_hospital.csv'))
+
+#Repeat by Race
+strata <- c("o2_strata", "sofa_strata")
+race_cat <- unique(analytic_cohort$new_race_cat)
+
+out_list <- list()
+for (h in race_cat) {
+  df <- dplyr::filter(analytic_cohort, new_race_cat == h)
+  if (nrow(df) == 0) next
+  
+  for (s in strata) {
+    tm <- CreateTableOne(
+      data = df,
+      vars = to_tab,
+      factorVars = factors_tab,
+      strata = s,
+      addOverall = TRUE
+    )
+    td <- tab_decomp(tm)
+    cat_df <- as.data.frame(td$categorical) |>
+      mutate(new_race_cat=h)
+    
+    # add identifiers
+    cat_df$new_race_cat <- h
+    cat_df$strata_type <- s
+    
+    # unique key per hospital–strata
+    out_list[[paste(h, s, sep = "__")]] <- cat_df
+  }}
+mortality_by_race <- dplyr::bind_rows(out_list, .id = "key") |>
+  select(-key) |>
+  mutate(
+      less_than_5=(n<=5),
+      n=fifelse(less_than_5==T, NA_integer_, n),
+      freq=fifelse(less_than_5==T, NA_integer_, as.integer(freq)),
+      percent=as.numeric(percent)
+    ) |>
+  distinct()
+write_csv(mortality_by_race, paste0(project_location, '/proj_output/',site,'_aggregate_by_o2cat_race.csv'))
+
+#Repeat by Respiratory Support
+strata <- c("o2_strata", "sofa_strata")
+resp <- unique(analytic_cohort$resp_support_category)
+
+out_list <- list()
+for (h in resp) {
+  df <- dplyr::filter(analytic_cohort, resp_support_category == h)
+  if (nrow(df) == 0) next
+  
+  for (s in strata) {
+    tm <- CreateTableOne(
+      data = df,
+      vars = to_tab,
+      factorVars = factors_tab,
+      strata = s,
+      addOverall = TRUE
+    )
+    td <- tab_decomp(tm)
+    cat_df <- as.data.frame(td$categorical) |>
+      mutate(resp_support_category=h)
+    
+    # add identifiers
+    cat_df$resp_support_category <- h
+    cat_df$strata_type <- s
+    
+    # unique key per hospital–strata
+    out_list[[paste(h, s, sep = "__")]] <- cat_df
+  }}
+mortality_by_resp_support <- dplyr::bind_rows(out_list, .id = "key") |>
+  select(-key) |>
+  mutate(
+      less_than_5=(n<=5),
+      n=fifelse(less_than_5==T, NA_integer_, n),
+      freq=fifelse(less_than_5==T, NA_integer_, as.integer(freq)),
+      percent=as.numeric(percent)
+    ) |>
+  distinct()
+write_csv(mortality_by_resp_support, paste0(project_location, '/proj_output/',site,'_aggregate_by_o2cat_resp_support.csv'))
+```
+
+```{r Mortality by Oxygenation Category and Stratified}
+
 ```
 
 
