@@ -391,6 +391,7 @@ consort_table
 ```{r Admitted Via the ED}
 #Define If Patient First Admitted to ED
 adt_info <- data_list$adt |>
+  mutate(hospitalization_id=as.character(hospitalization_id)) |>
   inner_join(hid_jid_crosswalk) |> #Filter Out Hospitalizations Not initial Steps
   filter(tolower(location_category) %in% c('ed', 'ward', 'icu', 'stepdown')) |>
   arrange(hospital_block_id, in_dttm) |>
