@@ -1363,8 +1363,7 @@ sofa_plt <-  data_list[['labs']] |>
         lab_value_numeric>=20 & lab_value_numeric<50~3, 
         lab_value_numeric>=50 & lab_value_numeric<100~2, 
         lab_value_numeric>=100 & lab_value_numeric<150~1, 
-        lab_value_numeric>=150~ 0, 
-        lab_value_numeric>=12 ~ 4)) |> 
+        lab_value_numeric>=150~ 0)) |> 
   select(hospital_block_id, lab_collect_dttm, sofa_plt, plt_24) |>
   as.data.table() |>
   group_by(hospital_block_id, plt_24) |>
