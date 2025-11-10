@@ -1203,12 +1203,15 @@ pressor_data <- data_list[['medication_admin_continuous']] |>
     med_category=="dobutamine" , wt_dose
   )) |>
   fill(dobut_dose, .direction = "down") |>
+  mutate(dobut_on=fcase(
+    dobut_dose>0 , 1,
+    (is.na(dobut_dose) | dobut_dose==0) , 0 )) |>
   mutate(milrinone_dose=fcase(
     med_category=="milrinone" , wt_dose
   )) |>
   fill(milrinone_dose, .direction = "down") |>
   mutate(milrinone_on=fcase(
-    dopa_dose>0 , 1,
+    milrinone_dose>0 , 1,
     (is.na(milrinone_dose) | milrinone_dose==0) , 0 )) |>
   mutate(isoproterenol_dose=fcase(
     med_category=="isoproterenol" , wt_dose
