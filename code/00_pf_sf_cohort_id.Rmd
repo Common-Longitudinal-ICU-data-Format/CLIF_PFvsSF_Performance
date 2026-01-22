@@ -909,13 +909,32 @@ resp_first_24_long <- resp_first_24 |>
   fill(min_sf_dttm, min_sf_device, sf_24_min, sf_24_mean, sf_24_median, min_sf_spo2, min_sf_fio2, .direction='downup') |>
   #Select ph_venous and pco2_venous that is closest to min_sf_dttm
   mutate(
-    temp_sf_difftime = ifelse(!is.na(ph_venous), 
-                              as.numeric(difftime(recorded_dttm, min_sf_dttm, units = "hours")),
-                              NA_real_),
-    sf_ph_venous = ph_venous[which.min(abs(temp_sf_difftime))],  # Select ph_venous closest to min_sf_dttm
-    sf_pco2_venous = pco2_venous[which.min(abs(temp_sf_difftime))] # Select pco2_venous closest to min_sf_dttm
+     #Compute time difference in hours
+    temp_sf_difftime = ifelse(
+      !is.na(ph_venous), 
+      as.numeric(difftime(recorded_dttm, min_sf_dttm, units = "hours")),
+      NA_real_
+    ),
+    # Find the minimum non-zero difference flag
+    min_difftime = ifelse(
+      !is.na(temp_sf_difftime) & temp_sf_difftime > 0,
+      ifelse(temp_sf_difftime == min(temp_sf_difftime[temp_sf_difftime > 0], na.rm = TRUE), 1L, 0L), 
+      0L
+    ),
+    # Extract ph_venous and pco2_venous for the minimum non-zero difference
+    sf_ph_venous = ifelse(
+      min_difftime == 1, 
+      ph_venous, 
+      NA_real_
+    ),
+    sf_pco2_venous = ifelse(
+      min_difftime == 1, 
+      pco2_venous, 
+      NA_real_
+    )
   ) |>
-  ungroup()
+  fill(sf_ph_venous, sf_pco2_venous, .direction='downup') |>
+  ungroup() |>
   select(hospital_block_id, recorded_dttm, eligible_measure_by_time, eligible_spo2, max_resp_support24, fio2_dttm, fio2_carried, fio2_set, spo2, po2_arterial, min_pf_dttm, min_pf_device, pf_24_min, min_pf_pao2, min_pf_fio2, pf_24_mean, pf_24_median, ph_pf, paco2_pf, this_pf, po2_arterial, pf_ratio, ph_arterial, pco2_arterial,spo2, this_sf, min_sf_dttm, min_sf_device, sf_24_min, sf_24_mean, sf_24_median, min_sf_spo2, min_sf_fio2, sf_ph_venous, sf_pco2_venous)
 
 rm(abgs, spo2, resp_first_24); gc()
