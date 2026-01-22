@@ -236,28 +236,8 @@ rm(allowed_files, missing_tables); gc()
 
 ## load tables -----------------------------------------------------------------
 
-#For Arrow Need to Convert Large String (sometimes saved as UTF-8 to String)
-cast_large_utf8_to_utf8 <- function(x) {
-  # Only applies to Arrow objects that have a schema()
-  # (open_dataset() returns an Arrow Dataset / query)
-  sch <- arrow::schema(x)
-
-  large_cols <- vapply(
-    sch$fields,
-    function(f) f$type$ToString() %in% c("large_string", "large_utf8"),
-    logical(1)
-  )
-
-  cols_to_cast <- sch$names[large_cols]
-  if (length(cols_to_cast) == 0) return(x)
-
-  x %>% mutate(across(all_of(cols_to_cast), ~ arrow::cast(.x, arrow::utf8())))
-}
-
 if (file_type == "parquet") {
   data_list = lapply(required_filenames, open_dataset)
-  # Apply cast function to normalize Arrow string types right after import
-  data_list <- lapply(data_list, cast_large_utf8_to_utf8)
 } else if (file_type == "csv") {
   data_list = lapply(required_filenames, \(f) read_csv_arrow(f))
 } else if (file_type == "fst") {
@@ -271,14 +251,13 @@ if (file_type == "parquet") {
 
 names(data_list) = names(required_filenames)
 ```
-
 ```{r Specify Global Variables - Time Period and Other Parameters}
 STUDY_START <- as.POSIXct("2021-01-01", tz=site_time_zone) # Start time
 STUDY_END <- as.POSIXct("2024-12-31", tz=site_time_zone) # End time
 
-STABILITY_WINDOW_MINS <- 24 * 60 # Minimum number of minutes of Respiratory Support to be included
+STABILITY_WINDOW_MINS <- 24 * 60 # Minimum number of minutes of NIV to be included
 MAX_NIV_BREAK_MINS <- 2 * 60 # Maximum amount of minutes allowed off NIV within STABILITY_WINDOW_MINS from starting  
-NIV_NAMES <- c("nippv", "high flow nc") # Device names that are included as NIV
+NIV_NAMES <- c("cpap", "nippv", "high flow nc") # Device names that are included as NIV
 
 HOSPITAL_BLOCK_TIME_HRS <- 6 # Maximum number of hours allowed between hospitalizations to make them blocked together
 
@@ -286,7 +265,7 @@ HOSPITAL_BLOCK_TIME_HRS <- 6 # Maximum number of hours allowed between hospitali
 AGE_MIN <- 18
 AGE_MAX <- 120
 
-#SpO2, PaO2, FIO2, Venous Blood Gas Outliers
+#SpO2, PaO2, FIO2 Outliers
 SPO2_MIN <- 80
 SPO2_MAX <- 100
 PAO2_MIN <- 40
@@ -294,10 +273,6 @@ PAO2_MAX <- 700
 FIO2_MIN <- 0.21
 FIO2_MAX <- 1.00
 PF_MAX <- 600
-PH_MAX <- 8
-PH_MIN <- 6.5
-PCO2_MAX <- 150
-PCO2_MIN <- 5
 
 #VENT OUTLIERS
 PEEP_MIN <- 0
@@ -467,7 +442,6 @@ rm(adt_info); gc()
 ```
 
 
-
 #Define Respiratory Support
 ```{r Received HIFNC, NIV or IMV Within 7 Days of Admit for At Least 24 Hours}
 #Load Respiratory Support and Filter to Relevant Time Frame 
@@ -493,7 +467,7 @@ resp_info <- data_list$respiratory_support |>
 
 #Filter to Only Encounters with Any IMV/NIV
 resp_info <- resp_info[
-  , .SD[any(tolower(device_category) %in% c("imv", "nippv", "high flow nc", "high_flow_nc"))],
+  , .SD[any(tolower(device_category) %in% c("imv", "nippv", "cpap", "high flow nc", "high_flow_nc"))],
   by = hospital_block_id
 ]
 
@@ -529,7 +503,7 @@ resp_info <- resp_info |>
       peep_set >= PEEP_MAX, NA_real_, 
       peep_set <= PEEP_MIN, NA_real_,
       default = peep_set),
-    #For Nasal Cannula with high flow and high Fio2 mark as hiflow
+    #For Nasal Cannula with high flow or high Fio2 mark as hiflow
     device_category=fifelse(
       device_category=='nasal_cannula' & lpm_set>=20 & fio2_set>=0.3, 
          'high flow nc', device_category))
@@ -568,7 +542,7 @@ resp_episodes <- resp_devices |>
   fmutate(
     #Respiratory Support For Purposes of this Study
     resp_support =fcase(
-      tolower(device_category) %in% c('imv', 'nippv'), 1L,
+      tolower(device_category) %in% c('imv', 'nippv', 'cpap'), 1L,
       tolower(device_category) %in% c('high flow nc', 'high_flow_nc') & lpm_carried>=30, 1L,
       default = 0L)) 
 
@@ -736,7 +710,7 @@ codes =
   roworder(hospital_block_id, start_dttm) |>
   fgroup_by(hospital_block_id) |>
   fsummarize(code_status = flast(code_status_category)) |>
-  #If no code status present Within 7 Days Prior to and 24 Hours After Respiratory Failure Start Presume Full
+  #If no code status present Within 7 Days Prior to and 24 Hours After Respiratory Failure Start Prseume Full
   fmutate(limited_code_status_24h = if_else(tolower(code_status) %in% dni_equivalent, 1L, 0L, 0L))
 
 #Join Back wiht Respiratory Episodes
@@ -772,7 +746,7 @@ Groupings: For Worst PF/SF Measures Resp Support Mode is Mode on Which PF/SF Was
 For Median PF/SF it is the most support HIFNC>NIPPV>IMV in First 24 Hours
 
 #At End of this Block We Will Have Data to Implement Final Exclusion of No Eligible PF or SF Measures in First 24 Hours
-```{r Generate PF and SF Exposure Measures}
+```{r Generate PF and SF Exposurem Measures}
 #Table for Respiratory Info Filtered to Patients in Cohort
 resp_first_24 <- resp_info |>
   semi_join(hid_jid_crosswalk, by = 'hospital_block_id') |>
@@ -782,7 +756,7 @@ resp_first_24 <- resp_info |>
   fmutate(
     resp_support_rank=fcase(
       tolower(device_category) %in% c('high flow nc', 'high_flow_nc'), 0L,
-      tolower(device_category) %in% c('nippv'), 1L,
+      tolower(device_category) %in% c('nippv', 'cpap'), 1L,
       tolower(device_category)=='imv', 2L,
       default = 0L),
     resp_support_rank=max(resp_support_rank),
@@ -793,16 +767,14 @@ resp_first_24 <- resp_info |>
     )) |>
   ungroup()
 
-#Bring in ABG Data - Will Also Collect Venous pH and pvCo2 here (for description)
+#Bring in ABG Data
 abgs = data_list[["labs"]] |>
   mutate(hospitalization_id = as.character(hospitalization_id)) |>
   semi_join(hid_jid_crosswalk, by='hospitalization_id') |>
   filter(tolower(lab_category) %in% c(
     'ph_arterial',
     'po2_arterial',
-    'pco2_arterial',
-    'ph_venous',
-    'pco2_venous')) |>
+    'pco2_arterial')) |>
   left_join(hid_jid_crosswalk, by = 'hospitalization_id') |>
   left_join(resp_episodes_on_study, by='hospital_block_id', multiple=T) |>
   select(hospital_block_id, lab_category, lab_value_numeric, lab_collect_dttm, resp_failure_start) |>
@@ -813,15 +785,9 @@ abgs = data_list[["labs"]] |>
                          id_cols = c('hospital_block_id', 'lab_collect_dttm'), 
                          values_fn = median) |>
   #Outlier Filtering
-  mutate(
-    po2_arterial=fifelse(po2_arterial>PAO2_MAX | po2_arterial<PAO2_MIN, NA_real_, po2_arterial),
-    ph_arterial=fifelse(ph_arterial>PH_MAX | ph_arterial<PH_MIN, NA_real_, ph_arterial),
-    ph_venous=fifelse(ph_venous>PH_MAX | ph_venous<PH_MIN, NA_real_, ph_venous),
-    pco2_venous=fifelse(pco2_venous>PCO2_MAX | pco2_venous<PCO2_MIN, NA_real_, pco2_venous),
-    pco2_arterial=fifelse(pco2_arterial>PCO2_MAX | pco2_arterial<PCO2_MIN, NA_real_, pco2_arterial)
-    ) |>
+  mutate(po2_arterial=fifelse(po2_arterial>PAO2_MAX | po2_arterial<PAO2_MIN, NA_real_, po2_arterial)) |>
   rename(recorded_dttm=lab_collect_dttm) |>
-  select(hospital_block_id, recorded_dttm, ph_arterial, po2_arterial, pco2_arterial, ph_venous, pco2_venous)
+  select(hospital_block_id, recorded_dttm, ph_arterial, po2_arterial, pco2_arterial)
 
 #Bring in SpO2 Data
 spo2 = data_list[["vitals"]] |>
@@ -907,16 +873,8 @@ resp_first_24_long <- resp_first_24 |>
     min_sf_fio2=fifelse(this_sf==1, fio2_carried, NA_real_)
     ) |>
   fill(min_sf_dttm, min_sf_device, sf_24_min, sf_24_mean, sf_24_median, min_sf_spo2, min_sf_fio2, .direction='downup') |>
-  #Select ph_venous and pco2_venous that is closest to min_sf_dttm
-  mutate(
-    temp_sf_difftime = ifelse(!is.na(ph_venous), 
-                              as.numeric(difftime(recorded_dttm, min_sf_dttm, units = "hours")),
-                              NA_real_),
-    sf_ph_venous = ph_venous[which.min(abs(temp_sf_difftime))],  # Select ph_venous closest to min_sf_dttm
-    sf_pco2_venous = pco2_venous[which.min(abs(temp_sf_difftime))] # Select pco2_venous closest to min_sf_dttm
-  ) |>
-  ungroup()
-  select(hospital_block_id, recorded_dttm, eligible_measure_by_time, eligible_spo2, max_resp_support24, fio2_dttm, fio2_carried, fio2_set, spo2, po2_arterial, min_pf_dttm, min_pf_device, pf_24_min, min_pf_pao2, min_pf_fio2, pf_24_mean, pf_24_median, ph_pf, paco2_pf, this_pf, po2_arterial, pf_ratio, ph_arterial, pco2_arterial,spo2, this_sf, min_sf_dttm, min_sf_device, sf_24_min, sf_24_mean, sf_24_median, min_sf_spo2, min_sf_fio2, sf_ph_venous, sf_pco2_venous)
+  ungroup() |>
+  select(hospital_block_id, recorded_dttm, eligible_measure_by_time, eligible_spo2, max_resp_support24, fio2_dttm, fio2_carried, fio2_set, spo2, po2_arterial, min_pf_dttm, min_pf_device, pf_24_min, min_pf_pao2, min_pf_fio2, pf_24_mean, pf_24_median, ph_pf, paco2_pf, this_pf, po2_arterial, pf_ratio, ph_arterial, pco2_arterial,spo2, this_sf, min_sf_dttm, min_sf_device, sf_24_min, sf_24_mean, sf_24_median, min_sf_spo2, min_sf_fio2)
 
 rm(abgs, spo2, resp_first_24); gc()
 ```
