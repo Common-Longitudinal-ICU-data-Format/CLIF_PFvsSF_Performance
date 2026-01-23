@@ -313,7 +313,9 @@ HF_LPM_MAX <- 90
 RF_DURATION <- 24
 
 #TIME from Spo2/Pao2 to Most Recent FiO2; 4 Hours
-TIME_TO_SF_PF <- 4
+TIME_TO_SF_PF <- 1
+
+#Max Time from Worst PF to Corresponding SF
 
 #Blank Table to Build Consort Data
 consort_table <- data.frame(
@@ -909,18 +911,16 @@ resp_first_24_long <- resp_first_24 |>
   fill(min_sf_dttm, min_sf_device, sf_24_min, sf_24_mean, sf_24_median, min_sf_spo2, min_sf_fio2, .direction='downup') |>
   #Select ph_venous and pco2_venous that is closest to min_sf_dttm
   mutate(
-     #Compute time difference in hours
-    temp_sf_difftime = ifelse(
+     #Compute time difference in hours - In absolute Terms
+    temp_sf_difftime = fifelse(
       !is.na(ph_venous), 
-      as.numeric(difftime(recorded_dttm, min_sf_dttm, units = "hours")),
-      NA_real_
+      abs(as.numeric(difftime(recorded_dttm, min_sf_dttm, units = "hours"))),
+      99 # THis allows for any value with missing ph_venous is labeled as 99 hours different
     ),
     # Find the minimum non-zero difference flag
-    min_difftime = ifelse(
-      !is.na(temp_sf_difftime) & temp_sf_difftime > 0,
-      ifelse(temp_sf_difftime == min(temp_sf_difftime[temp_sf_difftime > 0], na.rm = TRUE), 1L, 0L), 
-      0L
-    ),
+   min_difftime = fifelse(
+    temp_sf_difftime==min(temp_sf_difftime, na.rm=T), 1L, 
+        0L, 0L),
     # Extract ph_venous and pco2_venous for the minimum non-zero difference
     sf_ph_venous = ifelse(
       min_difftime == 1, 
@@ -931,11 +931,40 @@ resp_first_24_long <- resp_first_24 |>
       min_difftime == 1, 
       pco2_venous, 
       NA_real_
-    )
-  ) |>
-  fill(sf_ph_venous, sf_pco2_venous, .direction='downup') |>
+    ),
+    vbg_dttm = fifelse(!is.na(sf_ph_venous), recorded_dttm, as.POSIXct(NA)),
+   #Now Extract Any SF Ratios That are Within 1 Hour of PF
+    #Compute time difference in hours - In absolute Terms
+    temp_sf_difftime = fifelse(
+      !is.na(pf_24_min), 
+      abs(as.numeric(difftime(recorded_dttm, min_sf_dttm, units = "hours"))),
+      99 # THis allows for any value with missing ph_venous is labeled as 99 hours different
+    ),
+    # Find the minimum non-zero difference flag
+   min_difftime = fifelse(
+     abs(temp_sf_difftime)<=TIME_TO_SF_PF & temp_sf_difftime==min(temp_sf_difftime, na.rm=T), 1L, 
+        0L, 0L),
+   sf_contemporary_to_pf = ifelse(
+      min_difftime == 1, 
+      sf_ratio, 
+      NA_real_
+    ),
+   sf_contemporary_to_pf_spo2 = ifelse(
+      min_difftime == 1, 
+      spo2, 
+      NA_real_
+    ),
+   sf_contemporary_to_pf_fio2 = ifelse(
+      min_difftime == 1, 
+      fio2_carried, 
+      NA_real_
+    ),
+   sf_contemporary_dttm  = fifelse(!is.na(sf_contemporary_to_pf), recorded_dttm, as.POSIXct(NA))
+    ) |>
+  fill(sf_ph_venous, sf_pco2_venous, vbg_dttm, 
+       sf_contemporary_to_pf, sf_contemporary_to_pf_fio2, sf_contemporary_dttm, .direction='downup') |>
   ungroup() |>
-  select(hospital_block_id, recorded_dttm, eligible_measure_by_time, eligible_spo2, max_resp_support24, fio2_dttm, fio2_carried, fio2_set, spo2, po2_arterial, min_pf_dttm, min_pf_device, pf_24_min, min_pf_pao2, min_pf_fio2, pf_24_mean, pf_24_median, ph_pf, paco2_pf, this_pf, po2_arterial, pf_ratio, ph_arterial, pco2_arterial,spo2, this_sf, min_sf_dttm, min_sf_device, sf_24_min, sf_24_mean, sf_24_median, min_sf_spo2, min_sf_fio2, sf_ph_venous, sf_pco2_venous)
+  select(hospital_block_id, recorded_dttm, eligible_measure_by_time, eligible_spo2, max_resp_support24, fio2_dttm, fio2_carried, fio2_set, spo2, po2_arterial, min_pf_dttm, min_pf_device, pf_24_min, min_pf_pao2, min_pf_fio2, pf_24_mean, pf_24_median, ph_pf, paco2_pf, this_pf, po2_arterial, pf_ratio, ph_arterial, pco2_arterial,spo2, this_sf, min_sf_dttm, min_sf_device, sf_24_min, sf_24_mean, sf_24_median, min_sf_spo2, min_sf_fio2, ph_venous, pco2_venous, vbg_dttm, sf_ph_venous, sf_pco2_venous, sf_contemporary_to_pf, sf_contemporary_to_pf_spo2, sf_contemporary_to_pf_fio2, sf_contemporary_dttm)
 
 rm(abgs, spo2, resp_first_24); gc()
 ```
@@ -1020,8 +1049,12 @@ resp_first_24_summary <- resp_first_24_long |>
   filter(row_number()==1) |>
   ungroup() |>
   select(
-    hospital_block_id, max_resp_support24, min_pf_dttm, min_pf_device, pf_24_min, min_pf_pao2, min_pf_fio2, pf_24_mean, pf_24_median, 
-    ph_pf, paco2_pf, min_sf_dttm, min_sf_device, sf_24_min, sf_24_mean, sf_24_median, min_sf_spo2, min_sf_fio2, n_spo2, n_fio2, n_pao2,     n_eligible_sf_spo2_lt98, n_eligible_sf_spo2_gt97, n_eligible_pf)
+    hospital_block_id, max_resp_support24, min_pf_dttm, min_pf_device, 
+    pf_24_min, min_pf_pao2, min_pf_fio2, pf_24_mean, pf_24_median, 
+    ph_pf, paco2_pf, min_sf_dttm, min_sf_device, sf_24_min, sf_24_mean, sf_24_median, 
+    min_sf_spo2, min_sf_fio2, vbg_dttm, sf_ph_venous, sf_pco2_venous,
+    sf_contemporary_to_pf, sf_contemporary_to_pf_spo2, sf_contemporary_dttm, n_spo2, n_fio2, n_pao2,     
+    n_eligible_sf_spo2_lt98, n_eligible_sf_spo2_gt97, n_eligible_pf)
 
 #Define Respiratory Support at Time of Inclusion
 resp_first_24_summary <- resp_first_24_summary |>
@@ -1037,7 +1070,32 @@ resp_first_24_summary <- resp_first_24_summary |>
       !is.na(pf_24_min) & !is.na(sf_24_min), 'sf_pf',
       is.na(pf_24_min) & !is.na(sf_24_min), 'sf_only',
       is.na(pf_24_min) & is.na(sf_24_min), 'undefined_oxygenation'
-    ))
+    )) 
+
+#Non-linear (from Brown et al) Imputation of Pao2 from SpO2
+pao2_imputer <- function(df, var) {
+  # Create the new variable name
+  new_var_name <- paste0(var, "_po2_impute")
+  
+  df <- df |>
+    mutate(
+      S = if_else(!!rlang::sym(var) < 97, !!rlang::sym(var) / 100, NA_real_),
+      a = 11700 / (1/S - 1),
+      b = sqrt(50^3 + a^2),
+      !!new_var_name := (b + a)^(1/3) + (b - a)^(1/3)  # Create a new variable with the dynamic name
+    ) |>
+    select(-S, -a, -b)
+  
+  return(df)  # Important to return the modified dataframe
+}
+
+# Assuming resp_first_24_summary already exists
+resp_first_24_summary <- resp_first_24_summary |>
+  pao2_imputer("min_sf_spo2") |>  # Pass the dataframe and the column name as a string
+  pao2_imputer("sf_contemporary_to_pf_spo2") |>
+  mutate(
+    min_sf_pf_impute=min_sf_spo2_po2_impute/min_sf_fio2,
+    sf_pf_contemporary_impute=sf_contemporary_to_pf_spo2_po2_impute/sf_contemporary_to_pf_fio2)
 ```
 
 
