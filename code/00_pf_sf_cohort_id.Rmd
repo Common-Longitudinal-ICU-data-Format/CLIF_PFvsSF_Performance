@@ -1,7 +1,7 @@
 ---
 title: "00_pf_sf_cohort_id"
 author: "Chad H. Hochberg and Nicholas Ingraham"
-date: "`r Sys.Date()`"
+date: "`r Sys.Date()`"x
 output: html_document
 ---
 
@@ -1053,7 +1053,8 @@ resp_first_24_summary <- resp_first_24_long |>
     pf_24_min, min_pf_pao2, min_pf_fio2, pf_24_mean, pf_24_median, 
     ph_pf, paco2_pf, min_sf_dttm, min_sf_device, sf_24_min, sf_24_mean, sf_24_median, 
     min_sf_spo2, min_sf_fio2, vbg_dttm, sf_ph_venous, sf_pco2_venous,
-    sf_contemporary_to_pf, sf_contemporary_to_pf_spo2, sf_contemporary_dttm, n_spo2, n_fio2, n_pao2,     
+    sf_contemporary_to_pf, sf_contemporary_to_pf_spo2, sf_contemporary_to_pf_fio2,
+    sf_contemporary_dttm, n_spo2, n_fio2, n_pao2,     
     n_eligible_sf_spo2_lt98, n_eligible_sf_spo2_gt97, n_eligible_pf)
 
 #Define Respiratory Support at Time of Inclusion
@@ -1630,7 +1631,8 @@ location_data <- data_list$adt |>
 
 #Hospital First - This will the Hospital Where the Patient Was at the Start of Respiratory Failure
 location_data <- location_data |>
-  group_by(hospital_block_id, hospital_id) |>
+  filter(!is.na(hospital_id)) |>
+  group_by(hospital_block_id) |>
   mutate(
     last_hospital_time=max(out_dttm), 
     hospital_id=fifelse(
@@ -1648,7 +1650,7 @@ location_data <- location_data |>
       resp_failure_start<min(in_dttm), 1L, #Few Patients have Initiation of Vitals Before 'in_dttm' listed (generally by minutes)
       default=0L),
     keep=cumsum(keep)) |>
-  #Only Need to Consider Locations within 488 Hours Respiratory Start
+  #Only Need to Consider Locations within 48 Hours Respiratory Start
   filter(
     keep>=1L,
     in_dttm<=(resp_failure_start+dhours(48))) |>
