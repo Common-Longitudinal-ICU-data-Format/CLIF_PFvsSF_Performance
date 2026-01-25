@@ -1000,7 +1000,35 @@ consort_table <- rbind(
   ))
 
 rm(exclude)
+
+#Also Exclude the Few Patients with Resp Failure Start in 2025
+exclude <- resp_episodes_on_study |>
+  group_by(hospital_block_id) |>
+  filter(year(as.POSIXct(resp_failure_start, tz = site_time_zone)) >= 2025) |>
+  ungroup() |>
+  distinct(hospital_block_id)
+  
+hid_jid_crosswalk <- hid_jid_crosswalk |> filter(!hospital_block_id %in% exclude$hospital_block_id)
+  resp_first_24_long <- resp_first_24_long |>
+    filter(!hospital_block_id %in% exclude$hospital_block_id)
+  
+#For Consort 
+consort_table <- rbind(
+  consort_table,
+  data.frame(
+    step = "n, with respiratory failure start < year 2025", 
+    included = length(unique(hid_jid_crosswalk$hospital_block_id)), 
+    excluded = NA_real_
+)) |>
+  #This Step Keeps Track of Exclusions
+  mutate(excluded=case_when(
+    row_number()==n() ~ lag(included)-included, 
+    TRUE ~ excluded
+  ))
+
+rm(exclude)
 ```
+
 ```{r Finally Randomly Select One Encounter For Each Patient}
 set.seed(32284)
 randomly_select <- hid_jid_crosswalk |>
@@ -1690,6 +1718,7 @@ analytic_cohort <- cohort_build |>
 ```{r Save Analytic Datasets}
 write_parquet(analytic_cohort, paste0(project_location, '/proj_tables/analytic_cohort.parquet'))
 write_parquet(resp_first_24_long, paste0(project_location, '/proj_tables/resp_first_24_long.parquet'))
+write_parquet(resp_info, paste0(project_location, '/proj_tables/resp_support_pf_v_sf.parquet'))
 write_csv(consort_table, paste0(project_location, '/proj_output/',site,'_consort_data.csv'))
 ```
 

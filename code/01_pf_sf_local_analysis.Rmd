@@ -332,6 +332,13 @@ analytic_cohort <- analytic_cohort |>
     exposure_group %in% "sf_only" & sf_24_min > SF_MILD[1] & sf_24_min <= SF_MILD[2], 'mild_hypoxemia',
     exposure_group %in% "sf_only" & sf_24_min > SF_MOD[1] & sf_24_min <= SF_MOD[2], 'moderate_hypoxemia',
     exposure_group %in% "sf_only" & sf_24_min <= SF_SEV, 'severe_hypoxemia',
+    default='undefined'),
+    #Now Include an Oxygenation Category SF for those with PF
+  oxygenation_category_sf_both=fcase(
+    exposure_group %in% c("sf_pf") & sf_24_min > SF_NO_HYPOXEMIA, 'not_hypoxemic',
+    exposure_group %in% c("sf_pf") & sf_24_min > SF_MILD[1] & sf_24_min <= PF_MILD[2], 'mild_hypoxemia',
+    exposure_group %in% c("sf_pf") & sf_24_min > SF_MOD[1] & sf_24_min <= SF_MOD[2], 'moderate_hypoxemia',
+    exposure_group %in% c("sf_pf") & sf_24_min <= SF_SEV, 'severe_hypoxemia',
     default='undefined'))
 
 #Now Define SOFA2 Scores Based on PF or SF
@@ -365,7 +372,18 @@ analytic_cohort <- analytic_cohort %>%
       exposure_group == "sf_only" & sf_24_min <= SF_SOFA_4, 4,
       default = NA_real_  # Assign NA if none of the conditions are met
     ),
-    sofa2_cat = factor(sofa2_resp)  # Convert to factor
+    #Now Repeat SOFA Definition for SF-PF group but with SF
+    sofa2_cat_sf_both=fcase(
+      # For SF
+      exposure_group == "sf_pf" & sf_24_min > SF_SOFA_0, 0,
+      exposure_group == "sf_pf" & sf_24_min > SF_SOFA_1[1] & sf_24_min <= SF_SOFA_1[2], 1,
+      exposure_group == "sf_pf" & sf_24_min > SF_SOFA_2[1] & sf_24_min <= SF_SOFA_2[2], 2,
+      exposure_group == "sf_pf" & sf_24_min > SF_SOFA_3[1] & sf_24_min <= SF_SOFA_3[2], 3,
+      exposure_group == "sf_pf" & sf_24_min <= SF_SOFA_4, 4,
+      default = NA_real_  # Assign NA if none of the conditions are met
+    ),
+    sofa2_cat = factor(sofa2_resp),  # Convert to factor
+    sofa2_cat = factor(sofa2_resp)
   )
 
 #Define Which Metric Is Used Primarily To Define Score
@@ -378,12 +396,88 @@ analytic_cohort <- analytic_cohort |>
 
 ```{r Define Primary and Secondary Outcomes}
 #Primary: In-hospital Death or Discharge to Hospice by Day 28
-#Secondary: In-hospital Death or Discharge to Hospice by Day 60
+#Secondary: 
+    #In-hospital Death or Discharge to Hospice by Day 60
+    #Respiratory-Support Free Days
 analytic_cohort <- analytic_cohort |>
   mutate(
     days_to_dc=as.duration(final_discharge_dttm-resp_failure_start)/ddays(1),
     death_hospice28=fifelse(days_to_dc<28 & inhosp_death_hospice==1L, 1, 0),
     death_hospice60=fifelse(days_to_dc<60 & inhosp_death_hospice==1L, 1, 0))
+
+#Defining Respiratory Support Free Days (any NIPPV, HIFNC or IMV Counts as Resp Support, Count is 0 For those that Die By Day 28)
+#Now Use Respiratory Table To Calculate VFDs (0 if patient days by end of day 28, otherwise number of days with no IMV from t_enrollment
+#1 Need to Determine if Someone is Discharged on Resp Support (if Last device category is vent)
+RESP_SUPPORT <- c('imv', 'nippv', 
+                  'high flow nc', 'high_flow_nc')
+dc_on_resp_support <- data_list$resp_support_pf_v_sf.parquet |>
+  as.data.table() |>
+  semi_join(analytic_cohort, by = 'hospital_block_id') |>
+  filter(!is.na(device_category)) |>
+  select(hospital_block_id, recorded_dttm, device_category) |>
+  group_by(hospital_block_id) |>
+  arrange(hospital_block_id, recorded_dttm) |>
+  filter(
+    dplyr::row_number()==dplyr::n()
+  ) |>
+  ungroup() |>
+  mutate(dc_on_resp_support=fifelse(tolower(device_category) %in%
+                                      RESP_SUPPORT, 1, 0)) |>
+  select(hospital_block_id, dc_on_resp_support)
+
+#Now Define RSFDs through Day 28
+rsfds <- data_list$resp_support_pf_v_sf.parquet |>
+  as.data.table() |>
+  inner_join(
+    analytic_cohort %>% 
+      select(hospital_block_id, days_to_dc, death_hospice28, resp_failure_start), 
+    by = 'hospital_block_id') |>
+  left_join(dc_on_resp_support, by = 'hospital_block_id') |>
+  filter(
+    !is.na(device_category),
+    tolower(device_category) %in% RESP_SUPPORT) |>
+  select(hospital_block_id, recorded_dttm, device_category,
+         days_to_dc, death_hospice28, resp_failure_start, dc_on_resp_support) |>
+  group_by(hospital_block_id) |>
+  arrange(hospital_block_id, recorded_dttm) |>
+  filter(
+    recorded_dttm>=resp_failure_start
+    ) |>
+  mutate(
+    day=floor(as.duration(recorded_dttm-resp_failure_start)/ddays(1)) + 1,
+    ever_imv=fifelse(
+      any(tolower(device_category)=='imv'), 1L, 0L, 0L
+    )
+  ) |>
+  group_by(hospital_block_id, day) |>
+  filter(
+    dplyr::row_number()==1,
+    day<=28     
+    ) |>
+  group_by(hospital_block_id) |>
+  mutate(
+    days_of_resp_support=dplyr::n(),
+  ) |>
+  filter(
+    dplyr::row_number()==1
+  ) |>
+  ungroup() |>
+  #Now Have a Dataset with Number of Days Through Day 28 with IMV Recorded
+  #Now Define VFDs
+  mutate(
+    resp_support_free_days28=fcase(
+      death_hospice28==1, 0, #IF Dead by Day 28 than 0
+      days_to_dc>=29, 28-days_of_resp_support,
+      days_to_dc<29 & dc_on_resp_support==1, 0, #If discharged on vent assume stayed on vent
+      days_to_dc<29 &  dc_on_resp_support==0, 28-days_of_resp_support, #If dsicharged OFF vent assumed stayed off vent
+      default = NA_real_
+    )
+  ) |>
+  select(hospital_block_id, dc_on_resp_support, resp_support_free_days28, ever_imv)
+
+#Merge Into Analytic Cohort 
+analytic_cohort <- analytic_cohort |>
+  left_join(rsfds, by = 'hospital_block_id')
 ```
 
 
@@ -401,7 +495,7 @@ analytic_cohort <- analytic_cohort |>
 cat('\nAt', site, 'the first eligible patient was enrolled on', as.character(first(analytic_cohort$resp_failure_start)), 
     '\n and the last on', as.character(last(analytic_cohort$resp_failure_start)), '\n')
 
-#Create a Study Month Data Frame to Merge to Create Study Month; Can Adjust ym() to accomadte desired period; for this analysis 2018 through 2024
+#Create a Study Month Data Frame to Merge to Create Study Month; Can Adjust ym() to accomodate desired period; for this analysis 2018 through 2024
 study_month <- data.frame(start_date=seq(ym("202101"), ym("202512"), by= "months")) |>
   mutate(calendar_month=month(start_date)) |>
   mutate(year=year(start_date)) |>
@@ -412,10 +506,10 @@ study_month <- data.frame(start_date=seq(ym("202101"), ym("202512"), by= "months
 
 #Join Back with Analytic Cohort
 analytic_cohort <- analytic_cohort |>
-  left_join(study_month)
+  left_join(study_month, by = c('year', 'calendar_month'))
 
 #How Many Respiratory Failure Patients Per Month?
-#Create a Table of N of Patients and Number paralyticsd Per Study Quarter
+#Create a Table of N of Patients Per Study Quarter
 arf_per_quarter <- analytic_cohort |> 
   group_by(study_quarter, exposure_group) |>
   reframe(
@@ -423,7 +517,15 @@ arf_per_quarter <- analytic_cohort |>
     'site_n_hospitals' = first(site_n_hospitals),
     'year' = mean(year),
     'n_patients' = n()
-  ) 
+  ) |>
+  group_by(study_quarter) |>
+  mutate(
+    abg = fifelse(exposure_group %in% c('pf_only', 'sf_pf'), 1, 0),
+    patients_with_abg = sum(n_patients[abg == 1], na.rm = T),
+    percent_with_abg= patients_with_abg/sum(n_patients, na.rm=T)
+  ) |>
+  select(-abg) |>
+  ungroup()
 #Save Locally At Each Site but Don't Export as May have 1 Patient Per Month
 write_csv(arf_per_quarter, paste0(project_location, '/proj_tables/', site,'_arf_per_quarter.csv'))
 
@@ -434,7 +536,15 @@ arf_per_quarter_hospital <- analytic_cohort |>
     'site_n_hospitals' = first(site_n_hospitals),
     'year' = mean(year),
     'n_patients' = n()
-  ) 
+  ) |>
+  group_by(study_quarter, hospital_id) |>
+   mutate(
+    abg = fifelse(exposure_group %in% c('pf_only', 'sf_pf'), 1, 0),
+    patients_with_abg = sum(n_patients[abg == 1], na.rm = T),
+    percent_with_abg= patients_with_abg/sum(n_patients, na.rm=T)
+  ) |>
+  select(-abg) |>
+  ungroup()
 #Save Locally At Each Site but Don't Export as May have 1 Patient Per Month
 write_csv(arf_per_quarter_hospital, paste0(project_location, '/proj_tables/', site,'_arf_per_quarter_hospital.csv'))
 

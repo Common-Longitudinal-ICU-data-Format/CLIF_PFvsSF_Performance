@@ -30,3 +30,8 @@ initialize_renv.R
 # ignore proj_output and proj_tables
 proj_output/
 proj_tables/
+
+#Ignore RENV Cache
+# Ignore renv cache
+renv/cache/*
+renv/library
