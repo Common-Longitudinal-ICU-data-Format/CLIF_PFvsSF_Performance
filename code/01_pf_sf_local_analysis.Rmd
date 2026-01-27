@@ -478,6 +478,12 @@ rsfds <- data_list$resp_support_pf_v_sf.parquet |>
 #Merge Into Analytic Cohort 
 analytic_cohort <- analytic_cohort |>
   left_join(rsfds, by = 'hospital_block_id')
+
+#Site Specific Histograms for VFDs
+plot <- ggplot(analytic_cohort) +
+  geom_histogram(aes(x=resp_support_free_days28))
+ggsave(paste0(site, '_resp_free_days_28.pdf'),
+       path = paste0(project_location, '/proj_output/graphs/'))
 ```
 
 
@@ -602,7 +608,7 @@ ggsave(paste0(site, '_exposure_group_per_quarter.pdf'),
 ```{r Describe Cohort- Table 1}
 #IF resp_support_category is nasal cannula or room air (all errors at JHU) use maximal resp support
 #If this happens to more than 3% of the sample initiate a break
-resp_cat <- c('cpap', 'high_flow_nc', 'imv', 'nippv')
+resp_cat <- c('high_flow_nc', 'imv', 'nippv')
 percent_resp_change <- round((mean(!analytic_cohort$resp_support_category %in% resp_cat, na.rm=T)*100), digits=2)
 if (percent_resp_change<3) {
   analytic_cohort <- analytic_cohort |>

@@ -1720,5 +1720,10 @@ write_parquet(analytic_cohort, paste0(project_location, '/proj_tables/analytic_c
 write_parquet(resp_first_24_long, paste0(project_location, '/proj_tables/resp_first_24_long.parquet'))
 write_parquet(resp_info, paste0(project_location, '/proj_tables/resp_support_pf_v_sf.parquet'))
 write_csv(consort_table, paste0(project_location, '/proj_output/',site,'_consort_data.csv'))
+
+#Save Unique List of hospitalization_ids, patient_id, and hospital_block_id
+write_parquet(hid_jid_crosswalk, 
+              paste0(project_location, 
+                   '/proj_tables/hid_jid_crosswalk.parquet'))
 ```
 
