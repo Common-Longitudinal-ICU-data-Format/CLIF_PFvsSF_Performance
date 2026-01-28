@@ -1218,7 +1218,6 @@ elix      = cbind(elix, vw_elixhauser = vw_elixhauser) |> fselect(hospital_block
   left_join(elixhauser_count %>% select(hospital_block_id, elixhauser_count), by = 'hospital_block_id')
 
 
-
 cohort_build <- cohort_build |>
   left_join(elix, by='hospital_block_id')
 
