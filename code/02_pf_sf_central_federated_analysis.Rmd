@@ -118,11 +118,11 @@ tables <- c(
   "_table2_o2metrics_cat_by_oxygenation.csv",  
   "_table2_o2metrics_cat_by_resp_support.csv", 
   "_table2_o2metrics_cat_by_sofa.csv",
-  "_table2_o2metrics_cat_by_exposure.csv",    
-  "_table2_o2metrics_cat_by_hospital_id.csv",  
-  "_table2_o2metrics_cat_by_oxygenation.csv",  
-  "_table2_o2metrics_cat_by_resp_support.csv", 
-  "_table2_o2metrics_cat_by_sofa.csv"
+  "_table2_o2metrics_cont_by_exposure.csv",    
+  "_table2_o2metrics_cont_by_hospital_id.csv",  
+  "_table2_o2metrics_cont_by_oxygenation.csv",  
+  "_table2_o2metrics_cont_by_resp_support.csv", 
+  "_table2_o2metrics_cont_by_sofa.csv"
 )
 
 # Combine sites and tables to create full table names
@@ -315,7 +315,7 @@ aggregate_table1_cat <- aggregate_table1_cat |>
 ```
 
 ```{r Test For Difference in Distribution of Categorical Variables}
-#For now Table 1 Purposes This Ignores Clustering by Site
+#For Table 1
 vars <- c(
   'female',
   'new_race_cat',
@@ -561,6 +561,7 @@ vars <- c(
   'icu_type',
   'resp_support_category',
   'max_resp_support24',
+  'ever_imv',
   'death_hospice28',
   'death_hospice60')
 
@@ -656,7 +657,8 @@ table1_paper_twocat <- readable_table(table1_paper_twocat , strata_values, has_c
 write_csv(table1_paper_twocat, paste0(project_location, '/tables/table1_pooled_noundefined.csv'))
 ```
 
-```{r Describe SpO2/FiO2 and PaO2/FiO2 Availability - Overall and By Support Category and Race}
+
+```{r Describe SpO2/FiO2 and PaO2/FiO2 Availability - Overall and By Support Category}
 table2_metrics_exposure <- collate_tables('_table2_o2metrics_cont_by_resp_support.csv') 
   
 
@@ -681,7 +683,7 @@ table2 <- table2_working |>
     values_from=c(n_total, count_mean, percent_sd)) 
 
 #Vector For Reordering Columns
-strata_values <-c("Overall","cpap", "high_flow_nc", "imv", "nippv")
+strata_values <-c("Overall", "imv", "nippv", "high_flow_nc")
 relocate_vector <- c()
 # Loop through the strata values to generate names for those strata
 for (stratum in strata_values) {
@@ -694,8 +696,58 @@ table2 <- table2 |>
   relocate(all_of(relocate_vector), .after = variable) |>
   mutate(level='placehold')
 
-#Now Table 1 Paper
-table2_paper <- readable_table(table2 , strata_values, has_continuous=T, has_categorical=F) 
+#Now the Categorical Variables
+table_o2metric_cat <- collate_tables('_table2_o2metrics_cat_by_resp_support.csv') |>
+  group_by(strata, variable, level) |>
+  dplyr::reframe(
+    n_total=sum(n),
+    n_miss=sum(miss, na.rm=T),
+    count=sum(freq,na.rm=T),
+    percent=count/(n_total-n_miss)
+  ) 
+vars <- c(
+  'abg_measured',
+  'any_sf',
+  'abg_and_sf')
+
+#Order of Variables
+order_vec <- table_o2metric_cat$variable
+order <- data.frame(
+  variable=unique(order_vec)) |>
+  mutate(order_number=dplyr::row_number())
+
+table_o2metric_cat <- table_o2metric_cat |>
+  left_join(order, by='variable') |>
+  arrange(strata, order_number)
+
+table_o2metric_cat_chi <- chisq_function(table_o2metric_cat) |>
+  mutate(rn=1)
+
+#Merge Back with Table 1 and COnvert to Wide
+table_o2metric_cat <- table_o2metric_cat |>
+  select(strata, variable, level, n_total, count, percent, order_number) |>
+  mutate(
+    percent=round((percent*100), digits = 2)
+  ) |>
+  rename(count_mean=count,
+         percent_sd=percent) |>
+  pivot_wider(
+    names_from=c(strata),
+    names_glue="{strata}_{.value}",
+    values_from=c(n_total, count_mean, percent_sd)) 
+
+#Reorder and Add Statistical Testing
+table_o2metric_cat  <- table_o2metric_cat  |>
+  relocate(all_of(relocate_vector), .after = level) |>
+  group_by(variable) |>
+  mutate(rn=dplyr::row_number()) |>
+  left_join(table_o2metric_cat_chi, by=c('variable', 'rn')) |>
+  arrange(order_number, variable) |>
+  select(-order_number, -rn)
+
+#Now For a Readable Table
+table2_paper <- rowbind(table2, table_o2metric_cat, fill=T) 
+table2_paper <- readable_table(table2_paper, strata_values, has_continuous=T,has_categorical=T) 
 
 #Save Tables
 write_csv(table2_paper, paste0(project_location, '/tables/table2_metric_count_resp_support.csv'))
@@ -704,6 +756,9 @@ write_csv(table2_paper, paste0(project_location, '/tables/table2_metric_count_re
 ```{r Figure of SpO2 Distribution By Respiratory Support}
 #Plot Number of Eligible Spo2 and Calculable SF by Exposure Category and Resp Support
 #First Prepare Data 
+table2_metrics_exposure <- collate_tables('_table2_o2metrics_cont_by_resp_support.csv') 
+table2_working <- cont_table_function(table2_metrics_exposure) 
+
 table2_aggregate <- table2_working |>
   distinct(strata, variable, overall_n, weighted_mean) 
 
