@@ -899,7 +899,7 @@ table2_noud <- CreateTableOne(
 
 summary(table2_noud)
 
-table2_list_noud <- tab_decomp(table2)
+table2_list_noud <- tab_decomp(table2_noud)
 write_csv(table2_list_noud$continuous, paste0(project_location, '/proj_output/', site, '_table2_o2metrics_cont_by_resp_support_noundefined.csv'))
 write_csv(table2_list_noud$categorical, paste0(project_location, '/proj_output/', site, '_table2_o2metrics_cat_by_resp_support_noundefined.csv'))
 
