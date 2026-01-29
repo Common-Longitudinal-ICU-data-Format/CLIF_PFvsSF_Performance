@@ -22,7 +22,9 @@ packages_to_install =
     "rprojroot", 
     "comorbidity",
     "caret",
-    "scales")
+    "scales",
+    "ordinal",
+    "lmtest")
 
 #Can Load For Each Individual RMarkdown
 packages_to_load =
@@ -37,7 +39,9 @@ packages_to_load =
     "viridis",
     "sandwich",
     "caret",
-    "scales")
+    "scales",
+    "ordinal",
+    "lmtest")
 options(dplyr.summarise.inform = FALSE)
 
 fn_install_if_mi = function(p) {
@@ -1445,13 +1449,18 @@ analytic_cohort <- analytic_cohort |>
     sf_min_both_5=fifelse(
       exposure_group=='sf_pf', (floor(sf_24_min/5))*5, NA_real_),
     sf_contemporary_5=fifelse(
-      exposure_group=='sf_pf', (floor(sf_contemporary_to_pf/5))*5, NA_real_)
+      exposure_group=='sf_pf', (floor(sf_contemporary_to_pf/5))*5, NA_real_),
+    median_measure=fcase(
+      primary_metric=='sf', sf_24_median,
+      primary_metric=='pf', pf_24_median,
+      default = NA_real_),
+    median_measure_5=(floor(median_measure/5))*5,
     )
   
 # Initialize a list to store aggregated outcomes
 aggregate_outcomes_list <- list()
 
-variables <- c('measure_value_5', 'sf_min_both_5', 'sf_contemporary_5')
+variables <- c('measure_value_5', 'sf_min_both_5', 'sf_contemporary_5', 'median_measure_5')
 for (v in variables) {
   # Conduct aggregation for each variable
   aggregate_outcomes <- analytic_cohort |>
@@ -1520,7 +1529,200 @@ aggregate_outcomes <- rowbind(aggregate_outcomes, stratified_outcomes, fill=T) |
 write_csv(aggregate_outcomes, paste0(project_location, '/proj_output/',site,'_aggregate_outcomes.csv'))
 ```
 
+```{r Model Summary Function}
+model_summary_table <- function(model) {
+ 
+#Uses Fixed Effects and loop through hospital  
+coef_table <- coeftest(model)
+conf_int <- coefci(model)
 
+model_table <- data.frame(
+  'site' = site,
+  'n_observations' = nobs(model),
+  'term' = rownames(coef_table),
+  'estimate' = coef_table[, "Estimate"],
+  'std_error' = coef_table[, "Std. Error"],
+  'p_value' = coef_table[, "Pr(>|t|)"],
+  'odds_ratio' = round(exp(coef_table[, "Estimate"]), 3),  # Exponentiated coefficients as Odds Ratios
+  'lower_bound' = exp(conf_int[, 1]),  # Lower bound of CI from coefci()
+  'upper_bound' = exp(conf_int[, 2])   # Upper bound of CI from coefci()
+)
+model_table <- model_table |>
+  mutate(confidence_interval=paste0(round(lower_bound, 3), ' - ', round(upper_bound, 3))) |>
+  relocate(confidence_interval, .before = lower_bound) 
+
+rownames(model_table) <- NULL
+return(model_table)
+}
+
+```
+
+
+
+```{r Cumulative Logistic Regression for Respiratory Free Days}
+#Do by Hospital
+hospital_vector <- unique(na.omit(analytic_cohort$hospital_id))
+
+model_df <- analytic_cohort |> 
+  mutate(
+    resp_support_free_days28 = factor(resp_support_free_days28, 
+                                      levels = as.character(0:28),  # Levels from 0 to 28 as characters
+                                       ordered = TRUE),
+    oxygenation_category =factor(oxygenation_category,
+                                 levels = c('mild_hypoxemia', 'moderate_hypoxemia', 
+                                            'severe_hypoxemia', 'not_hypoxemic', 'undefined'),
+                                 labels =c('mild_hypoxemia', 'moderate_hypoxemia', 
+                                            'severe_hypoxemia', 'not_hypoxemic', 'undefined'),
+                                 ordered = FALSE),
+    sofa2_cat =factor(sofa2_cat,
+                                 levels = as.character(0:4),
+                                 ordered = FALSE),
+    oxygenation_category_sf_both = factor(oxygenation_category_sf_both,
+                                 levels = c('mild_hypoxemia', 'moderate_hypoxemia', 
+                                            'severe_hypoxemia', 'not_hypoxemic', 'undefined'),
+                                 labels =c('mild_hypoxemia', 'moderate_hypoxemia', 
+                                            'severe_hypoxemia', 'not_hypoxemic', 'undefined'),
+                                 ordered = FALSE),
+    o2_cat_sf_pf_contemporary = factor(o2_cat_sf_pf_contemporary,
+                                 levels = c('mild_hypoxemia', 'moderate_hypoxemia', 
+                                            'severe_hypoxemia', 'not_hypoxemic', 'undefined'),
+                                 labels =c('mild_hypoxemia', 'moderate_hypoxemia', 
+                                            'severe_hypoxemia', 'not_hypoxemic', 'undefined'),
+                                 ordered = FALSE),
+    sofa2_cat_sf_both =factor(sofa2_cat_sf_both,
+                                 levels = as.character(0:4),
+                                 ordered = FALSE),
+    sofa2_cat_sf_contemp_pf =factor(sofa2_cat_sf_contemp_pf,
+                                 levels = as.character(0:4),
+                                 ordered = FALSE),
+    #Scale to Changes in PF or SF of 50
+    pf_sf_100_increase = measure_value/100,
+    pf_100_increase = pf_24_min/100,
+    sf_100_increase=sf_24_min/100,
+    sf_100_increase_contemp=sf_contemporary_to_pf/100,
+    pf_med_100_increase=pf_24_median/100,
+    sf_med_100_increase=sf_24_median/100)
+    
+#Function to Run Cumulative Logistic Regression/Proportional Odds Model
+cum_logit_function <- function(data, exposure) {
+  # Create formula as a string and convert to formula
+  formula_str <- paste("resp_support_free_days28 ~", exposure)
+  model <- clm(as.formula(formula_str), data = data, link='logit')
+  return(model)
+}
+
+#Build the Models by Hospital
+metric_vector <- c('pf', 'sf')
+exposure_vector <- c('oxygenation_category', 'sofa2_cat', 'pf_sf_100_increase')
+resp_free_day_models <- list()
+
+for (h in hospital_vector) {
+  resp_free_day_models[[h]] <- list()  # Initialize inner list for each hospital
+  
+ for (m in metric_vector) {
+   for (e in exposure_vector) {
+    mod <- cum_logit_function(data = subset(model_df, primary_metric == m & hospital_id == h), 
+                              exposure = e)
+    
+    mod_table <- model_summary_table(mod) |>
+      mutate(
+        primary_metric = m,
+        hospital_id = h
+        ) |>
+      relocate(hospital_id, primary_metric, .after = site) |>
+      as.data.frame()
+    
+    resp_free_day_models[[h]][[e]][[m]] <- mod_table
+   }
+ }
+}
+
+#Add Variables Assessed in Only Those with Both SF and PF
+metric_vector <- c('sf_pf')
+exposure_vector <- c(
+    'sf_med_100_increase'
+    )
+for (h in hospital_vector) {
+ for (m in metric_vector) {
+  for (e in exposure_vector) {
+    mod <- cum_logit_function(data = subset(model_df, exposure_group %in% c('sf', 'sf_pf') 
+                              & hospital_id == h), 
+                              exposure = e)
+    
+    mod_table <- model_summary_table(mod) |>
+      mutate(
+        primary_metric = m,
+        hospital_id = h
+      ) |>
+      relocate(hospital_id, primary_metric, .after = site) |>
+      as.data.frame()
+    
+    resp_free_day_models[[h]][[e]][[m]] <- mod_table
+  
+}
+ } }
+
+exposure_vector <- c(
+    'pf_med_100_increase'
+    )
+for (h in hospital_vector) {
+ for (m in metric_vector) {
+  for (e in exposure_vector) {
+    mod <- cum_logit_function(data = subset(model_df, exposure_group %in% c('pf', 'sf_pf') 
+                              & hospital_id == h), 
+                              exposure = e)
+    
+    mod_table <- model_summary_table(mod) |>
+      mutate(
+        primary_metric = m,
+        hospital_id = h
+      ) |>
+      relocate(hospital_id, primary_metric, .after = site) |>
+      as.data.frame()
+    
+    resp_free_day_models[[h]][[e]][[m]] <- mod_table
+  
+}
+ } }
+
+#Add Median Values Assesed in the PF Cohort and SF Cohort Separately
+metric_vector <- c('sf_or_sf_pf')
+exposure_vector <- c(
+    'oxygenation_category_sf_both',
+    'o2_cat_sf_pf_contemporary',
+    'sofa2_cat_sf_both',
+    'sofa2_cat_sf_contemp_pf',
+    'sf_100_increase',
+    'sf_100_increase_contemp',
+    'pf_100_increase'
+    )
+for (h in hospital_vector) {
+ for (m in metric_vector) {
+  for (e in exposure_vector) {
+    mod <- cum_logit_function(data = subset(model_df, exposure_group == 'sf_pf' & hospital_id == h), 
+                              exposure = e)
+    
+    mod_table <- model_summary_table(mod) |>
+      mutate(
+        primary_metric = m,
+        hospital_id = h
+      ) |>
+      relocate(hospital_id, primary_metric, .after = site) |>
+      as.data.frame()
+    
+    resp_free_day_models[[h]][[e]][[m]] <- mod_table
+  
+}
+} }
+
+#Now Combine
+combined_table <- resp_free_day_models |>
+  unlist(recursive = FALSE) |>  # Flatten to exposure level
+  unlist(recursive = FALSE) |>  # Flatten to metric level
+  bind_rows()
+
+write_csv(combined_table, paste0(project_location, '/proj_output/',site,'_proportional_odds_models.csv'))
+```
 
 
 ```{r}
