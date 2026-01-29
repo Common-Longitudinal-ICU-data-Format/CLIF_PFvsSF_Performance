@@ -9,7 +9,7 @@ output: html_document
 project_location <- '~/Library/CloudStorage/OneDrive-JohnsHopkins/Research Projects/CLIF/CLIF_Projects/CLIF_PF-to-SF/federated_summary_analysis'
 
 #Which Sites Participated
-sites <- c("hopkins","rush","umn","nu", "ohsu", "penn", "michigan", "ucmc", "emory")
+sites <- c("hopkins")
 
 if (!dir.exists(paste0(project_location, "/tables"))) {
   dir.create(paste0(project_location, "/tables"))
@@ -95,29 +95,34 @@ tables <- c(
   "_aggregate_by_o2cat_resp_support.csv",
   "_aggregate_by_o2cat_race.csv",
   "_aggregate_by_o2cat.csv",
+  "_aggregate_hours_to_measure.csv",
   "_consort_data.csv",
-  "_pf_sf_summary_table.csv",                   
+  "_pf_sf_summary_table.csv",  
+  "_proportional_odds_models.csv",
   "_sofa_missing.csv",                          
   "_table_agreement.csv",                       
-  "_table1_cat_by_exposure_cpap.csv",          
   "_table1_cat_by_exposure_high_flow_nc.csv",  
   "_table1_cat_by_exposure_imv.csv",           
   "_table1_cat_by_exposure_nippv.csv",         
   "_table1_cat_by_exposure.csv",                
   "_table1_cat_by_oxygenation.csv",            
   "_table1_cat_by_sofa2.csv",                   
-  "_table1_cont_by_exposure_cpap.csv",         
   "_table1_cont_by_exposure_high_flow_nc.csv", 
   "_table1_cont_by_exposure_imv.csv",          
   "_table1_cont_by_exposure_nippv.csv",        
   "_table1_cont_by_exposure.csv",               
   "_table1_cont_by_oxygenation.csv",           
   "_table1_cont_by_sofa2.csv",                  
-  "_table2_o2metrics_cont_by_exposure.csv",    
-  "_table2_o2metrics_cont_by_hospital_id.csv",  
-  "_table2_o2metrics_cont_by_oxygenation.csv",  
-  "_table2_o2metrics_cont_by_resp_support.csv", 
-  "_table2_o2metrics_cont_by_sofa.csv"
+  "_table2_o2metrics_cat_by_exposure.csv",    
+  "_table2_o2metrics_cat_by_hospital_id.csv",  
+  "_table2_o2metrics_cat_by_oxygenation.csv",  
+  "_table2_o2metrics_cat_by_resp_support.csv", 
+  "_table2_o2metrics_cat_by_sofa.csv",
+  "_table2_o2metrics_cat_by_exposure.csv",    
+  "_table2_o2metrics_cat_by_hospital_id.csv",  
+  "_table2_o2metrics_cat_by_oxygenation.csv",  
+  "_table2_o2metrics_cat_by_resp_support.csv", 
+  "_table2_o2metrics_cat_by_sofa.csv"
 )
 
 # Combine sites and tables to create full table names
@@ -152,14 +157,14 @@ contingency_list <- list()
 # Loop through each site
 for (site in sites) {
   # List all files in the specified directory
-  filenames <- list.files(paste0('site_data/', site, '/proj_output/'))
+  filenames <- list.files(paste0(project_location,'/site_data/',site,'/proj_output/'))
   
   # Loop through each filename
   for (filename in filenames) {
     # Check if the file is a CSV and not the "graphs" file
     if (grepl("\\.rds$", filename) && filename != "graphs") {
       # Read the CSV file into a data frame
-      data <- read_rds(paste0('site_data/', site, '/proj_output/', filename))
+      data <- read_rds(paste0(project_location,'/site_data/',site,'/proj_output/', filename))
       
       # Extract the base name without the extension to use as list key
       name_key <- tools::file_path_sans_ext(filename)
@@ -193,6 +198,7 @@ combine_lists <- function(data_list, table_name) {
   return(combined_table)
 }
 ```
+
 
 ```{r Collate Data Function}
 # Function to extract and collate specified tables from the site_table_data list
@@ -253,7 +259,8 @@ combine_lists <- function(data_list, table_name) {
 
 table1_cat <- collate_tables("_table1_cat_by_exposure.csv")
 table1_cont <- collate_tables("_table1_cont_by_exposure.csv")
-table_o2_hospital <- collate_tables("_table2_o2metrics_cont_by_hospital_id.csv")
+table_o2_hospital_cont <- collate_tables("_table2_o2metrics_cont_by_hospital_id.csv")
+table_o2_hospital_cat <- collate_tables("_table2_o2metrics_cat_by_hospital_id.csv")
 
 #Determine Total N for Patients Represented, Total CLIF Sites and Total Hospitals
 N_aggregate <- table1_cat |> 
@@ -306,6 +313,7 @@ aggregate_table1_cat <- aggregate_table1_cat |>
   left_join(order, by='variable') |>
   arrange(strata, order_number)
 ```
+
 ```{r Test For Difference in Distribution of Categorical Variables}
 #For now Table 1 Purposes This Ignores Clustering by Site
 vars <- c(
@@ -316,8 +324,10 @@ vars <- c(
   'imc_admit',
   'ward_admit',
   'icu_type',
+  'year',
   'resp_support_category',
   'max_resp_support24',
+  'ever_imv',
   'death_hospice28',
   'death_hospice60')
 
