@@ -454,6 +454,23 @@ analytic_cohort <- analytic_cohort |>
       exposure_group %in% c('sf_only'), hours_to_min_sf_dttm,
       exposure_group %in% c('pf_only', 'sf_pf'), hours_to_min_pf_dttm,
       default = NA_real_))
+
+#Update Consort Diagram with teh N for Defined
+consort_table <- read.csv(paste0(project_location, '/proj_output/',site,'_consort_data.csv'))
+consort_table <- rbind(
+  consort_table,
+  data.frame(
+    step = "n, Undefined oxygenation (no eligible SF)", 
+    included = 
+      length(unique(analytic_cohort$hospital_block_id[!analytic_cohort$exposure_group=='undefined_oxygenation'])), 
+    excluded = NA_real_
+)) |>
+  #This Step Keeps Track of Exclusions
+  mutate(excluded=case_when(
+    row_number()==n() ~ lag(included)-included, 
+    TRUE ~ excluded
+  ))
+write_csv(consort_table, paste0(project_location, '/proj_output/',site,'_consort_data.csv'))
 ```
 
 ```{r Define Primary and Secondary Outcomes}
