@@ -1206,6 +1206,68 @@ for (v in variables) {
 pf_sf_tables <- bind_rows(pf_sf_tables) |> distinct()
 
 write_csv(pf_sf_tables, paste0(project_location, '/proj_output/',site,'_pf_sf_summary_table.csv'))
+
+#---------------------------
+## Now do with SF-PF Counts
+#----------------------------
+# Initialize an empty list to store results
+pf_sf_counts <- list()
+
+# Define the measure variables
+variables <- c(
+  'n_eligible_pf',
+  'n_pao2',
+  'n_spo2',
+  'n_eligible_spo2',
+  'n_eligible_sf_spo2_gt97',
+  'n_eligible_sf_spo2_lt98',
+  'n_fio2'
+)
+
+# Calculate overall statistics for each variable
+for (v in variables) {
+  pf_sf_count_table <- analytic_cohort |>
+    reframe(
+      variable = v,  # Store the name of the variable
+      strata = 'Overall',
+      strata_cat='Overall',
+      n = sum(!is.na(.data[[v]])),
+      missing = sum(is.na(.data[[v]]), na.rm = TRUE),
+      count = sum(.data[[v]], na.rm = TRUE)
+    ) 
+  
+  # Store the overall result in the list
+  pf_sf_counts[[v]] <- pf_sf_count_table
+}
+
+# Define strata for detailed calculations
+strata <- c('resp_support_category', 'new_race_cat', 'hospital_id')
+
+# Calculate stratified statistics
+for (v in variables) {
+  for (z in strata) {
+    pf_sf_count_table <- analytic_cohort |>
+      filter(!is.na(primary_metric)) |>
+      group_by(.data[[z]]) |>  # Group by the stratum
+      reframe(
+        variable = v,
+        strata = .data[[z]],  # Capture the current stratum
+        strata_cat = z,
+        n = sum(!is.na(.data[[v]])),
+      missing = sum(is.na(.data[[v]]), na.rm = TRUE),
+      count = sum(.data[[v]], na.rm = TRUE)
+      )
+    
+    # Store the stratified result in the list
+    pf_sf_counts[[paste(v, z, sep = "_")]] <- pf_sf_count_table
+  }
+}
+
+# Combine all results into a single data frame
+pf_sf_count_tables <- bind_rows(pf_sf_counts) |> distinct()
+
+write_csv(pf_sf_count_tables, paste0(project_location, '/proj_output/',site,'_pf_sf_count_table.csv'))
+
 ```
 
 
