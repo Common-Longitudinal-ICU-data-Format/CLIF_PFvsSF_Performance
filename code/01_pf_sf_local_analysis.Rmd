@@ -443,8 +443,17 @@ analytic_cohort <- analytic_cohort |>
                  .names = "clock_hr_{.col}")) |>
   mutate(across(all_of(hours_to_calc), 
                  ~ absolute_hour(.x, resp_failure_start),
-                 .names = "hours_to_{.col}"))
-  
+                 .names = "hours_to_{.col}")) 
+analytic_cohort <- analytic_cohort |>
+  mutate(
+    clock_hr_measure=fcase(
+      exposure_group=='sf_only', clock_hr_min_sf_dttm,
+      exposure_group=='sf_only', clock_hr_min_pf_dttm,
+      default = NA_real_),
+    hours_to_measure=fcase(
+      exposure_group %in% c('pf_only', 'sf_pf'), hours_to_min_sf_dttm,
+      exposure_group %in% c('pf_only', 'sf_pf'), hours_to_min_pf_dttm,
+      default = NA_real_))
 ```
 
 ```{r Define Primary and Secondary Outcomes}
@@ -706,6 +715,8 @@ to_tab <- c(
   'paco2_pf',
   'sf_ph_venous',
   'sf_pco2_venous',
+  'clock_hr_measure',
+  'hours_to_measure',
   'clock_hr_min_pf_dttm',
   'clock_hr_min_sf_dttm',
   'hours_to_min_pf_dttm',
