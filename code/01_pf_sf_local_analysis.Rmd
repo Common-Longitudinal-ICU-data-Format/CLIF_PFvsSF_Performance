@@ -448,7 +448,7 @@ analytic_cohort <- analytic_cohort |>
   mutate(
     clock_hr_measure=fcase(
       exposure_group=='sf_only', clock_hr_min_sf_dttm,
-      exposure_group %in% ('pf_only', 'sf_pf'), clock_hr_min_pf_dttm,
+      exposure_group %in% c('pf_only', 'sf_pf'), clock_hr_min_pf_dttm,
       default = NA_real_),
     hours_to_measure=fcase(
       exposure_group %in% c('sf_only'), hours_to_min_sf_dttm,
