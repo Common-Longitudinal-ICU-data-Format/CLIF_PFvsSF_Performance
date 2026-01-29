@@ -872,6 +872,19 @@ table2_list <- tab_decomp(table2)
 write_csv(table2_list$continuous, paste0(project_location, '/proj_output/', site, '_table2_o2metrics_cont_by_resp_support.csv'))
 write_csv(table2_list$categorical, paste0(project_location, '/proj_output/', site, '_table2_o2metrics_cat_by_resp_support.csv'))
 
+#By Respiratory Support but Without Undefined
+table2_noud <- CreateTableOne(
+  data=subset(analytic_cohort, exposure_group!='undefined'), 
+  vars=to_tab, 
+  factorVars = factors_tab,
+  strata='resp_support_category', 
+  addOverall = T)
+
+summary(table2_noud)
+
+table2_list_noud <- tab_decomp(table2)
+write_csv(table2_list_noud$continuous, paste0(project_location, '/proj_output/', site, '_table2_o2metrics_cont_by_resp_support_noundefined.csv'))
+write_csv(table2_list_noud$categorical, paste0(project_location, '/proj_output/', site, '_table2_o2metrics_cat_by_resp_support_noundefined.csv'))
 
 #Plot Median Number of Eligible Spo2 and Calculable SF by Exposure Category and Resp Support
 #First Prepare Data - Notably This Can Also be Done with Combined Table in Federated Analysis
