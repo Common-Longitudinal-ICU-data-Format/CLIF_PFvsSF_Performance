@@ -9,7 +9,7 @@ output: html_document
 project_location <- '~/Library/CloudStorage/OneDrive-JohnsHopkins/Research Projects/CLIF/CLIF_Projects/CLIF_PF-to-SF/federated_summary_analysis'
 
 #Which Sites Participated
-sites <- c("hopkins")
+sites <- c("hopkins", "penn")
 
 if (!dir.exists(paste0(project_location, "/tables"))) {
   dir.create(paste0(project_location, "/tables"))
@@ -103,13 +103,19 @@ tables <- c(
   "_table_agreement.csv",                       
   "_table1_cat_by_exposure_high_flow_nc.csv",  
   "_table1_cat_by_exposure_imv.csv",           
-  "_table1_cat_by_exposure_nippv.csv",         
+  "_table1_cat_by_exposure_nippv.csv", 
+  "_table1_cat_by_exposure_high_flow_ncno_undefined.csv",  
+  "_table1_cat_by_exposure_imvno_undefined.csv",           
+  "_table1_cat_by_exposure_nippvno_undefined.csv", 
   "_table1_cat_by_exposure.csv",                
   "_table1_cat_by_oxygenation.csv",            
   "_table1_cat_by_sofa2.csv",                   
   "_table1_cont_by_exposure_high_flow_nc.csv", 
   "_table1_cont_by_exposure_imv.csv",          
-  "_table1_cont_by_exposure_nippv.csv",        
+  "_table1_cont_by_exposure_nippv.csv",   
+  "_table1_cont_by_exposure_high_flow_ncno_undefined.csv", 
+  "_table1_cont_by_exposure_imv.csvno_undefined",          
+  "_table1_cont_by_exposure_nippvno_undefined.csv",   
   "_table1_cont_by_exposure.csv",               
   "_table1_cont_by_oxygenation.csv",           
   "_table1_cont_by_sofa2.csv",                  
@@ -255,6 +261,23 @@ combine_lists <- function(data_list, table_name) {
 }
 
 ```
+
+
+```{r Pool Data for Consort Diagram}
+consort_table <- collate_tables('_consort_data.csv') |>
+  group_by(site) |>
+  mutate(rn=dplyr::row_number()) |>
+  group_by(step) |>
+  summarise(
+    included=sum(included, na.rm=T),
+    excluded=sum(excluded, na.rm=T),
+    rn=max(rn)
+  ) |>
+  ungroup() |>
+  arrange(rn)
+```
+
+
 
 ```{r Summary Data and Master Table 1}
 #For Purposes of this Study Will Use Exposure metric (PF defined vs SF Defined)
@@ -856,6 +879,7 @@ table2_metrics_exposure <- collate_tables('_table2_o2metrics_cont_by_resp_suppor
 table2_working <- cont_table_function(table2_metrics_exposure) 
 
 table2_aggregate <- table2_working |>
+  #Select the Overall N and Weighted Means
   distinct(strata, variable, overall_n, weighted_mean) 
 
 #Plot
@@ -903,6 +927,13 @@ ggsave(
   plot=last_plot(),
   path = paste0(project_location, '/graphs/'))
 
+#Output Table With These Data Too
+sf_plot_table <- table2_aggregate |>
+  rename(patient_mean=weighted_mean) |>
+  mutate(
+    total_cohort_counts=patient_mean*overall_n,
+    percent_of_total_sf
+  )
 ```
 
 ```{r Contingency Table Oxygenation Category by SF v PF}
@@ -972,6 +1003,8 @@ tab_o2_agreement_paper <- readable_table(tab_oxygenation_agreement, strata_value
 
 write_csv(tab_o2_agreement_paper, paste0(project_location, '/tables/table_o2cat_agreement.csv'))
 ```
+
+
 ```{r Distribution of Heatmap}
 heat_map_o2 <- oxygenation_aggregate %>%
 filter(variable %in% c("oxygenation_category", "sofa2_cat"),
