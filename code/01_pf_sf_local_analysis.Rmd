@@ -805,6 +805,40 @@ for (i in resp_cat) {
   ))
 }
 
+#repeat by Respiratory Support without the Undefined
+for (i in resp_cat) {
+  # Subset for the current respiratory category
+  current_data <- subset(analytic_cohort, 
+                         resp_support_category == i & exposure_group!='undefined_oxygenation')
+  
+  # Check if there is data to analyze
+  if (nrow(current_data) == 0) {
+    warning(paste("No data available for respiratory category:", i))
+    next  # Skip to the next iteration
+  }
+  
+  # Create TableOne object
+  table1_noud <- CreateTableOne(
+    data = current_data, 
+    vars = to_tab, 
+    factorVars = factors_tab,
+    strata = 'exposure_group', 
+    addOverall = TRUE
+  )
+  
+  # Decompose the table
+  table1_list_noud <- tab_decomp(table1_noud)
+  
+  # Write to CSV
+  write_csv(table1_list_noud$continuous, file.path(
+    project_location, 'proj_output', paste0(site, '_table1_cont_by_exposure_',i,'no_undefined.csv')
+  ))
+  
+  write_csv(table1_list$categorical, file.path(
+    project_location, 'proj_output', paste0(site, '_table1_cat_by_exposure_',i,'no_undefined.csv')
+  ))
+}
+
 #Repeat But Stratified by Oxygenation Severity
 table1 <- CreateTableOne(
   data=analytic_cohort, 
@@ -891,7 +925,7 @@ write_csv(table2_list$categorical, paste0(project_location, '/proj_output/', sit
 
 #By Respiratory Support but Without Undefined
 table2_noud <- CreateTableOne(
-  data=subset(analytic_cohort, exposure_group!='undefined'), 
+  data=subset(analytic_cohort, exposure_group!='undefined_oxygenation'), 
   vars=to_tab, 
   factorVars = factors_tab,
   strata='resp_support_category', 
