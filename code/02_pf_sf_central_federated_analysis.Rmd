@@ -1,0 +1,2217 @@
+---
+title: "02_pf_sf_central_federated_analysis"
+author: "Chad H. Hochberg"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r Project Location and Sites}
+project_location <- '~/Library/CloudStorage/OneDrive-JohnsHopkins/Research Projects/CLIF/CLIF_Projects/CLIF_PF-to-SF/federated_summary_analysis'
+
+#Which Sites Participated
+sites <- c("hopkins","rush","umn","nu", "ohsu", "penn", "michigan", "ucmc", "emory")
+
+if (!dir.exists(paste0(project_location, "/tables"))) {
+  dir.create(paste0(project_location, "/tables"))
+}
+if (!dir.exists(paste0(project_location, "/graphs"))) {
+  dir.create(paste0(project_location, "/graphs"))
+}
+```
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+#Install Following Libraries For this Project
+packages_to_install =
+  c("tidyverse",
+    "tidytable",
+    "data.table",
+    "collapse",
+    "tableone",
+    "viridis",
+    "sandwich",
+    "caret",
+    "scales",
+    "glmmTMB",
+    "broom.mixed",
+    "marginaleffects",
+    "pROC",
+    "rms")
+
+#Can Load For Each Individual RMarkdown
+packages_to_load =
+  c(
+    "tidyverse",
+    "tidytable",
+    "data.table",
+    "collapse",
+    "tableone",
+    "viridis",
+    "sandwich",
+    "caret",
+    "scales",
+    "broom.mixed",
+    "glmmTMB",
+    "pROC",
+    "rms",
+    "marginaleffects")
+options(dplyr.summarise.inform = FALSE)
+
+fn_install_if_mi = function(p) {
+  if (!requireNamespace(p, quietly = TRUE)) {
+    try(install.packages(p, dependencies = TRUE), silent = TRUE)
+  }
+}
+
+fn_load_quiet = function(p) {
+  suppressPackageStartupMessages(library(p, character.only = TRUE))
+}
+
+invisible(lapply(packages_to_install, fn_install_if_mi))
+invisible(lapply(packages_to_load,   fn_load_quiet))
+options(dplyr.summarise.inform = FALSE)
+rm(packages_to_install, packages_to_load, fn_install_if_mi, fn_load_quiet); gc()
+
+#Use Dplyr functions as default
+filter <- dplyr::filter
+mutate <- dplyr::mutate
+select <- dplyr::select
+arrange <- dplyr::arrange
+group_by <- dplyr::group_by
+summarise <- dplyr::summarise
+lead <- dplyr::lead
+lag <- dplyr::lag
+coalesce <- dplyr::coalesce
+n <- dplyr::n
+```
+
+```{r Prepare to Load Tables Into List}
+#List of tables without site name to expext
+tables <- c(
+  "_aggregate_outcomes.csv",
+  "_aggregate_by_o2cat_hospital.csv",
+  "_aggregate_by_o2cat_resp_support.csv",
+  "_aggregate_by_o2cat_race.csv",
+  "_aggregate_by_o2cat.csv",
+  "_consort_data.csv",
+  "_pf_sf_summary_table.csv",                   
+  "_sofa_missing.csv",                          
+  "_table_agreement.csv",                       
+  "_table1_cat_by_exposure_cpap.csv",          
+  "_table1_cat_by_exposure_high_flow_nc.csv",  
+  "_table1_cat_by_exposure_imv.csv",           
+  "_table1_cat_by_exposure_nippv.csv",         
+  "_table1_cat_by_exposure.csv",                
+  "_table1_cat_by_oxygenation.csv",            
+  "_table1_cat_by_sofa2.csv",                   
+  "_table1_cont_by_exposure_cpap.csv",         
+  "_table1_cont_by_exposure_high_flow_nc.csv", 
+  "_table1_cont_by_exposure_imv.csv",          
+  "_table1_cont_by_exposure_nippv.csv",        
+  "_table1_cont_by_exposure.csv",               
+  "_table1_cont_by_oxygenation.csv",           
+  "_table1_cont_by_sofa2.csv",                  
+  "_table2_o2metrics_cont_by_exposure.csv",    
+  "_table2_o2metrics_cont_by_hospital_id.csv",  
+  "_table2_o2metrics_cont_by_oxygenation.csv",  
+  "_table2_o2metrics_cont_by_resp_support.csv", 
+  "_table2_o2metrics_cont_by_sofa.csv"
+)
+
+# Combine sites and tables to create full table names
+site_tables <- as.vector(outer(sites, tables, paste, sep = ""))
+```
+
+```{r Open Tables for CSV and RDS}
+# Create an empty list to store data frames
+site_table_data <- list()
+
+# Loop through each site and each table name
+for (site in sites) {
+  # Construct the directory path for the current site
+  site_directory <- file.path(paste0(project_location,'/site_data/',site,'/proj_output/'))  
+
+  for (table_name in tables) {
+    # Construct the full file path for the CSV
+    file_path <- file.path(site_directory, paste0(site, table_name))
+    
+    # Check if the file exists before reading
+    if (file.exists(file_path)) {
+      # Use a combined key of site and table name to store the data frame in the list
+      site_table_data[[paste(site,table_name, sep="")]] <- fread(file_path)
+    } else {
+      message(paste("File not found:", file_path))
+    }
+  }
+}
+
+## Repeat for RDS
+contingency_list <- list()
+# Loop through each site
+for (site in sites) {
+  # List all files in the specified directory
+  filenames <- list.files(paste0('site_data/', site, '/proj_output/'))
+  
+  # Loop through each filename
+  for (filename in filenames) {
+    # Check if the file is a CSV and not the "graphs" file
+    if (grepl("\\.rds$", filename) && filename != "graphs") {
+      # Read the CSV file into a data frame
+      data <- read_rds(paste0('site_data/', site, '/proj_output/', filename))
+      
+      # Extract the base name without the extension to use as list key
+      name_key <- tools::file_path_sans_ext(filename)
+      
+      # Assign the data frame to the list using site as prefix
+      contingency_list[[name_key]] <- data
+    } 
+  } 
+}
+
+combine_lists <- function(data_list, table_name) {
+  # Create a placeholder for combined data
+  combined_table <- do.call(rbind, lapply(names(data_list), function(name) {
+    x <- data_list[[name]]  # Access the list element by name
+    if (!is.null(x[[table_name]])) {
+      # Extract the data frame
+      df <- x[[table_name]]
+      
+      # Extract the site name from the list name
+      site_name <- strsplit(name, "_")[[1]][1]  # Get the part before the underscore
+      
+      # Create a new column for the site
+      df$site <- site_name
+      
+      return(df)
+    } else {
+      return(NULL)
+    }
+  }))
+  
+  return(combined_table)
+}
+```
+
+```{r Collate Data Function}
+# Function to extract and collate specified tables from the site_table_data list
+#This Will Only Work with Tables with the Same Number of Columns
+collate_tables <- function(table_suffix) {
+  # Extract only data frames that match the pattern "[SITE]_table_suffix"
+  table_list <- lapply(sites, function(site) {
+    # Construct the key to extract the correct data frame
+    table_name <- paste(site, table_suffix, sep = "")
+    
+    if (table_name %in% names(site_table_data)) {
+      # Add the 'site' column and return the modified data frame
+      df <- site_table_data[[table_name]]
+      df$site <- site
+      return(df)
+    } else {
+      message(paste("Table not found for site:", site))
+      return(NULL)  # Return NULL if the table isn't found
+    }
+  })
+  
+  # Filter out NULL elements (sites that didn't have the table)
+  table_list <- Filter(Negate(is.null), table_list)
+  
+  # Combine all data frames into one using rbind
+  combined_table <- do.call(rbind, table_list)
+  
+  return(combined_table)
+}
+
+combine_lists <- function(data_list, table_name) {
+  # Create a placeholder for combined data
+  combined_table <- do.call(rbind, lapply(names(data_list), function(name) {
+    x <- data_list[[name]]  # Access the list element by name
+    if (!is.null(x[[table_name]])) {
+      # Extract the data frame
+      df <- x[[table_name]]
+      
+   # Extract the site name from the list name
+      site_name <- strsplit(name, "_")[[1]][1]  # Get the part before the underscore
+      
+   # Create a new column for the site
+      df$site <- site_name
+      
+      return(df)
+    } else {
+      return(NULL)
+    }
+  }))
+  rownames(combined_table) <- NULL
+  return(combined_table)
+}
+
+```
+
+```{r Summary Data and Master Table 1}
+#For Purposes of this Study Will Use Exposure metric (PF defined vs SF Defined)
+
+table1_cat <- collate_tables("_table1_cat_by_exposure.csv")
+table1_cont <- collate_tables("_table1_cont_by_exposure.csv")
+table_o2_hospital <- collate_tables("_table2_o2metrics_cont_by_hospital_id.csv")
+
+#Determine Total N for Patients Represented, Total CLIF Sites and Total Hospitals
+N_aggregate <- table1_cat |> 
+  group_by(site) |>
+  summarise(
+    n_site=max(n)
+  ) |>
+  mutate(
+    N_aggregate=sum(n_site, na.rm=T),
+    n_sites=max(dplyr::row_number())) |>
+  select(N_aggregate, n_sites)
+
+hospitals <- combine_lists(contingency_list, 'oxygenation_category_hospital_id') |>
+  mutate(hospital_id=sub("^[^_]*_", "", hospital_id)) |>
+  distinct(site, hospital_id) |>
+  filter(hospital_id!='NA',
+        !is.na(hospital_id))
+
+N_aggregate <- N_aggregate |>
+  mutate(n_hospitals=length(unique(hospitals$hospital_id)))
+cat('\n Total Number of Patients, CLIF Sites, and Hospitals')
+print(N_aggregate)
+
+#Now Aggregate Categorical Variables For Table 1
+aggregate_table1_cat <- table1_cat |>
+  #Combine to SF, PF or Undefined
+  mutate(
+    strata=fcase(
+      strata %in% 'sf_only', 'sf',
+      strata %in% c('pf_only', 'sf_pf'), 'pf',
+      grepl('undefined', strata), 'undefined',
+      default = strata
+    )
+  ) |>
+  group_by(strata, variable, level) |>
+  dplyr::reframe(
+    n_total=sum(n),
+    n_miss=sum(miss, na.rm=T),
+    count=sum(freq,na.rm=T),
+    percent=count/(n_total-n_miss)
+  ) 
+
+#Order of Variables
+order_vec <- table1_cat$variable
+order <- data.frame(
+  variable=unique(order_vec)) |>
+  mutate(order_number=dplyr::row_number())
+
+aggregate_table1_cat <- aggregate_table1_cat |>
+  left_join(order, by='variable') |>
+  arrange(strata, order_number)
+```
+```{r Test For Difference in Distribution of Categorical Variables}
+#For now Table 1 Purposes This Ignores Clustering by Site
+vars <- c(
+  'female',
+  'new_race_cat',
+  'hospital_type',
+  'icu_admit', 
+  'imc_admit',
+  'ward_admit',
+  'icu_type',
+  'resp_support_category',
+  'max_resp_support24',
+  'death_hospice28',
+  'death_hospice60')
+
+chisq_function <- function(cat_table) {
+  chi_df <- data.frame(
+    variable = character(),
+    chisq = numeric(),
+    p.value = numeric()
+  )
+  
+  for (v in vars) {
+    x <- cat_table |>
+      filter(variable == v)
+    
+    # Check if there are any rows for the variable
+    if (nrow(x) > 0) {
+      contingency_table <- xtabs(count ~ level + strata, data = x)
+      
+      # Print the contingency table to check
+      cat('\n')
+      print(prop.table(contingency_table, margin=2))
+      
+      # Perform the chi-squared test
+      #First Need to Remove Overall Strata if it Exists
+      x <- x |> filter(strata!='Overall')
+      contingency_table <- xtabs(count ~ level + strata, data = x)
+      chi <- chisq.test(contingency_table)
+      # Append the results to chi_df
+      chi_df <- rbind(
+        chi_df,
+        data.frame(
+          variable = v,
+          chisq = as.numeric(chi$statistic),
+          p.value = as.numeric(round(chi$p.value, digits = 4))
+        )
+      )
+    } else {
+      # If no data for the variable, append NA values
+      cat('\nNo Data for', v)
+    }
+  }
+  return(chi_df)  # Return the results data frame
+}
+
+tab1_chi <- chisq_function(aggregate_table1_cat) |>
+  mutate(rn=1)
+
+#Merge Back with Table 1 and COnvert to Wide
+table1_cat_paper <- aggregate_table1_cat |>
+  select(strata, variable, level, n_total, count, percent, order_number) |>
+  mutate(
+    percent=round((percent*100), digits = 2)
+  ) |>
+  rename(count_mean=count,
+         percent_sd=percent) |>
+  pivot_wider(
+    names_from=c(strata),
+    names_glue="{strata}_{.value}",
+    values_from=c(n_total, count_mean, percent_sd)) 
+
+#Vector For Reordering Columns
+strata_values <- c('Overall', 'pf', 'sf', 'undefined')
+relocate_vector <- c()
+# Loop through the strata values to generate names for those strata
+for (stratum in strata_values) {
+  relocate_vector <- c(relocate_vector,
+                       paste(stratum, c("n_total", "count_mean", "percent_sd"), sep = "_"))
+}
+
+#Reorder and Add Statistical Testing
+table1_cat_paper <- table1_cat_paper |>
+  relocate(all_of(relocate_vector), .after = level) |>
+  group_by(variable) |>
+  mutate(rn=dplyr::row_number()) |>
+  left_join(tab1_chi, by=c('variable', 'rn')) |>
+  arrange(order_number, variable) |>
+  select(-order_number, -rn)
+```
+
+```{r Now for Continuous Table 1 Generate Weighted Means/SD}
+cont_table_function <- function(table_cont) {
+  table_cont <- table_cont |>
+    group_by(strata, variable) |>
+    mutate(
+     value_n=n-miss,
+     overall_n=sum(value_n, na.rm=T),
+     weights = value_n/overall_n,
+     weighted_mean=round(sum(mean*weights, na.rm=T), 3),
+     weighted_sd=
+       round(sqrt(sum((value_n - 1) * sd^2, na.rm = T) / 
+                 sum(value_n - 1, na.rm = T)), 2)) |>
+      ungroup()
+}
+
+table1_working <- table1_cont |>
+  #Combine to SF, PF or Undefined
+  mutate(
+    strata=fcase(
+      strata %in% 'sf_only', 'sf',
+      strata %in% c('pf_only', 'sf_pf'), 'pf',
+      grepl('undefined', strata), 'undefined',
+      default = strata),
+    )
+
+table1_working <- cont_table_function(table1_working) 
+
+#Function for Weighted ANOVA from Summary Data
+weighted_anova_pval <- function(table_cont) {
+  df <- table_cont |>
+    dplyr::group_by(variable) |>
+    filter(strata!='Overall') |>
+  # Total number of groups
+    mutate(k=length(unique(strata))) |>
+    #Between-group sum of squares (SSB)
+    mutate( 
+           # Total sample size across all strata
+           overall_n = sum(value_n, na.rm = TRUE),
+           # Grand mean across all strata
+           grand_mean = sum(mean * value_n, na.rm = TRUE) / sum(value_n, na.rm = TRUE),
+           # Between-strata sum of squares
+           ss_between = sum(value_n * (mean - grand_mean)^2, na.rm = TRUE),
+           # Within-strata sum of squares
+           ss_within = sum((value_n - 1) * sd^2, na.rm = TRUE),
+           # Degrees of freedom
+           df_between = k-1,
+           df_within = overall_n-k, 
+           # Mean squares
+           ms_between = ss_between/df_between,
+           ms_within = ss_within/df_within,
+           f_stat = round(ms_between/ms_within, 4),
+           p.value = round(pf(f_stat, df_between, df_within, lower.tail = FALSE), 4))
+  
+  new_columns <- df |>
+    select(variable, f_stat, p.value) |>
+    dplyr::distinct()
+  return(new_columns)
+}
+group_p_values <- weighted_anova_pval(table1_working)
+
+table1_cont_paper <- table1_working |>
+  left_join(group_p_values, by='variable') |>
+  select(strata, variable, weighted_mean, weighted_sd, f_stat, p.value, overall_n) |>
+  distinct() |>
+  rename(
+    n_total=overall_n,
+    count_mean=weighted_mean,
+    percent_sd=weighted_sd
+  ) |>
+  pivot_wider(
+    names_from=c(strata),
+    names_glue="{strata}_{.value}",
+    values_from=c(n_total, count_mean, percent_sd)) 
+
+#Vector For Reordering Columns
+strata_values <- c('Overall', 'pf', 'sf', 'undefined')
+relocate_vector <- c()
+# Loop through the strata values to generate names for those strata
+for (stratum in strata_values) {
+  relocate_vector <- c(relocate_vector,
+                       paste(stratum, c("n_total", "count_mean", "percent_sd"), sep = "_"))
+}
+
+#Reorder and Add Statistical Testing
+table1_cont_paper <- table1_cont_paper |>
+  relocate(all_of(relocate_vector), .after = variable) |>
+  mutate(level=NA_character_) |> #For Combining With Cat Table
+  relocate(level, .after=variable)
+
+#Now Table 1 Paper
+table1_paper <- rowbind(table1_cont_paper, table1_cat_paper, fill=T) 
+
+#Make Table 1 Nice for Easy Pasting Into Paper
+readable_table <- function(tab, strata_values, has_continuous, has_categorical) {
+  for (z in strata_values) {
+    # Create the new column name
+    new_col <- paste0(z, "_summary")
+    
+    # Create the source column names
+    count_col <- paste0(z, "_count_mean")
+    percent_col <- paste0(z, "_percent_sd")
+    
+    # Add the new column
+    tab <- tab |>
+      mutate(
+        !!new_col := paste0(
+          round(.data[[count_col]], digits = 1), 
+          ' (', 
+          round(.data[[percent_col]], digits = 1), 
+          ')'
+        )
+      )
+  }
+  relocate_vector <- c()
+  # Loop through the strata values to generate names for those strata
+  for (stratum in strata_values) {
+    relocate_vector <- c(relocate_vector,
+                       paste(stratum, c("n_total", "summary"), sep = "_"))
+}
+ if (has_categorical == T & has_continuous==T) {
+    tab <- tab |>
+      select(variable, level, all_of(relocate_vector), p.value, f_stat, chisq) 
+  } else if (has_categorical==F & has_continuous==T) {
+    tab <- tab |>
+      select(variable, level, all_of(relocate_vector), p.value, f_stat) 
+  } else if (has_categorical == T & has_continuous==F) {
+    tab <- tab |>
+      select(variable, level, all_of(relocate_vector), p.value, chisq) 
+  }
+  
+  return(tab)
+} 
+table1_paper <- readable_table(table1_paper, strata_values, has_continuous=T, has_categorical=T)
+
+#Save Tables
+write_csv(table1_paper, paste0(project_location, '/tables/table1_pooled.csv'))
+write_csv(aggregate_table1_cat, paste0(project_location, '/tables/table1_aggregate_categorical.csv'))
+write_csv(table1_cont, paste0(project_location, '/tables/table1_continuous_by_site.csv'))
+```
+
+
+
+```{r Test For Difference in Distribution of Categorical Variables - Table1 Without Undefined}
+#For now Table 1 Purposes This Ignores Clustering by Site
+vars <- c(
+  'female',
+  'new_race_cat',
+  'hospital_type',
+  'icu_admit', 
+  'imc_admit',
+  'ward_admit',
+  'icu_type',
+  'resp_support_category',
+  'max_resp_support24',
+  'death_hospice28',
+  'death_hospice60')
+
+two_cat <- aggregate_table1_cat |>
+  filter(strata!='undefined')
+tab1_chi_twocat <- chisq_function(two_cat) |>
+  mutate(rn=1)
+
+#Merge Back with Table 1 and COnvert to Wide
+tab1_twocat <- two_cat |>
+  select(strata, variable, level, n_total, count, percent, order_number) |>
+  mutate(
+    percent=round((percent*100), digits = 2)
+  ) |>
+  rename(count_mean=count,
+         percent_sd=percent) |>
+  pivot_wider(
+    names_from=c(strata),
+    names_glue="{strata}_{.value}",
+    values_from=c(n_total, count_mean, percent_sd)) 
+
+#Vector For Reordering Columns
+strata_values <- c('Overall', 'pf', 'sf')
+relocate_vector <- c()
+# Loop through the strata values to generate names for those strata
+for (stratum in strata_values) {
+  relocate_vector <- c(relocate_vector,
+                       paste(stratum, c("n_total", "count_mean", "percent_sd"), sep = "_"))
+}
+
+#Reorder and Add Statistical Testing
+tab1_twocat  <- tab1_twocat  |>
+  relocate(all_of(relocate_vector), .after = level) |>
+  group_by(variable) |>
+  mutate(rn=dplyr::row_number()) |>
+  left_join(tab1_chi, by=c('variable', 'rn')) |>
+  arrange(order_number, variable) |>
+  select(-order_number, -rn)
+```
+```{r Now for Continuous Table 1 Generate Weighted Means/SD - Two Category Only}
+table1_cont_two_cat <- table1_cont |>
+  #Combine to SF, PF or Undefined
+  mutate(
+    strata=fcase(
+      strata %in% 'sf_only', 'sf',
+      strata %in% c('pf_only', 'sf_pf'), 'pf',
+      grepl('undefined', strata), 'undefined',
+      default = strata),
+    ) |>
+  filter(strata!='undefined')
+
+table1_working <- cont_table_function(table1_cont_two_cat) 
+
+#Function for Weighted ANOVA from Summary Data
+
+group_p_values <- weighted_anova_pval(table1_working)
+
+table1_cont_paper_twocat <- table1_working |>
+  left_join(group_p_values, by='variable') |>
+  select(strata, variable, weighted_mean, weighted_sd, f_stat, p.value, overall_n) |>
+  filter(strata!='Overall') |>
+  distinct() |>
+  rename(
+    n_total=overall_n,
+    count_mean=weighted_mean,
+    percent_sd=weighted_sd
+  ) |>
+  pivot_wider(
+    names_from=c(strata),
+    names_glue="{strata}_{.value}",
+    values_from=c(n_total, count_mean, percent_sd)) 
+
+#Vector For Reordering Columns
+strata_values <- c('pf', 'sf')
+relocate_vector <- c()
+# Loop through the strata values to generate names for those strata
+for (stratum in strata_values) {
+  relocate_vector <- c(relocate_vector,
+                       paste(stratum, c("n_total", "count_mean", "percent_sd"), sep = "_"))
+}
+
+#Reorder and Add Statistical Testing
+table1_cont_paper_twocat <- table1_cont_paper_twocat |>
+  relocate(all_of(relocate_vector), .after = variable) |>
+  mutate(level=NA_character_) |> #For Combining With Cat Table
+  relocate(level, .after=variable)
+
+#Now Table 1 Paper
+table1_paper_twocat <- rowbind(table1_cont_paper_twocat, tab1_twocat, fill=T) 
+table1_paper_twocat <- readable_table(table1_paper_twocat , strata_values, has_continuous=T,has_categorical=T) 
+
+#Save Tables
+write_csv(table1_paper_twocat, paste0(project_location, '/tables/table1_pooled_noundefined.csv'))
+```
+
+```{r Describe SpO2/FiO2 and PaO2/FiO2 Availability - Overall and By Support Category and Race}
+table2_metrics_exposure <- collate_tables('_table2_o2metrics_cont_by_resp_support.csv') 
+  
+
+table2_working <- cont_table_function(table2_metrics_exposure) 
+
+#Function for Weighted ANOVA from Summary Data
+
+group_p_values <- weighted_anova_pval(table2_working)
+
+table2 <- table2_working |>
+  left_join(group_p_values, by='variable') |>
+  select(strata, variable, weighted_mean, weighted_sd, f_stat, p.value, overall_n) |>
+  distinct() |>
+  rename(
+    n_total=overall_n,
+    count_mean=weighted_mean,
+    percent_sd=weighted_sd
+  ) |>
+  pivot_wider(
+    names_from=c(strata),
+    names_glue="{strata}_{.value}",
+    values_from=c(n_total, count_mean, percent_sd)) 
+
+#Vector For Reordering Columns
+strata_values <-c("Overall","cpap", "high_flow_nc", "imv", "nippv")
+relocate_vector <- c()
+# Loop through the strata values to generate names for those strata
+for (stratum in strata_values) {
+  relocate_vector <- c(relocate_vector,
+                       paste(stratum, c("n_total", "count_mean", "percent_sd"), sep = "_"))
+}
+
+#Reorder and Add Statistical Testing
+table2 <- table2 |>
+  relocate(all_of(relocate_vector), .after = variable) |>
+  mutate(level='placehold')
+
+#Now Table 1 Paper
+table2_paper <- readable_table(table2 , strata_values, has_continuous=T, has_categorical=F) 
+
+#Save Tables
+write_csv(table2_paper, paste0(project_location, '/tables/table2_metric_count_resp_support.csv'))
+```
+
+```{r Figure of SpO2 Distribution By Respiratory Support}
+#Plot Number of Eligible Spo2 and Calculable SF by Exposure Category and Resp Support
+#First Prepare Data 
+table2_aggregate <- table2_working |>
+  distinct(strata, variable, overall_n, weighted_mean) 
+
+#Plot
+sf_plot_overall <- table2_aggregate |>
+  filter(variable %in% c('n_eligible_sf_spo2_gt97', 'n_eligible_sf_spo2_lt98')) |>
+  mutate(
+    variable = ifelse(
+      variable == 'n_eligible_sf_spo2_lt98', 'n_calculable_sf', variable),
+    variable = ifelse(
+      variable == 'n_eligible_sf_spo2_gt97', 'total_eligible_spo2', variable
+    ),
+    variable = factor(variable, 
+                     levels = c( "total_eligible_spo2", "n_calculable_sf"),
+                     ordered = TRUE),  # Adjust the order here
+    strata = factor(strata, 
+                    levels = c("Overall", "imv", "high_flow_nc", "nippv", "cpap"))
+  )
+
+ggplot(sf_plot_overall, aes(x = strata, y = overall_n*weighted_mean, fill = variable)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Stacked Bar Plot of Eligible Spo2 and Calculable SF",
+       x = "Respiratory Support Category",
+       y = "Count",
+       fill = "") +
+  scale_y_continuous(labels = comma) +
+  theme_minimal() +
+  scale_fill_brewer()
+ggsave(
+  filename='spo2_count_barchart.pdf',
+  plot=last_plot(),
+  path = paste0(project_location, '/graphs/'))
+
+#Now Per Patient Average
+ggplot(sf_plot_overall, aes(x = strata, y = round(weighted_mean, digits=0), fill = variable)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Stacked Bar Plot of Eligible Spo2 and Calculable SF",
+       x = "Respiratory Support Category",
+       y = "Mean Per Patient Count",
+       fill = "") +
+  scale_y_continuous(labels = comma) +
+  theme_minimal() +
+  scale_fill_brewer()
+ggsave(
+  filename='spo2_per_patient_count_barchart.pdf',
+  plot=last_plot(),
+  path = paste0(project_location, '/graphs/'))
+
+```
+
+```{r Contingency Table Oxygenation Category by SF v PF}
+oxygenation_agreement <- collate_tables('_table_agreement.csv')
+
+oxygenation_aggregate <- oxygenation_agreement |>
+  group_by(strata, variable, level) |>
+  dplyr::reframe(
+    n_total=sum(n),
+    n_miss=sum(miss, na.rm=T),
+    count=sum(freq,na.rm=T),
+    percent=count/(n_total-n_miss)
+  ) |>
+  filter(level!='undefined')
+
+#Order of Variables
+order_vec <- oxygenation_aggregate$variable
+order <- data.frame(
+  variable=unique(order_vec)) |>
+  mutate(order_number=dplyr::row_number())
+
+oxygenation_aggregate <- oxygenation_aggregate |>
+  left_join(order, by='variable') |>
+  arrange(strata, order_number)
+
+#For now Table 1 Purposes This Ignores Clustering by Site
+vars <- c(
+  'oxygenation_category',
+  'sofa2_cat')
+
+oxygenation_agreement_chi <- chisq_function(oxygenation_aggregate) |>
+  mutate(rn=1)
+
+#Covert to Wide
+tab_oxygenation_agreement <- oxygenation_aggregate |>
+  select(strata, variable, level, n_total, count, percent, order_number) |>
+  mutate(
+    percent=round((percent*100), digits = 2)
+  ) |>
+  rename(count_mean=count,
+         percent_sd=percent) |>
+  pivot_wider(
+    names_from=c(strata),
+    names_glue="{strata}_{.value}",
+    values_from=c(n_total, count_mean, percent_sd)) 
+
+#Vector For Reordering Columns
+strata_values <- c('Overall', 'pf', 'sf')
+relocate_vector <- c()
+# Loop through the strata values to generate names for those strata
+for (stratum in strata_values) {
+  relocate_vector <- c(relocate_vector,
+                       paste(stratum, c("n_total", "count_mean", "percent_sd"), sep = "_"))
+}
+
+#Reorder and Add Statistical Testing
+tab_oxygenation_agreement  <- tab_oxygenation_agreement  |>
+  relocate(all_of(relocate_vector), .after = level) |>
+  group_by(variable) |>
+  mutate(rn=dplyr::row_number()) |>
+  left_join(oxygenation_agreement_chi, by=c('variable', 'rn')) |>
+  arrange(order_number, variable) |>
+  select(-order_number, -rn)
+
+strata_values <- c('Overall', 'pf', 'sf')
+tab_o2_agreement_paper <- readable_table(tab_oxygenation_agreement, strata_values, has_continuous=F,has_categorical=T) 
+
+write_csv(tab_o2_agreement_paper, paste0(project_location, '/tables/table_o2cat_agreement.csv'))
+```
+```{r Distribution of Heatmap}
+heat_map_o2 <- oxygenation_aggregate %>%
+filter(variable %in% c("oxygenation_category", "sofa2_cat"),
+       strata %in% c("pf", "sf")) |>
+  mutate(label = paste0(count, " (", percent(percent, accuracy = 0.1), ")"))
+
+#Order Hypoxemia Categories
+cat_levels <- c("not_hypoxemic", "mild_hypoxemia", "moderate_hypoxemia", "severe_hypoxemia")
+heat_map_o2_cat <- heat_map_o2 |>
+  filter(variable=='oxygenation_category') |>
+  mutate(level = factor(level, levels = cat_levels))
+
+ggplot(heat_map_o2_cat, aes(x = level, y = strata, fill = percent)) +
+  geom_tile(color = "white", width = 0.95, height = 0.95) +
+  scale_fill_gradient2(name="Prevalence",
+    low = 'dodgerblue4',
+    mid = 'white',
+    high = 'firebrick2',
+    limits = c(0, max(heat_map_o2$percent)),
+    midpoint = (max(heat_map_o2$percent)/2),
+    breaks = c(0, max(heat_map_o2$percent)),
+    labels = c('Lower', 'Higher')      # no labels on colorbar
+  ) +
+  scale_y_discrete(name='', labels = c('PaO2/FiO2 Defined', 'SpO2/FiO2 Defined')) +
+  scale_x_discrete(name='',
+                   labels = c('Not\nHypoxemic', 'Mild\nHypoxemia', 'Moderate\nHypoxemia', 'Severe\nHypoxemia')) +
+  geom_text(aes(label = label), size = 3, fontface='bold') +
+  coord_equal() +
+  labs(x = "Hypoxemia Severity Category", 
+       title = "Distribution of oxygenation categories",
+       fontface='bold',
+       size=4) +
+  theme_minimal()
+ggsave(
+  filename='o2_category_distribution_pf_vs.pdf',
+  plot=last_plot(),
+  path = paste0(project_location, '/graphs/'))
+
+#Order Hypoxemia Categories
+cat_levels <- c("0", "1", "2", "3", "4")
+heat_map_o2_sofa <- heat_map_o2 |>
+  filter(variable=='sofa2_cat') |>
+  mutate(level = factor(level, levels = cat_levels))
+
+ggplot(heat_map_o2_sofa, aes(x = level, y = strata, fill = percent)) +
+  geom_tile(color = "white", width = 0.95, height = 0.95) +
+  scale_fill_gradient2(name="Prevalence",
+    low = 'dodgerblue4',
+    mid = 'white',
+    high = 'firebrick2',
+    limits = c(0, max(heat_map_o2$percent)),
+    midpoint = (max(heat_map_o2$percent)/2),
+    breaks = c(0, max(heat_map_o2$percent)),
+    labels = c('Lower', 'Higher')      # no labels on colorbar
+  ) +
+  scale_y_discrete(name='', labels = c('PaO2/FiO2 Defined', 'SpO2/FiO2 Defined')) +
+  scale_x_discrete(name='SOFA-2 Respiratory Score',
+                   labels = c('0', '1', '2', '3', '4')) +
+  geom_text(aes(label = label), size = 3, fontface='bold') +
+  coord_equal() +
+  labs(x = "Hypoxemia Severity Category", 
+       title = "Distribution of SOFA-2 Resp Scores",
+       fontface='bold') +
+  theme_minimal()
+ggsave(
+  filename='sofa2_category_distribution_pf_vs.pdf',
+  plot=last_plot(),
+  path = paste0(project_location, '/graphs/'))
+```
+
+```{r Mortality by SF vs PF Oxygenation Category}
+#Do this Once Other Sites Have Run
+mortality_by_o2 <- collate_tables('_aggregate_by_o2cat.csv')
+
+#Prepare Data for 
+aggregate_table_mortality <- mortality_by_o2 |>
+  group_by(strata, variable, level) |>
+  dplyr::reframe(
+    n_total=sum(n),
+    n_miss=sum(miss, na.rm=T),
+    count=sum(freq,na.rm=T),
+    percent=count/(n_total-n_miss)
+  ) 
+
+#Order of Variables
+order_vec <-  mortality_by_o2$variable
+order <- data.frame(
+  variable=unique(order_vec)) |>
+  mutate(order_number=dplyr::row_number())
+
+aggregate_table_mortality  <- aggregate_table_mortality  |>
+  left_join(order, by='variable') |>
+  arrange(strata, order_number)
+
+vars <- c(
+  'death_hospice28',
+  'death_hospice60'
+)
+mortality_tab_chi <- chisq_function(aggregate_table_mortality) |>
+  mutate(rn=1)
+
+#Merge Back with Table 1 and COnvert to Wide
+table_mortality_paper <- aggregate_table_mortality |>
+  select(strata, variable, level, n_total, count, percent, order_number) |>
+  mutate(
+    percent=round((percent*100), digits = 2)
+  ) |>
+  rename(count_mean=count,
+         percent_sd=percent) |>
+  distinct() |>
+  pivot_wider(
+    names_from=c(strata),
+    names_glue="{strata}_{.value}",
+    values_from=c(n_total, count_mean, percent_sd)) 
+
+#Vector For Reordering Columns
+strata_values <- c(
+  'Overall', 
+  'pf-mild_hypoxemia', 
+  'pf-moderate_hypoxemia', 
+  'pf-severe_hypoxemia',
+  'pf-not_hypoxemic',
+  'sf-mild_hypoxemia', 
+  'sf-moderate_hypoxemia', 
+  'sf-severe_hypoxemia',
+  'sf-not_hypoxemic',
+  'pf-0',
+  'pf-1',
+  'pf-2',
+  'pf-3',
+  'pf-4',
+  'sf-0',
+  'sf-1',
+  'sf-2',
+  'sf-3',
+  'sf-4'
+  )
+relocate_vector <- c()
+# Loop through the strata values to generate names for those strata
+for (stratum in strata_values) {
+  relocate_vector <- c(relocate_vector,
+                       paste(stratum, c("n_total", "count_mean", "percent_sd"), sep = "_"))
+}
+
+
+#Reorder and Add Statistical Testing
+table_mortality_paper <- table_mortality_paper |>
+  relocate(all_of(relocate_vector), .after = level) |>
+  group_by(variable) |>
+  mutate(rn=dplyr::row_number()) |>
+  left_join(tab1_chi, by=c('variable', 'rn')) |>
+  arrange(order_number, variable) |>
+  select(-order_number, -rn) |>
+  filter(level==1)
+
+table_mortality_paper <- readable_table(table_mortality_paper, strata_values, has_continuous=F,has_categorical=T)
+write_csv(table_mortality_paper, paste0(project_location, '/tables/table_o2cat_mortality.csv'))
+```
+
+```{r Mortality by O2 Category HeatMap}
+heat_map_o2_mortality <- aggregate_table_mortality %>%
+  filter(strata %in% strata_values,
+         strata!='Overall', 
+         level==1) |> #Only Need 1 Level) 
+  mutate(label = paste0(percent(percent, accuracy = 0.1))) |>
+  separate(strata, into = c("strata","level"), sep = "-", remove = FALSE)
+
+#Order Hypoxemia Categories
+cat_levels <- c("not_hypoxemic", "mild_hypoxemia", "moderate_hypoxemia", "severe_hypoxemia")
+heat_map_o2_cat <- heat_map_o2_mortality |>
+  filter(
+    variable=='death_hospice28',
+    grepl('hypox', level)==T) |>
+  mutate(level = factor(level, levels = cat_levels))
+
+ggplot(heat_map_o2_cat, aes(x = level, y = strata, fill = percent)) +
+  geom_tile(color = "white", width = 0.95, height = 0.95) +
+  scale_fill_gradient2(name="",
+    low = 'dodgerblue4',
+    mid = 'white',
+    high = 'firebrick2',
+    limits = c(0, max(heat_map_o2_cat$percent)),
+    midpoint = (max(heat_map_o2_cat$percent)/2),
+    breaks = c(0, max(heat_map_o2_cat$percent)),
+    labels = c('Lower', 'Higher')      # no labels on colorbar
+  ) +
+  scale_y_discrete(name='', labels = c('PaO2/FiO2 Defined', 'SpO2/FiO2 Defined')) +
+  scale_x_discrete(name='',
+                   labels = c('Not\nHypoxemic', 'Mild\nHypoxemia', 'Moderate\nHypoxemia', 'Severe\nHypoxemia')) +
+  geom_text(aes(label = label), size = 3, fontface='bold') +
+  coord_equal() +
+  labs(x = "Hypoxemia Severity Category", 
+       title = paste0("Death or Hospice by Day 28, (n=",sum(heat_map_o2_cat$n_total, na.rm=T), ')'),
+       size=4) +
+  theme_minimal()
+ggsave(
+  filename='o2_category_mortality.pdf',
+  plot=last_plot(),
+  path = paste0(project_location, '/graphs/'))
+
+#Order Sofa Categories
+cat_levels <- c("0", "1", "2", "3", "4")
+heat_map_sofa <- heat_map_o2_mortality |>
+  filter(
+    variable=='death_hospice28',
+    grepl('hypox', level)==F) |>
+  mutate(level = factor(level, levels = cat_levels))
+
+ggplot(heat_map_sofa, aes(x = level, y = strata, fill = percent)) +
+  geom_tile(color = "white", width = 0.95, height = 0.95) +
+  scale_fill_gradient2(name="",
+    low = 'dodgerblue4',
+    mid = 'white',
+    high = 'firebrick2',
+    limits = c(0, max(heat_map_sofa$percent)),
+    midpoint = (max(heat_map_sofa$percent)/2),
+    breaks = c(0, max(heat_map_sofa$percent)),
+    labels = c('Lower', 'Higher')      # no labels on colorbar
+  ) +
+  scale_y_discrete(name='', labels = c('PaO2/FiO2 Defined', 'SpO2/FiO2 Defined')) +
+  scale_x_discrete(name='SOFA-2 Respiratory Score',
+                   labels = c('0', '1', '2', '3', '4')) +
+  geom_text(aes(label = label), size = 3, fontface='bold') +
+  coord_equal() +
+  labs(x = "Hypoxemia Severity Category", 
+       title = paste0("Death or Hospice by Day 28, (n=",sum(heat_map_sofa$n_total, na.rm=T), ')'),
+       fontface='bold',
+       size=4) +
+  theme_minimal()
+ggsave(
+  filename='o2_sofa_mortality.pdf',
+  plot=last_plot(),
+  path = paste0(project_location, '/graphs/'))
+```
+```{r Stratified Mortality by Categorization According to Black, Not Black}
+#Do this Once Other Sites Have Run
+mortality_by_o2_race <- collate_tables('_aggregate_by_o2cat_race.csv')
+
+#Prepare Data for 
+aggregate_mortality_race <- mortality_by_o2_race |>
+  mutate(
+    black=fifelse(new_race_cat=='black', 'black', 'not_black')
+  ) |>
+  group_by(strata, strata_type, black, variable, level) |>
+  dplyr::reframe(
+    n_total=sum(n, na.rm=T),
+    n_miss=sum(miss, na.rm=T),
+    count=sum(freq,na.rm=T),
+    percent=count/(n_total-n_miss)
+  ) 
+
+aggregate_mortality_race  <- aggregate_mortality_race  |>
+  left_join(order, by='variable') |>
+  arrange(strata, order_number)
+
+vars <- c(
+  'death_hospice28',
+  'death_hospice60'
+)
+mortality_tab_chi <- chisq_function(aggregate_mortality_race) |>
+  mutate(rn=1)
+
+#Merge Back with Table 1 and COnvert to Wide
+table_mortality_race_paper <- aggregate_mortality_race |>
+  select(strata, black, variable, level, n_total, count, percent, order_number) |>
+  mutate(
+    percent=round((percent*100), digits = 2)
+  ) |>
+  rename(count_mean=count,
+         percent_sd=percent) |>
+  distinct() |>
+  pivot_wider(
+    names_from=c(strata),
+    names_glue="{strata}_{.value}",
+    values_from=c(n_total, count_mean, percent_sd)) 
+
+#Vector For Reordering Columns
+strata_values <- c(
+  'Overall', 
+  'pf-mild_hypoxemia', 
+  'pf-moderate_hypoxemia', 
+  'pf-severe_hypoxemia',
+  'pf-not_hypoxemic',
+  'sf-mild_hypoxemia', 
+  'sf-moderate_hypoxemia', 
+  'sf-severe_hypoxemia',
+  'sf-not_hypoxemic',
+  'pf-0',
+  'pf-1',
+  'pf-2',
+  'pf-3',
+  'pf-4',
+  'sf-0',
+  'sf-1',
+  'sf-2',
+  'sf-3',
+  'sf-4'
+)
+
+relocate_vector <- c()
+# Loop through the strata values to generate names for those strata
+for (stratum in strata_values) {
+    relocate_vector <- c(relocate_vector,
+                         paste(stratum, c("n_total", "count_mean", "percent_sd"), sep = "_"))
+  }
+
+#Reorder and Add Statistical Testing
+table_mortality_race_paper <- table_mortality_race_paper |>
+  relocate(all_of(relocate_vector), .after = level) |>
+  group_by(variable) |>
+  mutate(rn=dplyr::row_number()) |>
+  left_join(tab1_chi, by=c('variable')) |>
+  arrange(order_number, variable) |>
+  select(-order_number) |>
+  filter(level==1)
+stratified_keep <- table_mortality_race_paper |>
+  select(black, variable, Overall_n_total) |>
+  distinct()
+
+table_mortality_race_paper <- readable_table(table_mortality_race_paper, strata_values, has_continuous=F, has_categorical=T) |>
+  left_join(stratified_keep) |>
+  relocate(black, .after=variable)
+
+write_csv(table_mortality_race_paper, paste0(project_location, '/tables/table_o2cat_mortality_race.csv'))
+```
+
+```{r Mortality Heat Map Stratified by Race}
+heat_map_o2_mortality <- aggregate_mortality_race %>%
+  filter(strata %in% strata_values,
+         strata!='Overall', 
+         level==1) |> #Only Need 1 Level) 
+  mutate(label = paste0(percent(percent, accuracy = 0.1))) |>
+  separate(strata, into = c("strata","level"), sep = "-", remove = FALSE)
+
+#Order Hypoxemia Categories
+cat_levels <- c("not_hypoxemic", "mild_hypoxemia", "moderate_hypoxemia", "severe_hypoxemia")
+heat_map_o2_cat <- heat_map_o2_mortality |>
+  filter(
+    variable=='death_hospice28',
+    grepl('hypox', level)==T) |>
+  mutate(
+    level = factor(level, levels = cat_levels),
+    black  = factor(black, levels = c("black", "not_black"))
+) |>
+group_by(black) |>
+complete(
+level  = levels(level),
+strata = c("pf", "sf"),
+fill   = list(percent = NA_real_, label = "")
+) |>
+ungroup()
+
+ggplot(heat_map_o2_cat, aes(x = level, y = strata, fill = percent)) +
+  geom_tile(color = "white", width = 0.95, height = 0.95) +
+  scale_fill_gradient2(name="",
+    low = 'dodgerblue4',
+    mid = 'white',
+    high = 'firebrick2',
+    limits = c(0, max(heat_map_o2_cat$percent)),
+    midpoint = (max(heat_map_o2_cat$percent)/2),
+    breaks = c(0, max(heat_map_o2_cat$percent)),
+    labels = c('Lower', 'Higher')      # no labels on colorbar
+  ) +
+  scale_y_discrete(name='', labels = c('PaO2/FiO2 Defined', 'SpO2/FiO2 Defined')) +
+  scale_x_discrete(name='',
+                   labels = c('Not\nHypoxemic', 'Mild\nHypoxemia', 'Moderate\nHypoxemia', 'Severe\nHypoxemia')) +
+  geom_text(aes(label = label), size = 3, fontface='bold') +
+  coord_equal() +
+  facet_grid(. ~ black, labeller = ggplot2::as_labeller(c(black = "Black", not_black = "Not Black"))) +
+  facet_wrap(vars(black), ncol = 1) +
+  labs(x = "Hypoxemia Severity Category", 
+       title = paste0("Death or Hospice by Day 28, (n=",sum(heat_map_o2_cat$n_total, na.rm=T), ')'),
+       size=4) +
+  theme_minimal()
+ggsave(
+  filename='o2_category_mortality_race.pdf',
+  plot=last_plot(),
+  path = paste0(project_location, '/graphs/'))
+
+#Order Sofa Categories
+cat_levels <- c("0", "1", "2", "3", "4")
+heat_map_sofa <- heat_map_o2_mortality |>
+  filter(
+    variable=='death_hospice28',
+    grepl('hypox', level)==F) |>
+  mutate(level = factor(level, levels = cat_levels),
+         black  = factor(black, levels = c("black", "not_black"))
+) |>
+group_by(black) |>
+complete(
+level  = levels(level),
+strata = c("pf", "sf"),
+fill   = list(percent = NA_real_, label = "")) |>
+ungroup()
+
+ggplot(heat_map_sofa, aes(x = level, y = strata, fill = percent)) +
+  geom_tile(color = "white", width = 0.95, height = 0.95) +
+  scale_fill_gradient2(name="",
+    low = 'dodgerblue4',
+    mid = 'white',
+    high = 'firebrick2',
+    limits = c(0, max(heat_map_sofa$percent)),
+    midpoint = (max(heat_map_sofa$percent)/2),
+    breaks = c(0, max(heat_map_sofa$percent)),
+    labels = c('Lower', 'Higher')      # no labels on colorbar
+  ) +
+  scale_y_discrete(name='', labels = c('PaO2/FiO2 Defined', 'SpO2/FiO2 Defined')) +
+  scale_x_discrete(name='SOFA-2 Respiratory Score',
+                   labels = c('0', '1', '2', '3', '4')) +
+  geom_text(aes(label = label), size = 3, fontface='bold') +
+  coord_equal() +
+  facet_grid(. ~ black, labeller = ggplot2::as_labeller(c(black = "Black", not_black = "Not Black"))) +
+  facet_wrap(vars(black), ncol = 1) +
+  labs(x = "Hypoxemia Severity Category", 
+       title = paste0("Death or Hospice by Day 28, (n=",sum(heat_map_sofa$n_total, na.rm=T), ')'),
+       fontface='bold',
+       size=4) +
+  theme_minimal()
+ggsave(
+  filename='o2_sofa_mortality_race.pdf',
+  plot=last_plot(),
+  path = paste0(project_location, '/graphs/'))
+```
+```{r Stratified Mortality by Respiratory Support}
+#Do this Once Other Sites Have Run
+mortality_by_o2_resp <- collate_tables('_aggregate_by_o2cat_resp_support.csv')
+
+#Prepare Data for 
+aggregate_mortality_resp <- mortality_by_o2_resp |>
+  mutate(
+    resp_support_category=fifelse(resp_support_category=='cpap', 'nippv', resp_support_category)
+  ) |>
+  group_by(strata, strata_type, resp_support_category, variable, level) |>
+  dplyr::reframe(
+    n_total=sum(n, na.rm=T),
+    n_miss=sum(miss, na.rm=T),
+    count=sum(freq,na.rm=T),
+    percent=count/(n_total-n_miss)
+  ) 
+
+vars <- c(
+  'death_hospice28',
+  'death_hospice60'
+)
+mortality_tab_chi <- chisq_function(aggregate_mortality_resp) |>
+  mutate(rn=1)
+
+#Merge Back with Table 1 and COnvert to Wide
+table_mortality_resp <- aggregate_mortality_resp |>
+  select(strata, resp_support_category, variable, level, n_total, count, percent) |>
+  mutate(
+    percent=round((percent*100), digits = 2)
+  ) |>
+  rename(count_mean=count,
+         percent_sd=percent) |>
+  distinct() |>
+  pivot_wider(
+    names_from=c(strata),
+    names_glue="{strata}_{.value}",
+    values_from=c(n_total, count_mean, percent_sd)) 
+
+#Vector For Reordering Columns
+strata_values <- c(
+  'Overall', 
+  'pf-mild_hypoxemia', 
+  'pf-moderate_hypoxemia', 
+  'pf-severe_hypoxemia',
+  'pf-not_hypoxemic',
+  'sf-mild_hypoxemia', 
+  'sf-moderate_hypoxemia', 
+  'sf-severe_hypoxemia',
+  'sf-not_hypoxemic',
+  'pf-0',
+  'pf-1',
+  'pf-2',
+  'pf-3',
+  'pf-4',
+  'sf-0',
+  'sf-1',
+  'sf-2',
+  'sf-3',
+  'sf-4'
+)
+
+relocate_vector <- c()
+# Loop through the strata values to generate names for those strata
+for (stratum in strata_values) {
+    relocate_vector <- c(relocate_vector,
+                         paste(stratum, c("n_total", "count_mean", "percent_sd"), sep = "_"))
+  }
+
+#Reorder and Add Statistical Testing
+table_mortality_resp <- table_mortality_resp |>
+  relocate(all_of(relocate_vector), .after = level) |>
+  group_by(variable) |>
+  mutate(rn=dplyr::row_number()) |>
+  left_join(tab1_chi, by=c('variable')) |>
+  filter(level==1)
+stratified_keep <- table_mortality_resp |>
+  select(resp_support_category, variable, Overall_n_total) |>
+  distinct()
+
+table_mortality_resp <- readable_table(table_mortality_resp, strata_values, has_continuous=F, has_categorical=T) |>
+  left_join(stratified_keep) |>
+  relocate(resp_support_category, .after=variable)
+
+write_csv(table_mortality_resp, paste0(project_location, '/tables/table_o2cat_mortality_resp_support.csv'))
+```
+
+
+```{r Heat Map with Mortality by Respiratory Support}
+heat_map_o2_mortality <- aggregate_mortality_resp %>%
+  filter(strata %in% strata_values,
+         strata!='Overall',
+         level==1) |> #Only Need 1 Level) 
+  mutate(label = paste0(percent(percent, accuracy = 0.1))) |>
+  separate(strata, into = c("strata","level"), sep = "-", remove = FALSE)
+
+#Order Hypoxemia Categories
+cat_levels <- c("not_hypoxemic", "mild_hypoxemia", "moderate_hypoxemia", "severe_hypoxemia")
+heat_map_o2_cat <- heat_map_o2_mortality |>
+  filter(
+    variable=='death_hospice28',
+    grepl('hypox', level)==T) |>
+  mutate(
+    level = factor(level, levels = cat_levels),
+    resp_support_category  = factor(resp_support_category, 
+                                    levels = c("high_flow_nc", "imv", "nippv"))
+) |>
+group_by(resp_support_category) |>
+complete(
+level  = levels(level),
+strata = c("pf", "sf"),
+fill   = list(percent = NA_real_, label = "")
+) |>
+ungroup() |>
+  filter(percent!='NA')
+
+ggplot(heat_map_o2_cat, aes(x = level, y = strata, fill = percent)) +
+  geom_tile(color = "white", width = 0.95, height = 0.95) +
+  scale_fill_gradient2(name="",
+    low = 'dodgerblue4',
+    mid = 'white',
+    high = 'firebrick2',
+    limits = c(0, max(heat_map_o2_cat$percent)),
+    midpoint = (max(heat_map_o2_cat$percent)/2),
+    breaks = c(0, max(heat_map_o2_cat$percent)),
+    labels = c('Lower', 'Higher')      # no labels on colorbar
+  ) +
+  scale_y_discrete(name='', labels = c('PaO2/FiO2 Defined', 'SpO2/FiO2 Defined')) +
+  scale_x_discrete(name='',
+                   labels = c('Not\nHypoxemic', 'Mild\nHypoxemia', 'Moderate\nHypoxemia', 'Severe\nHypoxemia')) +
+  geom_text(aes(label = label), size = 3, fontface='bold') +
+  coord_equal() + 
+  facet_grid(. ~ resp_support_category, labeller = ggplot2::as_labeller(c(imv = "IMV", high_flow_nc = "HIFNC", nippv="NIPPV"))) +
+  facet_wrap(vars(resp_support_category), ncol=2) +
+  labs(x = "Hypoxemia Severity Category", 
+       title = paste0("Death or Hospice by Day 28, (n=",sum(heat_map_o2_cat$n_total, na.rm=T), ')'),
+       size=4) +
+  theme_minimal()
+ggsave(
+  filename='o2_category_mortality_resp_support.pdf',
+  plot=last_plot(),
+  path = paste0(project_location, '/graphs/'))
+
+#Order Sofa Categories
+cat_levels <- c("0", "1", "2", "3", "4")
+heat_map_sofa <- heat_map_o2_mortality |>
+  filter(
+    variable=='death_hospice28',
+    grepl('hypox', level)==F) |>
+  mutate(
+    level = factor(level, levels = cat_levels),
+    resp_support_category  = factor(resp_support_category, 
+                                    levels = c("high_flow_nc", "imv", "nippv"))
+) |>
+group_by(resp_support_category) |>
+complete(
+level  = levels(level),
+strata = c("pf", "sf"),
+fill   = list(percent = NA_real_, label = "")
+) |>
+ungroup() |>
+  filter(percent!='NA')
+
+ggplot(heat_map_sofa, aes(x = level, y = strata, fill = percent)) +
+  geom_tile(color = "white", width = 0.95, height = 0.95) +
+  scale_fill_gradient2(name="",
+    low = 'dodgerblue4',
+    mid = 'white',
+    high = 'firebrick2',
+    limits = c(0, max(heat_map_sofa$percent)),
+    midpoint = (max(heat_map_sofa$percent)/2),
+    breaks = c(0, max(heat_map_sofa$percent)),
+    labels = c('Lower', 'Higher')      # no labels on colorbar
+  ) +
+  scale_y_discrete(name='', labels = c('PaO2/FiO2 Defined', 'SpO2/FiO2 Defined')) +
+  scale_x_discrete(name='SOFA-2 Respiratory Score',
+                   labels = c('0', '1', '2', '3', '4')) +
+  geom_text(aes(label = label), size = 3, fontface='bold') +
+  coord_equal() +
+  facet_grid(. ~ resp_support_category, labeller = ggplot2::as_labeller(c(imv = "IMV", high_flow_nc = "HIFNC", nippv="NIPPV"))) +
+  facet_wrap(vars(resp_support_category), ncol=2) +
+  labs(x = "Hypoxemia Severity Category", 
+       title = paste0("Death or Hospice by Day 28, (n=",sum(heat_map_sofa$n_total, na.rm=T), ')'),
+       fontface='bold',
+       size=4) +
+  theme_minimal()
+ggsave(
+  filename='o2_sofa_mortality_resp.pdf',
+  plot=last_plot(),
+  path = paste0(project_location, '/graphs/'))
+
+```
+
+```{r Now Evaluate Discrimination by Fitting Logistic Regression}
+#Include Cubic Spline Terms with 3 Knotw
+#aggregate_continuous <- collate_tables("_aggregate_outcomes.csv")
+aggregate_continuous_hospital <- site_table_data$hopkins_aggregate_outcomes.csv |>
+  mutate(site='hopkins') |>
+  rowbind(site_table_data$rush_aggregate_outcomes.csv, fill=T) |>
+  mutate(site=fifelse(is.na(site), 'rush', site)) |>
+  rowbind(site_table_data$nu_aggregate_outcomes.csv, fill=T) |>
+  mutate(site=fifelse(is.na(site), 'nu', site)) |>
+  rowbind(site_table_data$umn_aggregate_outcomes.csv, fill=T) |>
+  mutate(site=fifelse(is.na(site), 'umn', site)) |>
+  rowbind(site_table_data$michigan_aggregate_outcomes.csv, fill=T) |>
+  mutate(site=fifelse(is.na(site), 'michigan', site)) |>
+  rowbind(site_table_data$penn_aggregate_outcomes.csv, fill=T) |>
+  mutate(site=fifelse(is.na(site), 'penn', site)) |>
+  rowbind(site_table_data$ucmc_aggregate_outcomes.csv, fill=T) |>
+  mutate(site=fifelse(is.na(site), 'ucmc', site)) |>
+  rowbind(site_table_data$emory_aggregate_outcomes.csv, fill=T) |>
+  mutate(site=fifelse(is.na(site), 'emory', site)) |>
+  rowbind(site_table_data$ohsu_aggregate_outcomes.csv, fill=T) |>
+  mutate(site=fifelse(is.na(site), 'ohsu', site)) |>
+  filter(strata_cat=='hospital_id') |>
+  mutate(
+    prob_death28=n_deathhosp28/n_in_group,
+    prob_death60=n_deathhosp60/n_in_group)
+
+#Evaluate Shape of Relationship Using Smoothing Term
+ggplot(data=
+         subset(aggregate_continuous_hospital, primary_metric=='pf'), 
+       aes(x=measure_value_5, y=prob_death28)) +
+  geom_point() +
+  geom_smooth()
+
+#Run Random Effects Aggregate Logistic Regression for Death/Hospice by Day 28
+pf_glm <- glmmTMB(
+prob_death28 ~ rcs(measure_value_5, 4) + (1 | hospital_id),
+data   = dplyr::filter(aggregate_continuous_hospital, primary_metric == "pf"),
+family = binomial(link = "logit"),
+weights = n_in_group
+)
+
+tidy_fix_pf <- broom.mixed::tidy(
+  pf_glm,
+  effects = "fixed",
+  component = "cond",
+  conf.int = TRUE,
+  exponentiate = TRUE
+) 
+tidy_fix_pf
+
+#Visualize
+grid <- aggregate_continuous_hospital |>
+  filter(primary_metric=='pf') |>
+  group_by(measure_value_5) |>
+  summarise(
+    n_in_group=sum(n_in_group, na.rm=T)
+  )
+predicted_pf <- as_tibble(predictions(pf_glm, new_data=grid, re.form=NA)) |>
+  select(measure_value_5, n_in_group, estimate, conf.low, conf.high) |>
+  group_by(measure_value_5) |>
+  mutate(
+    n_in_group=sum(n_in_group, na.rm=T)
+  ) |>
+  distinct()
+
+ggplot(predicted_pf, aes(x = measure_value_5, y = estimate)) +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high),
+              fill = "grey80", alpha = 0.5) +
+  geom_line(color = "firebrick2", linewidth = 1) +
+  geom_point(aes(size = n_in_group), alpha = 0.6) +
+  scale_size(range = c(0.25, 2), guide = "none") +
+  scale_y_continuous(
+    limits = c(0, 1),
+    breaks = seq(0, 1, by = 0.1),
+    labels = scales::label_percent(accuracy = 1)
+) +
+  labs(x = "PaO2/FiO2",
+       y = "Predicted probability",
+       title = "Predicted probability with 95% CI band") +
+theme_minimal()
+ggsave(
+  filename='predicted_deathhospice28_pf.pdf',
+  plot=last_plot(),
+  path = paste0(project_location, '/graphs/'))
+
+
+#Evaluate Shape of Relationship Using Smoothing Term
+ggplot(data=
+         subset(aggregate_continuous_hospital, primary_metric=='sf'), 
+       aes(x=measure_value_5, y=prob_death28)) +
+  geom_point() +
+  geom_smooth()
+
+#Run Random Effects Aggregate Logistic Regression for Death/Hospice by Day 28
+sf_glm <- glmmTMB(
+prob_death28 ~ rcs(measure_value_5, 4) + (1 | hospital_id),
+data   = dplyr::filter(aggregate_continuous_hospital, primary_metric == "sf"),
+family = binomial(link = "logit"),
+weights = n_in_group
+)
+
+tidy_fix_sf <- broom.mixed::tidy(
+  sf_glm,
+  effects = "fixed",
+  component = "cond",
+  conf.int = TRUE,
+  exponentiate = TRUE
+) 
+tidy_fix_sf
+
+#Visualize
+grid <- aggregate_continuous_hospital |>
+  filter(primary_metric=='sf') |>
+  group_by(measure_value_5) |>
+  summarise(
+    n_in_group=sum(n_in_group, na.rm=T)
+  )
+predicted_sf <- as_tibble(predictions(sf_glm, new_data=grid, re.form=NA)) |>
+  select(measure_value_5, n_in_group, estimate, conf.low, conf.high) |>
+  group_by(measure_value_5) |>
+  mutate(
+    n_in_group=sum(n_in_group, na.rm=T)
+  ) |>
+  distinct()
+
+ggplot(predicted_sf, aes(x = measure_value_5, y = estimate)) +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high),
+              fill = "grey80", alpha = 0.5) +
+  geom_line(color = "firebrick2", linewidth = 1) +
+  geom_point(aes(size = n_in_group), alpha = 0.6) +
+  scale_size(range = c(0.5, 3), guide = "none") +
+  scale_y_continuous(
+    limits = c(0, 1),
+    breaks = seq(0, 1, by = 0.1),
+    labels = scales::label_percent(accuracy = 1)
+) +
+  labs(x = "SpO2/FiO2",
+       y = "Predicted probability",
+       title = "Predicted probability with 95% CI band") +
+theme_minimal()
+
+ggsave(
+  filename='predicted_deathhospice28_sf.pdf',
+  plot=last_plot(),
+  path = paste0(project_location, '/graphs/'))
+```
+
+```{r Function for Computing Weighted Brier Score From Summary Data}
+compute_weighted_brier <- function(df, boot_n = 2000) {
+  # Totals
+  n_pos <- sum(df$deaths, na.rm = TRUE)
+  n_neg <- sum(df$survivors, na.rm = TRUE)
+  N_tot <- n_pos + n_neg
+  
+  if (N_tot == 0) {
+    return(list(value = NA_real_, ci = c(NA_real_, NA_real_)))
+  }
+  
+  # Point estimate (weighted over aggregated counts)
+  brier_val <- (sum(df$deaths    * (1 - df$pred)^2, na.rm = TRUE) +
+                  sum(df$survivors * (df$pred)^2,     na.rm = TRUE)) / N_tot
+  
+  # Stratified bootstrap: resample positive and negative counts across rows
+  prob_pos <- if (n_pos > 0) df$deaths    / n_pos else rep(0, nrow(df))
+  prob_neg <- if (n_neg > 0) df$survivors / n_neg else rep(0, nrow(df))
+  
+  brier_boot <- numeric(boot_n)
+  for (b in seq_len(boot_n)) {
+    counts_pos <- if (n_pos > 0) as.integer(stats::rmultinom(1, n_pos, prob = prob_pos)) else integer(nrow(df))
+    counts_neg <- if (n_neg > 0) as.integer(stats::rmultinom(1, n_neg, prob = prob_neg)) else integer(nrow(df))
+    
+    brier_boot[b] <- (sum(counts_pos * (1 - df$pred)^2) +
+                        sum(counts_neg * (df$pred)^2)) / N_tot
+  }
+  
+  brier_ci <- as.numeric(stats::quantile(brier_boot, probs = c(0.025, 0.975), na.rm = TRUE))
+  list(value = brier_val, ci = brier_ci)
+}
+```
+
+
+```{r AUROC and ROC Curves}
+roc_table <- data.frame()
+
+set.seed(3982)
+BOOT_NUM <- 2500 #Number of Bootstrap Replicates
+#SF Ratio
+dat_sf <- aggregate_continuous_hospital %>%
+  filter(primary_metric=='sf') 
+dat_sf <- dat_sf |>
+  mutate(pred = predict(sf_glm, newdata = dat_sf, type = "response", re.form = NA),
+         deaths = n_deathhosp28,
+         survivors = n_in_group - deaths) |>
+  filter(!is.na(pred), (deaths + survivors) > 0)
+
+roc_df_sf <- bind_rows(
+  transmute(dat_sf, label = 1, score = pred, w = deaths),
+  transmute(dat_sf, label = 0, score = pred, w = survivors)
+) %>%
+  filter(w > 0)
+
+roc_sf <- roc(response = roc_df_sf$label, predictor = roc_df_sf$score, weights = roc_df_sf$w)
+auc_sf <- auc(roc_sf)
+ci_sf <- as.numeric(pROC::ci.auc(roc_sf, method = "bootstrap", boot.n = BOOT_NUM, stratified = TRUE))
+# Weighted Brier score + 95% CI via stratified multinomial bootstrap (aggregated df)
+brier_sf <- compute_weighted_brier(dat_sf, boot_n = BOOT_NUM)
+
+roc_table <- data.frame(
+  model = "Overall_SF_Ratio",
+  auc = round(auc_sf, digits=3),
+  ci_low = round(ci_sf[1], digits=3),
+  ci_hi = round(ci_sf[3], digits=3),
+  brier       = round(brier_sf$value, 3),
+  brier_low   = round(brier_sf$ci[1], 3),
+  brier_hi    = round(brier_sf$ci[2], 3),
+  comparison = NA_character_,
+  p.value = NA_real_
+)
+
+#PF Ratio
+dat_pf <- aggregate_continuous_hospital %>%
+  filter(primary_metric=='pf') 
+dat_pf <- dat_pf |>
+  mutate(pred = predict(pf_glm, newdata = dat_pf, type = "response", re.form = NULL),
+         deaths = n_deathhosp28,
+         survivors = n_in_group - deaths) |>
+  filter(!is.na(pred), (deaths + survivors) > 0)
+
+roc_df_pf <- bind_rows(
+  transmute(dat_pf, label = 1, score = pred, w = deaths),
+  transmute(dat_pf, label = 0, score = pred, w = survivors)
+) %>%
+  filter(w > 0)
+
+roc_pf <- roc(response = roc_df_pf$label, predictor = roc_df_pf$score, weights = roc_df_pf$w)
+auc_pf <- auc(roc_pf)
+ci_pf <- as.numeric(pROC::ci.auc(roc_pf, method = "bootstrap", boot.n = BOOT_NUM, stratified = TRUE))
+# Weighted Brier score + 95% CI via stratified multinomial bootstrap (aggregated df)
+brier_pf <- compute_weighted_brier(dat_pf, boot_n = BOOT_NUM)
+test <- roc.test(roc_pf, roc_sf, method='bootstrap', boot.n=BOOT_NUM)
+roc_table <- bind_rows(
+  roc_table,
+  data.frame(
+    model = "Overall_PF_Ratio",
+    auc = round(auc_pf, 3),
+    ci_low = round(ci_pf[1], 3),
+    ci_hi = round(ci_pf[3], 3),
+    brier       = round(brier_pf$value, 3),
+    brier_low   = round(brier_pf$ci[1], 3),
+    brier_hi    = round(brier_pf$ci[2], 3),
+    comparison = "Overall_PFvSF",
+    p.value = round(test$p.value, 3)
+  )
+) |>
+  arrange(model, comparison)
+```
+
+
+```{r Repeat ROC With Race}
+ aggregate_continuous_race <- site_table_data$hopkins_aggregate_outcomes.csv |>
+  mutate(site='hopkins') |>
+  rowbind(site_table_data$rush_aggregate_outcomes.csv, fill=T) |>
+  mutate(site=fifelse(is.na(site), 'rush', site)) |>
+  rowbind(site_table_data$nu_aggregate_outcomes.csv, fill=T) |>
+  mutate(site=fifelse(is.na(site), 'nu', site)) |>
+  rowbind(site_table_data$umn_aggregate_outcomes.csv, fill=T) |>
+  mutate(site=fifelse(is.na(site), 'umn', site)) |>
+  rowbind(site_table_data$michigan_aggregate_outcomes.csv, fill=T) |>
+  mutate(site=fifelse(is.na(site), 'michigan', site)) |>
+  rowbind(site_table_data$penn_aggregate_outcomes.csv, fill=T) |>
+  mutate(site=fifelse(is.na(site), 'penn', site)) |>
+  rowbind(site_table_data$ucmc_aggregate_outcomes.csv, fill=T) |>
+  mutate(site=fifelse(is.na(site), 'ucmc', site)) |>
+  rowbind(site_table_data$emory_aggregate_outcomes.csv, fill=T) |>
+  mutate(site=fifelse(is.na(site), 'emory', site)) |>
+  rowbind(site_table_data$ohsu_aggregate_outcomes.csv, fill=T) |>
+  mutate(site=fifelse(is.na(site), 'ohsu', site)) |>
+  filter(!is.na(new_race_cat)) |>
+  mutate(
+    black=fifelse(new_race_cat=='black', 'black', 'not_black')
+  ) |>
+ group_by(primary_metric, site, black, measure_value_5) |>
+ summarise(
+   n_in_group=sum(n_in_group, na.rm=T), 
+   n_deathhosp28=sum(n_deathhosp28, na.rm=T),
+   n_deathhosp60=sum(n_deathhosp60, na.rm=T)
+ ) |>
+  mutate(
+    prob_death28=n_deathhosp28/n_in_group,
+    prob_death60=n_deathhosp60/n_in_group) |>
+  ungroup()
+
+strata  <- c("black", "not_black")
+metrics <- c("sf", "pf")
+
+glm_models <- setNames(vector("list", length(metrics)), metrics)
+
+for (m in metrics) {
+  glm_models[[m]] <- setNames(vector("list", length(strata)), strata)
+  for (z in strata) {
+    dat <- aggregate_continuous_race |>
+      filter(primary_metric == m, black == z,
+             n_in_group>0)
+
+    if (nrow(dat) == 0) {
+      warning(sprintf("No rows for metric '%s' and stratum '%s'; skipping.", m, z))
+      next
+    }
+
+    fit <- glmmTMB(
+      prob_death28 ~ rcs(measure_value_5, 4),
+      data   = dat,
+      family = binomial(),
+      weights = n_in_group
+    )
+
+    glm_models[[m]][[z]] <- fit
+  }
+}
+
+set.seed(3982)
+roc_models <- setNames(vector("list", length(metrics)), metrics)
+
+for (m in metrics) {
+  roc_models[[m]] <- setNames(vector("list", length(strata)), strata)
+  for (z in strata) {
+    this_glm <- glm_models[[m]][[z]]
+    if (is.null(this_glm)) {
+      warning(sprintf("No fitted model for metric '%s' and stratum '%s'; skipping.", m, z))
+      next
+    }
+
+    # Use the same data that was used to fit
+    df <- aggregate_continuous_race %>%
+      filter(primary_metric == m, 
+             black == z,
+             n_in_group>0) |>
+      mutate(
+        deaths = n_deathhosp28,
+        survivors = n_in_group - deaths
+      )
+    df$pred <-  predict(this_glm, newdata=df, type='response', re.form = NULL)
+
+    # Drop rows with missing predictions or zero total counts
+    df <- df %>% filter(!is.na(pred), (deaths + survivors) > 0)
+
+    # Expand aggregated counts: one row per individual
+    pos <- df %>%
+      transmute(label = 1, score = pred, w = deaths) %>%
+      tidyr::uncount(w)
+    neg <- df %>%
+      transmute(label = 0, score = pred, w = survivors) %>%
+      tidyr::uncount(w)
+    roc_df <- bind_rows(pos, neg)
+
+    if (nrow(roc_df) == 0) {
+      warning(sprintf("No data to compute ROC for metric '%s' and stratum '%s'; skipping.", m, z))
+      next
+    }
+
+    roc_obj <- pROC::roc(response = roc_df$label, predictor = roc_df$score, quiet = TRUE)
+    auc_val <- pROC::auc(roc_obj)
+    ci_val  <- as.numeric(pROC::ci.auc(roc_obj, method = "bootstrap", boot.n = BOOT_NUM, stratified = TRUE))
+    brier <- compute_weighted_brier(df, boot_n = BOOT_NUM)
+    # Store both the ROC object and a small summary
+    roc_models[[m]][[z]] <- list(
+      roc = roc_obj,
+      auc = as.numeric(auc_val),
+      ci  = ci_val)
+    
+    roc_table <- roc_table |>
+      rowbind(data.frame(
+        model = paste0(m, "_", z, "_subgroup"),
+        auc   = round(as.numeric(auc_val), 3),
+        ci_low = round(ci_val[1], 3),
+        ci_hi  = round(ci_val[3], 3),
+        brier       = round(brier$value, 3),
+        brier_low   = round(brier$ci[1], 3),
+        brier_hi    = round(brier$ci[2], 3),
+        comparison = NA_character_,
+        p.value    = NA_real_
+      ), fill=T
+    )
+  }
+}
+
+#Test and Then Add Comparisons to Table
+test <- roc.test(roc_models$sf$black$roc, 
+                 roc_models$sf$not_black$roc,
+                 method='bootstrap', boot.n=BOOT_NUM)
+#Add Data to Table
+roc_table <- roc_table |>
+  mutate(
+    comparison=fifelse(model=='sf_black_subgroup', 'sf_black_vs_not_black', comparison),
+    p.value=fifelse(model=='sf_black_subgroup', test$p.value, p.value)
+    )
+
+#Test and Then Add Comparisons to Table
+test <- roc.test(roc_models$pf$black$roc, 
+                 roc_models$pf$not_black$roc,
+                 method='bootstrap', boot.n=BOOT_NUM)
+#Add Data to Table
+roc_table <- roc_table |>
+  mutate(
+    comparison=fifelse(model=='pf_black_subgroup', 'pf_black_vs_not_black', comparison),
+    p.value=fifelse(model=='pf_black_subgroup', test$p.value, p.value)
+    )
+```
+
+```{r Repeat ROC With Respiratory Support}
+aggregate_continuous_resp <- site_table_data$hopkins_aggregate_outcomes.csv |>
+  mutate(site='hopkins') |>
+  rowbind(site_table_data$rush_aggregate_outcomes.csv, fill=T) |>
+  mutate(site=fifelse(is.na(site), 'rush', site)) |>
+  rowbind(site_table_data$nu_aggregate_outcomes.csv, fill=T) |>
+  mutate(site=fifelse(is.na(site), 'nu', site)) |>
+  rowbind(site_table_data$umn_aggregate_outcomes.csv, fill=T) |>
+  mutate(site=fifelse(is.na(site), 'umn', site)) |>
+  rowbind(site_table_data$michigan_aggregate_outcomes.csv, fill=T) |>
+  mutate(site=fifelse(is.na(site), 'michigan', site)) |>
+  rowbind(site_table_data$penn_aggregate_outcomes.csv, fill=T) |>
+  mutate(site=fifelse(is.na(site), 'penn', site)) |>
+  rowbind(site_table_data$ucmc_aggregate_outcomes.csv, fill=T) |>
+  mutate(site=fifelse(is.na(site), 'ucmc', site)) |>
+  rowbind(site_table_data$emory_aggregate_outcomes.csv, fill=T) |>
+  mutate(site=fifelse(is.na(site), 'emory', site)) |>
+  rowbind(site_table_data$ohsu_aggregate_outcomes.csv, fill=T) |>
+  mutate(site=fifelse(is.na(site), 'ohsu', site)) |>
+  filter(!is.na(resp_support_category)) |>
+  mutate(
+    resp_support_category=fifelse(resp_support_category=='cpap', 'nippv', resp_support_category)
+  ) |>
+ group_by(primary_metric, site, resp_support_category, measure_value_5) |>
+ summarise(
+   n_in_group=sum(n_in_group, na.rm=T), 
+   n_deathhosp28=sum(n_deathhosp28, na.rm=T),
+   n_deathhosp60=sum(n_deathhosp60, na.rm=T)
+ ) |>
+  mutate(
+    prob_death28=n_deathhosp28/n_in_group,
+    prob_death60=n_deathhosp60/n_in_group) |>
+  ungroup()
+
+strata  <- c("nippv", "high_flow_nc", "imv")
+metrics <- c("sf", "pf")
+
+glm_models <- setNames(vector("list", length(metrics)), metrics)
+
+for (m in metrics) {
+  glm_models[[m]] <- setNames(vector("list", length(strata)), strata)
+  for (z in strata) {
+    dat <- aggregate_continuous_resp %>%
+      filter(primary_metric == m, resp_support_category == z,
+             n_in_group>0)
+
+    if (nrow(dat) == 0) {
+      warning(sprintf("No rows for metric '%s' and stratum '%s'; skipping.", m, z))
+      next
+    }
+
+    fit <- glmmTMB(
+      prob_death28 ~ rcs(measure_value_5, 4) + (1 | site),
+      data   = dat,
+      family = binomial(),
+      weights = n_in_group
+    )
+
+    glm_models[[m]][[z]] <- fit
+  }
+}
+
+set.seed(3982)
+if (!exists("roc_models") || is.null(roc_models)) roc_models <- list()
+
+for (m in metrics) {
+  if (is.null(roc_models[[m]])) roc_models[[m]] <- list()
+  for (z in strata) {
+    this_glm <- glm_models[[m]][[z]]
+    if (is.null(this_glm)) {
+      warning(sprintf("No fitted model for metric '%s' and stratum '%s'; skipping.", m, z))
+      next
+    }
+
+    # Use the same data that was used to fit
+    df <- aggregate_continuous_resp %>%
+      filter(primary_metric == m, resp_support_category == z,
+             n_in_group>0) %>%
+      mutate(
+        deaths = n_deathhosp28,
+        survivors = n_in_group - deaths
+      )
+    df$pred <- predict(this_glm, newdata = df, type = "response", re.form=NULL)
+
+    # Drop rows with missing predictions or zero total counts
+    df <- df %>% filter(!is.na(pred), (deaths + survivors) > 0)
+
+    # Expand aggregated counts: one row per individual
+    pos <- df %>%
+      transmute(label = 1, score = pred, w = deaths) %>%
+      tidyr::uncount(w)
+    neg <- df %>%
+      transmute(label = 0, score = pred, w = survivors) %>%
+      tidyr::uncount(w)
+    roc_df <- bind_rows(pos, neg)
+
+    if (nrow(roc_df) == 0) {
+      warning(sprintf("No data to compute ROC for metric '%s' and stratum '%s'; skipping.", m, z))
+      next
+    }
+
+    roc_obj <- pROC::roc(response = roc_df$label, predictor = roc_df$score, quiet = TRUE)
+    auc_val <- pROC::auc(roc_obj)
+    ci_val  <- as.numeric(pROC::ci.auc(roc_obj, method = "bootstrap", boot.n = BOOT_NUM, stratified = TRUE))
+    brier <- compute_weighted_brier(df, boot_n = BOOT_NUM)
+    # Store both the ROC object and a small summary
+    roc_models[[m]][[z]] <- list(
+      roc = roc_obj,
+      auc = as.numeric(auc_val),
+      ci  = ci_val)
+    
+    roc_table <- roc_table |>
+      rowbind(data.frame(
+        model = paste0(m, "_", z, "_subgroup"),
+        auc   = round(as.numeric(auc_val), 3),
+        ci_low = round(ci_val[1], 3),
+        ci_hi  = round(ci_val[3], 3),
+        brier       = round(brier$value, 3),
+        brier_low   = round(brier$ci[1], 3),
+        brier_hi    = round(brier$ci[2], 3),
+        comparison = NA_character_,
+        p.value    = NA_real_
+      ), fill=T
+    )
+  }
+}
+
+#Test and Then Add Comparisons to Table - Use IMV as Reference
+#First for SF
+test <- roc.test(roc_models$sf$imv$roc, 
+                 roc_models$sf$nippv$roc,
+                 method='bootstrap', boot.n=BOOT_NUM)
+#Add Data to Table
+roc_table <- roc_table |>
+  mutate(
+    comparison=fifelse(model=='sf_imv_subgroup', 'sf_imv_vs_nippv_hifnc', comparison),
+    p.value=fifelse(model=='sf_imv_subgroup', NA_real_, p.value),
+    comparison=fifelse(model=='sf_nippv_subgroup', 'sf_imv_vs_nippv_hifnc', comparison),
+    p.value=fifelse(model=='sf_nippv_subgroup', test$p.value, p.value)
+    )
+
+test <- roc.test(roc_models$sf$imv$roc, 
+                 roc_models$sf$high_flow_nc$roc,
+                 method='bootstrap', boot.n=BOOT_NUM)
+
+#Add Data to Table
+roc_table <- roc_table |>
+  mutate(
+    comparison=fifelse(model=='sf_high_flow_nc_subgroup', 'sf_imv_vs_nippv_hifnc', comparison),
+    p.value=fifelse(model=='sf_high_flow_nc_subgroup', test$p.value, p.value)
+    )
+
+#NOw for PF
+#Test and Then Add Comparisons to Table - Use IMV as Reference
+#First for SF
+test <- roc.test(roc_models$pf$imv$roc, 
+                 roc_models$pf$nippv$roc,
+                 method='bootstrap', boot.n=BOOT_NUM)
+#Add Data to Table
+roc_table <- roc_table |>
+  mutate(
+    comparison=fifelse(model=='pf_imv_subgroup', 'pf_imv_vs_nippv_hifnc', comparison),
+    p.value=fifelse(model=='pf_imv_subgroup', NA_real_, p.value),
+    comparison=fifelse(model=='pf_nippv_subgroup', 'pf_imv_vs_nippv_hifnc', comparison),
+    p.value=fifelse(model=='pf_nippv_subgroup', test$p.value, p.value)
+    )
+
+test <- roc.test(roc_models$pf$imv$roc, 
+                 roc_models$pf$high_flow_nc$roc,
+                 method='bootstrap', boot.n=BOOT_NUM)
+
+#Add Data to Table
+roc_table <- roc_table |>
+  mutate(
+    comparison=fifelse(model=='pf_high_flow_nc_subgroup', 'pf_imv_vs_nippv_hifnc', comparison),
+    p.value=fifelse(model=='pf_high_flow_nc_subgroup', test$p.value, p.value)
+    )
+
+write_csv(roc_table, file=paste0(project_location, '/tables/roc_table_summary.csv'))
+```
+
+
+```{r Plot Curves}
+overall_roc_curve <- list('PaO2/FiO2'= roc_pf, 'SpO2/FiO2'= roc_sf)
+ggroc(overall_roc_curve) +
+  geom_abline(slope = 1, intercept = 1, linetype = "dashed") +
+  coord_equal() +
+  scale_color_brewer(name="") +
+  theme_minimal()
+ggsave(
+  filename='roc_overall.pdf',
+  plot=last_plot(),
+  path = paste0(project_location, '/graphs/'))
+
+race_stratified_roc <- list(
+  'Black-S/F'=roc_models$sf$black$roc, 
+  'Non-Black-S/F'=roc_models$sf$not_black$roc,
+  'Black-P/F'=roc_models$pf$black$roc,
+  'Non-Black-P/F'=roc_models$pf$not_black$roc
+)
+ggroc(race_stratified_roc) +
+  geom_abline(slope = 1, intercept = 1, linetype = "dashed") +
+  coord_equal() +
+  scale_color_viridis_d(name="") +
+  theme_minimal()
+ggsave(
+  filename='roc_race.pdf',
+  plot=last_plot(),
+  path = paste0(project_location, '/graphs/'))
+
+resp_stratified_roc_sf <- list(
+  'IMV-S/F'=roc_models$sf$imv$roc, 
+  'NIPPV-S/F'=roc_models$sf$nippv$roc,
+  'HIFNC-S/F'=roc_models$sf$high_flow_nc$roc)
+ggroc(resp_stratified_roc_sf) +
+  geom_abline(slope = 1, intercept = 1, linetype = "dashed") +
+  coord_equal() +
+  scale_color_viridis_d(name="") +
+  theme_minimal()
+ggsave(
+  filename='roc_resp_support_sf.pdf',
+  plot=last_plot(),
+  path = paste0(project_location, '/graphs/'))
+
+resp_stratified_roc_pf <- list(
+  'IMV-P/F'=roc_models$pf$imv$roc, 
+  'NIPPV-P/F'=roc_models$pf$nippv$roc,
+  'HIFNC-P/F'=roc_models$pf$high_flow_nc$roc)
+ggroc(resp_stratified_roc_pf) +
+  geom_abline(slope = 1, intercept = 1, linetype = "dashed") +
+  coord_equal() +
+  scale_color_viridis_d(name="") +
+  theme_minimal()
+ggsave(
+  filename='roc_resp_support_pf.pdf',
+  plot=last_plot(),
+  path = paste0(project_location, '/graphs/'))
+
+```
+
+
+
+
+
+```{r Calibration Curves}
+N_BINS <- 18
+
+#PF Ratio
+cal_bin <- dat_pf %>%
+  mutate(bin = ntile(pred, N_BINS)) %>%
+  group_by(bin) %>%
+  summarise(
+    pred_mean = weighted.mean(pred, n_in_group),
+    events = sum(deaths),
+    total = sum(n_in_group),
+    obs_rate = events / total,
+    .groups = "drop"
+  ) %>%
+  rowwise() %>%
+  mutate(
+    ci_low = binom::binom.confint(events, total, method = "wilson")$lower,
+    ci_high = binom::binom.confint(events, total, method = "wilson")$upper
+  ) %>%
+  ungroup()
+
+ggplot(cal_bin, aes(x = pred_mean, y = obs_rate)) +
+  geom_smooth(color="firebrick2", se=F) +
+  geom_point(size = 2) +
+  geom_errorbar(aes(ymin = ci_low, ymax = ci_high), width = 0.015) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "gray40") +
+  scale_x_continuous(limits=c(0.1,0.5)) +
+  scale_y_continuous(limits=c(0.1,0.5)) +
+  coord_equal() +
+  labs(x = "Mean predicted probability (bin)",
+       y = "Observed Event Probability",
+       title = "Calibration plot for PaO2/FiO2 (binned deciles)") +
+  theme_minimal()
+
+agg_df <- dat_pf |>
+  group_by(measure_value_5) |>
+  summarise(
+    pred_mean = weighted.mean(pred, n_in_group),
+    events = sum(deaths),
+    total = sum(n_in_group),
+    obs_rate = events / total,
+    .groups = "drop"
+  ) %>%
+  rowwise() %>%
+  mutate(
+    ci_low = binom::binom.confint(events, total, method = "wilson")$lower,
+    ci_high = binom::binom.confint(events, total, method = "wilson")$upper
+  ) %>%
+  ungroup()
+
+ggplot(agg_df, aes(x = pred_mean, y = obs_rate, weight = total)) +
+  geom_point(aes(size=total), alpha = 0.3) +
+  geom_smooth(method = "loess", formula = y ~ x, se = TRUE, color = "dodgerblue4") +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "gray40") +
+  scale_size(range = c(0.25, 1.75), guide = "none") +
+  scale_y_continuous(labels = scales::label_percent()) +
+  scale_x_continuous(labels = scales::label_percent()) +
+  coord_equal(xlim = c(0, 0.5), ylim = c(0, 0.5)) +
+  labs(x = "Predicted probability (Death/Hospice at Day 28)",
+       y = "Observed Probability",
+       title = "Calibration: PaO2/FiO2") +
+  theme_minimal()
+ggsave(
+  filename='calibration_pf_overall.pdf',
+  plot=last_plot(),
+  path = paste0(project_location, '/graphs/'))
+
+#SF Ratio
+cal_bin <- dat_sf %>%
+  mutate(bin = ntile(pred, N_BINS)) %>%
+  group_by(bin) %>%
+  summarise(
+    pred_mean = weighted.mean(pred, n_in_group),
+    events = sum(deaths),
+    total = sum(n_in_group),
+    obs_rate = events / total,
+    .groups = "drop"
+  ) %>%
+  rowwise() %>%
+  mutate(
+    ci_low = binom::binom.confint(events, total, method = "wilson")$lower,
+    ci_high = binom::binom.confint(events, total, method = "wilson")$upper
+  ) %>%
+  ungroup()
+
+ggplot(cal_bin, aes(x = pred_mean, y = obs_rate)) +
+  geom_smooth(color="firebrick2", se=F) +
+  geom_point(size = 2) +
+  geom_errorbar(aes(ymin = ci_low, ymax = ci_high), width = 0.015) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "gray40") +
+  scale_x_continuous(limits=c(0.1,0.5)) +
+  scale_y_continuous(limits=c(0.1,0.5)) +
+  coord_equal() +
+  labs(x = "Mean predicted probability (bin)",
+       y = "Observed Event Probability",
+       title = "Calibration plot for SpO2/FiO2 (binned deciles)") +
+  theme_minimal()
+
+agg_df <- dat_sf |>
+  group_by(measure_value_5) |>
+  summarise(
+    pred_mean = weighted.mean(pred, n_in_group),
+    events = sum(deaths),
+    total = sum(n_in_group),
+    obs_rate = events / total,
+    .groups = "drop"
+  ) %>%
+  rowwise() %>%
+  mutate(
+    ci_low = binom::binom.confint(events, total, method = "wilson")$lower,
+    ci_high = binom::binom.confint(events, total, method = "wilson")$upper
+  ) %>%
+  ungroup()
+
+ggplot(agg_df, aes(x = pred_mean, y = obs_rate, weight = total)) +
+  geom_point(aes(size=total), alpha = 0.3) +
+  geom_smooth(method = "loess", formula = y ~ x, se = TRUE, color = "dodgerblue4") +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "gray40") +
+  scale_size(range = c(0.25, 1.75), guide = "none") +
+  scale_y_continuous(labels = scales::label_percent()) +
+  scale_x_continuous(labels = scales::label_percent()) +
+  coord_equal(xlim = c(0, 0.5), ylim = c(0, 0.5)) +
+  labs(x = "Predicted probability (Death/Hospice at Day 28)",
+       y = "Observed Probability",
+       title = "Calibration: SpO2/FiO2") +
+  theme_minimal()
+ggsave(
+  filename='calibration_sf_overall.pdf',
+  plot=last_plot(),
+  path = paste0(project_location, '/graphs/'))
+
+```
+
+
+
+
