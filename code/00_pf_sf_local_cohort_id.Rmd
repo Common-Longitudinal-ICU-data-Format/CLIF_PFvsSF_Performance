@@ -312,7 +312,7 @@ HF_LPM_MAX <- 90
 #Respiratory Failure Duration (in Hours) - Minimum to Enter Study
 RF_DURATION <- 24
 
-#TIME from Spo2/Pao2 to Most Recent FiO2; 4 Hours
+#TIME from Spo2/Pao2 to Most Recent FiO2; 2 Hours
 TIME_TO_SF_PF <- 1
 
 #Max Time from Worst PF to Corresponding SF

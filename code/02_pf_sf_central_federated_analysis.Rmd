@@ -98,6 +98,7 @@ tables <- c(
   "_aggregate_hours_to_measure.csv",
   "_consort_data.csv",
   "_pf_sf_summary_table.csv",  
+  "_pf_sf_count_table.csv",
   "_proportional_odds_models.csv",
   "_sofa_missing.csv",                          
   "_table_agreement.csv",                       
@@ -869,6 +870,19 @@ table2_paper <- readable_table(table2_paper, strata_values, has_continuous=T,has
 
 #Save Tables
 write_csv(table2_paper, paste0(project_location, '/tables/table2_metric_count_resp_support_no_undefined.csv'))
+```
+```{r Spo2 and PaO2 Counts}
+#Evalute Overall and By Respiratory Category
+sf_pf_counts <- collate_tables('_pf_sf_count_table.csv') |>
+  filter(strata_cat %in% c('Overall', 'resp_support_category')) |>
+  #To Wide Format
+  pivot_wider(
+    names_from = variable,
+    values_from = count
+  ) |>
+  #NOTE: Here Eligible SF and Eligible Spo2 Differ From Pao2 and Spo2 By Whether or NOt it Was Within 2 Hours of Last FiO2
+  mutate(
+    percent_sf_calculable=n_eligible_sf_spo2_lt98/n_eligible_spo2)
 ```
 
 
