@@ -538,7 +538,6 @@ resp_info <- resp_info |>
     
 #Waterfall Filling
 resp_info <- resp_info |>
-  tidytable::group_by(hospital_block_id, device_category) |>
   arrange(hospital_block_id, recorded_dttm) |>
   fmutate(
     fio2_carried=fio2_set,
@@ -547,7 +546,7 @@ resp_info <- resp_info |>
     tidal_volume_carried=tidal_volume_set,
     peep_carried=peep_set
   ) |>
-  tidytable::fill(fio2_carried, fio2_dttm, lpm_carried, tidal_volume_carried, peep_carried, .direction = 'downup') |>
+  tidytable::fill(fio2_carried, fio2_dttm, lpm_carried, tidal_volume_carried, peep_carried, .direction = 'downup', .by = c(hospital_block_id, device_category)) |>
   funique()
 
 #Only Need to Evaluate Device Transitions and Last Row
@@ -845,13 +844,14 @@ resp_first_24 <- resp_first_24 |>
   tidytable::full_join(abgs, by = c('hospital_block_id', 'recorded_dttm')) |>
   tidytable::full_join(spo2, by = c('hospital_block_id', 'recorded_dttm')) |>
   group_by(hospital_block_id) |>
-  fill(device_category, .direction = 'downup') |>
+  fill(device_category, .direction = 'downup', .by=hospital_block_id) |>
   group_by(hospital_block_id, device_category) |>
   mutate(
     fio2_carried=fio2_set, 
     fio2_dttm=fifelse(!is.na(fio2_set), fio2_dttm, NA_POSIXct_)) |>
   arrange(hospital_block_id, recorded_dttm) |>
-  fill(fio2_carried, fio2_dttm, .direction = 'downup') |>
+  fill(fio2_carried, fio2_dttm, .direction = 'downup', 
+       .by=c(hospital_block_id, device_category)) |>
   #Only Need to Keep Pao2 and SpO2 Measures
   ungroup()
 
@@ -888,7 +888,9 @@ resp_first_24_long <- resp_first_24 |>
     min_pf_pao2=fifelse(this_pf==1, po2_arterial, NA_real_),
     min_pf_fio2=fifelse(this_pf==1, fio2_carried, NA_real_)
     ) |>
-  fill(max_resp_support24, min_pf_dttm, min_pf_device, pf_24_min, pf_24_mean, pf_24_median, ph_pf, paco2_pf, min_pf_pao2, min_pf_fio2, .direction='downup') |>
+  fill(max_resp_support24, min_pf_dttm, min_pf_device, pf_24_min, pf_24_mean, pf_24_median, ph_pf, paco2_pf, min_pf_pao2, min_pf_fio2, 
+       .direction='downup', 
+       .by = hospital_block_id) |>
   #Now Spo2
   group_by(hospital_block_id, eligible_spo2) |>
   mutate(
@@ -908,7 +910,9 @@ resp_first_24_long <- resp_first_24 |>
     min_sf_spo2=fifelse(this_sf==1, spo2, NA_real_),
     min_sf_fio2=fifelse(this_sf==1, fio2_carried, NA_real_)
     ) |>
-  fill(min_sf_dttm, min_sf_device, sf_24_min, sf_24_mean, sf_24_median, min_sf_spo2, min_sf_fio2, .direction='downup') |>
+  fill(min_sf_dttm, min_sf_device, sf_24_min, sf_24_mean, sf_24_median, min_sf_spo2, min_sf_fio2, 
+       .direction='downup',
+       .by=hospital_block_id) |>
   #Select ph_venous and pco2_venous that is closest to min_sf_dttm
   mutate(
      #Compute time difference in hours - In absolute Terms
@@ -962,7 +966,9 @@ resp_first_24_long <- resp_first_24 |>
    sf_contemporary_dttm  = fifelse(!is.na(sf_contemporary_to_pf), recorded_dttm, as.POSIXct(NA))
     ) |>
   fill(sf_ph_venous, sf_pco2_venous, vbg_dttm, 
-       sf_contemporary_to_pf, sf_contemporary_to_pf_fio2, sf_contemporary_dttm, .direction='downup') |>
+       sf_contemporary_to_pf, sf_contemporary_to_pf_fio2, sf_contemporary_dttm,
+       .direction='downup', 
+       .by=hospital_block_id) |>
   ungroup() |>
   select(hospital_block_id, recorded_dttm, eligible_measure_by_time, eligible_spo2, max_resp_support24, fio2_dttm, fio2_carried, fio2_set, spo2, po2_arterial, min_pf_dttm, min_pf_device, pf_24_min, min_pf_pao2, min_pf_fio2, pf_24_mean, pf_24_median, ph_pf, paco2_pf, this_pf, po2_arterial, pf_ratio, ph_arterial, pco2_arterial,spo2, this_sf, min_sf_dttm, min_sf_device, sf_24_min, sf_24_mean, sf_24_median, min_sf_spo2, min_sf_fio2, ph_venous, pco2_venous, vbg_dttm, sf_ph_venous, sf_pco2_venous, sf_contemporary_to_pf, sf_contemporary_to_pf_spo2, sf_contemporary_to_pf_fio2, sf_contemporary_dttm)
 

@@ -872,7 +872,7 @@ table2_paper <- readable_table(table2_paper, strata_values, has_continuous=T,has
 write_csv(table2_paper, paste0(project_location, '/tables/table2_metric_count_resp_support_no_undefined.csv'))
 ```
 ```{r Spo2 and PaO2 Counts}
-#Evalute Overall and By Respiratory Category
+#Evaluate Measure Counts Overall and By Respiratory Category
 sf_pf_counts <- collate_tables('_pf_sf_count_table.csv') |>
   filter(strata_cat %in% c('Overall', 'resp_support_category')) |>
   #To Wide Format
@@ -882,7 +882,130 @@ sf_pf_counts <- collate_tables('_pf_sf_count_table.csv') |>
   ) |>
   #NOTE: Here Eligible SF and Eligible Spo2 Differ From Pao2 and Spo2 By Whether or NOt it Was Within 2 Hours of Last FiO2
   mutate(
-    percent_sf_calculable=n_eligible_sf_spo2_lt98/n_eligible_spo2)
+    spo2_with_sf=n_eligible_sf_spo2_lt98/n_eligible_spo2)
+
+#Now Do This at the Patient Level
+table2_metrics_exposure <- collate_tables('_table2_o2metrics_cont_by_resp_support.csv') 
+table2_working <- cont_table_function(table2_metrics_exposure) 
+
+sf_pf_patient_level <- table2_working |>
+  #Select the Overall N and Weighted Means
+  distinct(strata, variable, overall_n, weighted_mean, weighted_sd) 
+
+#Save Tables
+write_csv(sf_pf_counts, paste0(project_location, '/tables/sf_pf_counts.csv'))
+write_csv(sf_pf_patient_level, paste0(project_location, '/tables/sf_pf_patient_level.csv'))
+rm(table2_metrics_exposure, table2_working)
+
+#Plot Counts and Means at Patient Level
+sf_pf_graph <- collate_tables('_pf_sf_count_table.csv') |>
+  filter(strata_cat %in% c('Overall', 'resp_support_category'),
+         variable %in% c('n_eligible_sf_spo2_gt97', 'n_eligible_sf_spo2_lt98')) |>
+  left_join(sf_pf_counts %>% select(strata, spo2_with_sf, n_eligible_spo2), by = 'strata') |>
+  mutate(
+    variable = ifelse(
+      variable == 'n_eligible_sf_spo2_lt98', 'n_calculable_sf', variable),
+    variable = ifelse(
+      variable == 'n_eligible_sf_spo2_gt97', 'total_eligible_spo2', variable
+    ),
+    variable = factor(variable, 
+                     levels = c( "total_eligible_spo2", "n_calculable_sf"),
+                     labels = c("# SpO2 with FiO2", '# Calculable SF (SPO2<=97%)'),
+                     ordered = TRUE),  # Adjust the order here
+    strata = factor(strata, 
+                    levels = c("Overall", "imv", "high_flow_nc", "nippv"),
+                    labels = c("Overall", "IMV", "HFNO", "NIPPV")),
+    total=fifelse(variable=="# SpO2 with FiO2", count, NA_real_))
+
+#Now Plot
+ggplot(sf_pf_graph, aes(x = strata, y = count, fill = variable)) +
+  geom_bar(stat = "identity") +
+  geom_label(
+    aes(x = strata, y = n_eligible_spo2, 
+        label = paste0(round(spo2_with_sf * 100, 1), "%")),
+    vjust = -0.5,
+    inherit.aes = FALSE,
+    size = 3.5,
+    fontface = "bold",
+    fill = "white",
+    label.size = 0.5,  # Border thickness
+    label.padding = unit(0.25, "lines")  # Padding around text
+  ) +
+  labs(
+    x = "Respiratory Support Category",
+    y = "Count",
+    fill = "% of SpO2 ≤ 97%"
+  ) +
+  scale_y_continuous(labels = comma, expand = expansion(mult = c(0, 0.1))) +
+  theme_minimal() +
+  scale_fill_brewer() +
+  theme(
+    legend.position = c(0.92, 0.75),  # Adjust x to ~88% for position near bar 3.5
+    legend.justification = c("right", "top"),
+    legend.background = element_rect(fill = "white", color = "gray50"),
+    legend.margin = margin(6, 6, 6, 6)
+  )
+ggsave(
+  filename='spo2_count_barchart.pdf',
+  plot=last_plot(),
+  device=cairo_pdf(),
+  width = 8,
+  height = 5,
+  units ='in',
+  path = paste0(project_location, '/graphs/'))
+
+#Now Per Patient Average
+#Prepare Data
+sf_pf_graph <- sf_pf_patient_level |>
+  mutate(
+    total=fifelse(variable=="n_eligible_spo2", weighted_mean, NA_real_)) |>
+  group_by(strata) |>
+  fill(total, .direction = 'updown', .by = strata) |>
+  filter(strata %in% c('Overall', 'imv', 'nippv', 'high_flow_nc'),
+         variable %in% c('n_eligible_sf_spo2_gt97', 'n_eligible_sf_spo2_lt98')) |>
+  mutate(
+    variable = ifelse(
+      variable == 'n_eligible_sf_spo2_lt98', 'n_calculable_sf', variable),
+    variable = ifelse(
+      variable == 'n_eligible_sf_spo2_gt97', 'total_eligible_spo2', variable
+    ),
+    variable = factor(variable, 
+                     levels = c( "total_eligible_spo2", "n_calculable_sf"),
+                     labels = c("# SpO2 with FiO2", '# Calculable SF (SPO2<=97%)'),
+                     ordered = TRUE),  # Adjust the order here
+    strata = factor(strata, 
+                    levels = c("Overall", "imv", "high_flow_nc", "nippv"),
+                    labels = c("Overall", "IMV", "HFNO", "NIPPV"))) |>
+    ungroup()
+
+#Now Plot
+ggplot(sf_pf_graph, aes(x = strata, y = round(weighted_mean, digits=0), fill = variable)) +
+  geom_bar(stat = "identity") +
+  geom_label(
+    aes(x = strata, y = total, 
+        label = paste0(round(total, 1))),
+    vjust = -0.5,
+    inherit.aes = FALSE,
+    size = 3.5,
+    fontface = "bold",
+    fill = "white",
+    label.size = 0.5,  # Border thickness
+    label.padding = unit(0.25, "lines")  # Padding around text
+  ) +
+  labs(x = "Respiratory Support Category",
+       y = "Mean Per Patient Count",
+       fill = "Per Patient Mean Count, Stratified by:") +
+  scale_y_continuous(labels = comma) +
+  theme_minimal() +
+  scale_fill_brewer()
+ggsave(
+  filename='spo2_per_patient_count_barchart.pdf',
+  plot=last_plot(),
+  device=cairo_pdf(),
+  width = 8,
+  height = 5,
+  units ='in',
+  path = paste0(project_location, '/graphs/'))
 ```
 
 
@@ -894,7 +1017,7 @@ table2_working <- cont_table_function(table2_metrics_exposure)
 
 table2_aggregate <- table2_working |>
   #Select the Overall N and Weighted Means
-  distinct(strata, variable, overall_n, weighted_mean) 
+  distinct(strata, variable, overall_n, weighted_mean, weighted_sd) 
 
 #Plot
 sf_plot_overall <- table2_aggregate |>
