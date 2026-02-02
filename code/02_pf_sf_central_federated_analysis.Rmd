@@ -873,7 +873,13 @@ write_csv(table2_paper, paste0(project_location, '/tables/table2_metric_count_re
 ```
 ```{r Spo2 and PaO2 Counts}
 #Evaluate Measure Counts Overall and By Respiratory Category
-sf_pf_counts <- collate_tables('_pf_sf_count_table.csv') |>
+sf_pf_counts_overall <- collate_tables('_pf_sf_count_table.csv') |>
+  group_by(variable, strata, strata_cat) |>
+  summarise(
+    n = sum(n, na.rm=T),
+    count = sum(count, na.rm=T),
+    missing = sum(missing, na.rm=T),
+  ) |>
   filter(strata_cat %in% c('Overall', 'resp_support_category')) |>
   #To Wide Format
   pivot_wider(
@@ -882,7 +888,23 @@ sf_pf_counts <- collate_tables('_pf_sf_count_table.csv') |>
   ) |>
   #NOTE: Here Eligible SF and Eligible Spo2 Differ From Pao2 and Spo2 By Whether or NOt it Was Within 2 Hours of Last FiO2
   mutate(
+    spo2_with_sf=n_eligible_sf_spo2_lt98/n_eligible_spo2, 
+    site='Overall') |>
+  relocate(site, .after = strata)
+  
+sf_pf_counts <- collate_tables('_pf_sf_count_table.csv') |>
+  filter(strata_cat %in% c('Overall', 'resp_support_category')) |>
+  #To Wide Format
+  pivot_wider(
+    id_cols = c('strata', 'site'),
+    names_from = variable,
+    values_from = count
+  ) |>
+  #NOTE: Here Eligible SF and Eligible Spo2 Differ From Pao2 and Spo2 By Whether or NOt it Was Within 2 Hours of Last FiO2
+  mutate(
     spo2_with_sf=n_eligible_sf_spo2_lt98/n_eligible_spo2)
+
+sf_pf_counts <- rowbind(sf_pf_counts_overall, sf_pf_counts, fill=T)
 
 #Now Do This at the Patient Level
 table2_metrics_exposure <- collate_tables('_table2_o2metrics_cont_by_resp_support.csv') 
@@ -895,10 +917,16 @@ sf_pf_patient_level <- table2_working |>
 #Save Tables
 write_csv(sf_pf_counts, paste0(project_location, '/tables/sf_pf_counts.csv'))
 write_csv(sf_pf_patient_level, paste0(project_location, '/tables/sf_pf_patient_level.csv'))
-rm(table2_metrics_exposure, table2_working)
+rm(table2_metrics_exposure, table2_working, sf_pf_counts_overall)
 
 #Plot Counts and Means at Patient Level
 sf_pf_graph <- collate_tables('_pf_sf_count_table.csv') |>
+  group_by(variable, strata, strata_cat) |>
+  summarise(
+    n = sum(n, na.rm=T),
+    count = sum(count, na.rm=T),
+    missing = sum(missing, na.rm=T)
+  ) |>
   filter(strata_cat %in% c('Overall', 'resp_support_category'),
          variable %in% c('n_eligible_sf_spo2_gt97', 'n_eligible_sf_spo2_lt98')) |>
   left_join(sf_pf_counts %>% select(strata, spo2_with_sf, n_eligible_spo2), by = 'strata') |>
@@ -1006,6 +1034,61 @@ ggsave(
   height = 5,
   units ='in',
   path = paste0(project_location, '/graphs/'))
+```
+
+```{r Distribution of SF or PF Measures by Hour}
+aggregate_hours <- collate_tables('_aggregate_hours_to_measure.csv') |>
+  group_by(exposure_group, hour_measure, variable, strata) |>
+  summarise(
+    n_in_group=sum(n_in_group, na.rm=T),
+  ) |>
+  mutate(site='Overall') |>
+  filter(!is.na(hour_measure))
+max_n <- max(aggregate_hours$n_in_group)
+
+ggplot(subset(aggregate_hours, variable %in% c('clock_hr_min_pf_dttm', 'clock_hr_min_sf_dttm')),
+       aes(x = hour_measure, y = n_in_group, fill = variable)) +
+  geom_col(position = "dodge", alpha =0.50) +  # This uses `n_in_group` directly as heights for bars
+  labs(
+       x = "Clock Hour",
+       y = "Count",
+       fill = "") +
+  scale_x_continuous(breaks=seq(0,23, by =1)) +
+  theme_minimal()
+
+ggsave(
+  filename='clock_hour_measures.pdf',
+  plot=last_plot(),
+  device=cairo_pdf(),
+  width = 8,
+  height = 5,
+  units ='in',
+  path = paste0(project_location, '/graphs/'))
+
+ggplot(subset(aggregate_hours, variable %in% c('hours_to_min_sf_dttm', 'hours_to_min_pf_dttm')),
+       aes(x = hour_measure, y = n_in_group, fill = variable)) +
+  geom_col(position = "dodge", alpha =0.50) +  # This uses `n_in_group` directly as heights for bars
+  labs(
+       x = "Hours from Respiratory Failure to Minimum SF or PF",
+       y = "Count",
+       fill = "") +
+  scale_x_continuous(breaks=seq(0,23, by =1)) +
+  theme_minimal()
+
+ggsave(
+  filename='hour_from_sf_measures.pdf',
+  plot=last_plot(),
+  device=cairo_pdf(),
+  width = 8,
+  height = 5,
+  units ='in',
+  path = paste0(project_location, '/graphs/'))
+```
+
+
+```{r Describe ABG Practices Over Time}
+
+
 ```
 
 
