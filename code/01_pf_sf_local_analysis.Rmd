@@ -604,18 +604,26 @@ arf_per_quarter <- analytic_cohort |>
     'site' = first(site),
     'site_n_hospitals' = first(site_n_hospitals),
     'year' = mean(year),
-    'n_patients' = n()
+    'n_patients_exposure' = n()
   ) |>
   group_by(study_quarter) |>
   mutate(
+    n_patients_quarter = sum(n_patients_exposure, na.rm=T),
     abg = fifelse(exposure_group %in% c('pf_only', 'sf_pf'), 1, 0),
-    patients_with_abg = sum(n_patients[abg == 1], na.rm = T),
-    percent_with_abg= patients_with_abg/sum(n_patients, na.rm=T)
+    patients_with_abg = sum(n_patients_exposure[abg == 1], na.rm = T),
+    percent_with_abg= patients_with_abg/n_patients_quarter
   ) |>
   select(-abg) |>
+  #Censor for Cell Count <5
+  mutate(
+      less_than_5_exposure=(n_patients_exposure<=5),
+      n_patients_exposure=fifelse(less_than_5_exposure==T, NA_real_, n_patients_exposure),
+      less_than_5_quarter=(n_patients_quarter<=5),
+      n_patients_quarter=fifelse(less_than_5_quarter==T, NA_real_, n_patients_quarter),
+      patients_with_abg=fifelse(less_than_5_quarter==T, NA_real_, patients_with_abg)
+    ) |>
   ungroup()
-#Save Locally At Each Site but Don't Export as May have 1 Patient Per Month
-write_csv(arf_per_quarter, paste0(project_location, '/proj_tables/', site,'_arf_per_quarter.csv'))
+write_csv(arf_per_quarter, paste0(project_location, '/proj_output/', site,'_arf_per_quarter.csv'))
 
 arf_per_quarter_hospital <- analytic_cohort |> 
   group_by(study_quarter, exposure_group, hospital_id) |>
@@ -623,18 +631,27 @@ arf_per_quarter_hospital <- analytic_cohort |>
     'site' = first(site),
     'site_n_hospitals' = first(site_n_hospitals),
     'year' = mean(year),
-    'n_patients' = n()
+    'n_patients_exposure' = n()
   ) |>
   group_by(study_quarter, hospital_id) |>
    mutate(
+    n_patients_quarter = sum(n_patients_exposure, na.rm=T),
     abg = fifelse(exposure_group %in% c('pf_only', 'sf_pf'), 1, 0),
-    patients_with_abg = sum(n_patients[abg == 1], na.rm = T),
-    percent_with_abg= patients_with_abg/sum(n_patients, na.rm=T)
+    patients_with_abg = sum(n_patients_exposure[abg == 1], na.rm = T),
+    percent_with_abg= patients_with_abg/n_patients_quarter
   ) |>
   select(-abg) |>
+  #Censor for Cell Count <5
+  mutate(
+      less_than_5_exposure=(n_patients_exposure<=5),
+      n_patients_exposure=fifelse(less_than_5_exposure==T, NA_real_, n_patients_exposure),
+      less_than_5_quarter=(n_patients_quarter<=5),
+      n_patients_quarter=fifelse(less_than_5_quarter==T, NA_real_, n_patients_quarter),
+      patients_with_abg=fifelse(less_than_5_quarter==T, NA_real_, patients_with_abg)
+    ) |>
   ungroup()
-#Save Locally At Each Site but Don't Export as May have 1 Patient Per Month
-write_csv(arf_per_quarter_hospital, paste0(project_location, '/proj_tables/', site,'_arf_per_quarter_hospital.csv'))
+#Save
+write_csv(arf_per_quarter_hospital, paste0(project_location, '/proj_output/', site,'_arf_per_quarter_hospital.csv'))
 
 #Visualize Resp Failure Over Time
 quarter_labels <- c(
@@ -650,7 +667,7 @@ max_quarter <- max(analytic_cohort$study_quarter)
 site_quarter_labels <- quarter_labels[min_quarter:max_quarter]
 max_quarter_n <- arf_per_quarter |>
   group_by(study_quarter) |>
-  mutate(sum_n=sum(n_patients)) |>
+  mutate(sum_n=sum(n_patients_quarter)) |>
   ungroup() 
 max_quarter_n <- max(max_quarter_n$sum_n)
 

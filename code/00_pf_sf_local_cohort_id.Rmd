@@ -1,7 +1,7 @@
 ---
 title: "00_pf_sf_cohort_id"
 author: "Chad H. Hochberg and Nicholas Ingraham"
-date: "`r Sys.Date()`"x
+date: "`r Sys.Date()`"
 output: html_document
 ---
 
@@ -313,7 +313,7 @@ HF_LPM_MAX <- 90
 RF_DURATION <- 24
 
 #TIME from Spo2/Pao2 to Most Recent FiO2; 2 Hours
-TIME_TO_SF_PF <- 1
+TIME_TO_SF_PF <- 2
 
 #Max Time from Worst PF to Corresponding SF
 
@@ -1730,5 +1730,9 @@ write_csv(consort_table, paste0(project_location, '/proj_output/',site,'_consort
 write_parquet(hid_jid_crosswalk, 
               paste0(project_location, 
                    '/proj_tables/hid_jid_crosswalk.parquet'))
+```
+
+```{r Clear Environment}
+rm(list = ls())
 ```
 
