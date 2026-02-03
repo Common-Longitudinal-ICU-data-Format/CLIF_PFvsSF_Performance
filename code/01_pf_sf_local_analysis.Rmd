@@ -1379,7 +1379,7 @@ to_tab <- c(
   'oxygenation_category',
   'sofa2_cat',
   'oxygenation_category_sf_both', 
-  'oo2_cat_sf_pf_contemporary',
+  'o2_cat_sf_pf_contemporary',
   'sofa2_cat_sf_both', 
   'sofa2_cat_sf_contemp_pf'
 )
