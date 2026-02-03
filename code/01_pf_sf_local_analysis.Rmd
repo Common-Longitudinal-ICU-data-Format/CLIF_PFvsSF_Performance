@@ -1468,6 +1468,40 @@ saveRDS(contingency_tables, file=paste0(project_location, '/proj_output/',site,'
 
 ```
 
+```{r Agreement Table Stratified by Respiratory Support}
+agreement_results <- list()
+
+for (resp in resp_cat) {
+  
+  # Subset the data
+  cohort_subset <- analytic_cohort %>% 
+    filter(resp_support_category == resp)
+  
+  # Create table
+  table_agreement <- CreateTableOne(
+    data = cohort_subset, 
+    vars = to_tab, 
+    factorVars = factors_tab,
+    strata = 'primary_metric', 
+    addOverall = TRUE
+  )
+  
+  # Store results
+  agreement_results[[resp]] <- list(
+    table = table_agreement,
+    summary = summary(table_agreement),
+    decomposed = tab_decomp(table_agreement)
+  )
+  
+  # Save CSV
+  write_csv(
+    agreement_results[[resp]]$decomposed$categorical, 
+    paste0(project_location, '/proj_output/', site, '_table_agreement_', resp, '.csv')
+  )
+}
+```
+
+
 ```{r Mortality by PF/SF Category}
 to_tab <- c(
   'death_hospice28',
