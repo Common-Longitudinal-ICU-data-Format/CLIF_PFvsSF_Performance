@@ -1095,8 +1095,38 @@ rm(quarter_admit_graph)
 
 
 ```{r Describe ABG Practices Over Time}
+#Dataset with 1 Row per Quarter and Hospital with n_patients and n_abgs
 abgs_by_hospital <- admits_by_quarter_hospital |>
+   dplyr::group_by(hospital_id, study_quarter) |>
+   dplyr::filter(dplyr::row_number()==1)     
 
+#Dotplot by Hospital
+ggplot(abgs_by_hospital, 
+        aes(x=factor(study_quarter), y=percent_with_abg)) +
+   stat_summary(fun = median, color = "orangered4",
+                geom = "crossbar", width = 0.60, alpha = 0.75, linewidth = 0.50) +
+   geom_dotplot(aes(fill=hospital_id),
+                binaxis = "y", stackdir="center", dotsize = 0.35,
+                binwidth = 0.05, alpha = 0.80, 
+                position=position_jitter(0.05)) +
+   scale_x_discrete(breaks=seq(min_quarter, max_quarter, by=1),
+                      labels = site_quarter_labels,
+                      name = 'Months-Year') +
+   scale_y_continuous(
+     breaks=seq(0, 1, by=0.1), limits = c(0,1), labels = scales::percent,
+     name = 'Percent of Patients with \n Arterial Blood Gas') +
+   scale_fill_viridis_d('Hospital') +
+   theme_minimal() +
+   theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1, size = 5.75))
+ 
+ggsave(
+   filename='abgs_per_quarter.pdf',
+   plot=last_plot(),
+   device=cairo_pdf(),
+   width = 8,
+   height = 5,
+   units ='in',
+   path = paste0(project_location, '/graphs/'))
 ```
 
 ```{r Distribution of SF or PF Measures by Hour}
@@ -1147,8 +1177,6 @@ ggsave(
   units ='in',
   path = paste0(project_location, '/graphs/'))
 ```
-
-
 
 
 ```{r Contingency Table Oxygenation Category by SF v PF}
@@ -1454,6 +1482,7 @@ ggsave(
   plot=last_plot(),
   path = paste0(project_location, '/graphs/'))
 ```
+
 ```{r Stratified Mortality by Categorization According to Black, Not Black}
 #Do this Once Other Sites Have Run
 mortality_by_o2_race <- collate_tables('_aggregate_by_o2cat_race.csv')
