@@ -1320,10 +1320,10 @@ ggsave(
 
 #Now Illustrate How O2 Category and O2 Category Both Correlate
 heat_map_o2 <- oxygenation_aggregate %>%
-filter(variable %in% c("oxygenation_category_sf_both", 
-                       "oxygenation_category",
-                       "sofa2_cat",
-                       "sofa2_cat_sf_both"),
+filter(variable %in% c('oxygenation_category', 
+              'oxygenation_category_sf_both', 
+              'o2_cat_sf_pf_contemporary',
+              'sofa2_cat', 'sofa2_cat_sf_both', 'sofa2_cat_sf_contemp_pf'),
        strata %in% c("pf", "sf_pf")) |>
   mutate(label = paste0(count, " (", percent(percent, accuracy = 0.1), ")"))
 
@@ -1360,10 +1360,43 @@ ggsave(
   cairo_pdf(),
   path = paste0(project_location, '/graphs/'))
 
+cat_levels <- c("not_hypoxemic", "mild_hypoxemia", "moderate_hypoxemia", "severe_hypoxemia")
+heat_map_o2_cat <- heat_map_o2 |>
+  filter(variable %in% c('oxygenation_category', 
+                         'o2_cat_sf_pf_contemporary')) |>
+  mutate(level = factor(level, levels = cat_levels))
+
+ggplot(heat_map_o2_cat, aes(x = level, y = variable, fill = percent)) +
+  geom_tile(color = "white", width = 0.95, height = 0.95) +
+  scale_fill_gradient2(name="Prevalence",
+    low = 'dodgerblue4',
+    mid = 'white',
+    high = 'firebrick2',
+    limits = c(0, max(heat_map_o2$percent)),
+    midpoint = (max(heat_map_o2$percent)/2),
+    breaks = c(0, max(heat_map_o2$percent)),
+    labels = c('Lower', 'Higher')      # no labels on colorbar
+  ) +
+  scale_y_discrete(name='', labels = c('PaO2/FiO2 Defined', 'Contemporary \n SpO2/FiO2 Defined')) +
+  scale_x_discrete(name='',
+                   labels = c('Not\nHypoxemic', 'Mild\nHypoxemia', 'Moderate\nHypoxemia', 'Severe\nHypoxemia')) +
+  geom_text(aes(label = label), size = 3, fontface='bold') +
+  coord_equal() +
+  labs(x = "Hypoxemia Severity Category", 
+       title = "Oxygenation Severity by PF and Contemporaenously Measured SF",
+       fontface='bold',
+       size=4) +
+  theme_minimal()
+ggsave(
+  filename='o2_category_distribution_pf_vs_sf_contemporary.pdf',
+  plot=last_plot(),
+  cairo_pdf(),
+  path = paste0(project_location, '/graphs/'))
+
 #Order Hypoxemia Categories
 cat_levels <- c("0", "1", "2", "3", "4")
 heat_map_o2_sofa <- heat_map_o2 |>
-  filter(variable %in% c('sofa2_cat', 'sofa_cat_sf_both')) |>
+  filter(variable %in% c('sofa2_cat', 'sofa2_cat_sf_both')) |>
   mutate(level = factor(level, levels = cat_levels))
 
 ggplot(heat_map_o2_sofa, aes(x = level, y = strata, fill = percent)) +
@@ -1383,14 +1416,47 @@ ggplot(heat_map_o2_sofa, aes(x = level, y = strata, fill = percent)) +
   geom_text(aes(label = label), size = 3, fontface='bold') +
   coord_equal() +
   labs(x = "Hypoxemia Severity Category", 
-       title = "Distribution of SOFA-2 Resp Scores",
+       title = "Distribution of SOFA-2 Resp Scores in Those with both PF and SF",
        fontface='bold') +
   theme_minimal()
 ggsave(
-  filename='sofa2_category_distribution_pf_vs.pdf',
+  filename='sofa2_category_distribution_pf_vs_sf_both.pdf',
+  plot=last_plot(),
+  path = paste0(project_location, '/graphs/'))
+
+
+#Contemporaneous SOFA2 with SF
+cat_levels <- c("0", "1", "2", "3", "4")
+heat_map_o2_sofa <- heat_map_o2 |>
+  filter(variable %in% c('sofa2_cat', 'sofa2_cat_sf_contemp_pf')) |>
+  mutate(level = factor(level, levels = cat_levels))
+
+ggplot(heat_map_o2_sofa, aes(x = level, y = strata, fill = percent)) +
+  geom_tile(color = "white", width = 0.95, height = 0.95) +
+  scale_fill_gradient2(name="Prevalence",
+    low = 'dodgerblue4',
+    mid = 'white',
+    high = 'firebrick2',
+    limits = c(0, max(heat_map_o2$percent)),
+    midpoint = (max(heat_map_o2$percent)/2),
+    breaks = c(0, max(heat_map_o2$percent)),
+    labels = c('Lower', 'Higher')      # no labels on colorbar
+  ) +
+  scale_y_discrete(name='', labels = c('PaO2/FiO2 Defined', 'SpO2/FiO2 Defined')) +
+  scale_x_discrete(name='SOFA-2 Respiratory Score',
+                   labels = c('0', '1', '2', '3', '4')) +
+  geom_text(aes(label = label), size = 3, fontface='bold') +
+  coord_equal() +
+  labs(x = "Hypoxemia Severity Category", 
+       title = "Distribution of SOFA-2-Resp by PF and Contemporaenously Measured SF",
+       fontface='bold') +
+  theme_minimal()
+ggsave(
+  filename='sofa2_category_distribution_pf_vs_sf_contemporaneous.pdf',
   plot=last_plot(),
   path = paste0(project_location, '/graphs/'))
 ```
+
 
 ```{r Mortality by SF vs PF Oxygenation Category}
 #Do this Once Other Sites Have Run
