@@ -1520,7 +1520,10 @@ analytic_cohort <- analytic_cohort |>
     sofa_strata=paste0(primary_metric, '-', sofa2_resp),
     #Now Also Include Data for SF when the Primary Metric was Defined by PF
     o2_strata_sf_both=paste0('sf_pf_', '-', oxygenation_category_sf_both),
-    sofa_strata_sf_both=paste0('sf_pf_', '-', sofa2_cat_sf_both)
+    sofa_strata_sf_both=paste0('sf_pf_', '-', sofa2_cat_sf_both),
+    #Now Contemporary
+    o2_cat_sf_pf_contemporary=paste0('sf_pf_contemp', '-',o2_cat_sf_pf_contemporary),
+    sofa2_cat_sf_contemp_pf=paste0('sf_pf_contemp', '-', sofa2_cat_sf_contemp_pf)
     )
 strata <- c('o2_strata', 'sofa_strata', 
             'o2_strata_sf_both', 'sofa_strata_sf_both',
