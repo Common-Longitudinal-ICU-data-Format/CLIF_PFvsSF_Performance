@@ -545,7 +545,7 @@ rsfds <- data_list$resp_support_pf_v_sf.parquet |>
   #Now Define VFDs
   mutate(
     resp_support_free_days28=fcase(
-      death_hospice28==1, 0, #IF Dead by Day 28 than 0
+      death_hospice28==1, -1, #IF Dead by Day 28 than -1
       days_to_dc>=29, 28-days_of_resp_support,
       days_to_dc<29 & dc_on_resp_support==1, 0, #If discharged on vent assume stayed on vent
       days_to_dc<29 &  dc_on_resp_support==0, 28-days_of_resp_support, #If dsicharged OFF vent assumed stayed off vent
@@ -562,7 +562,7 @@ analytic_cohort <- analytic_cohort |>
 ggplot(analytic_cohort) +
   geom_histogram(aes(x=resp_support_free_days28), bins=28, fill = "blue", color = "black") +
   labs(x = "Respiratory Support Free Days - Day 28", y = "Frequency") +
-  scale_x_continuous(breaks=seq(0,28, by=2)) +
+  scale_x_continuous(breaks=seq(-1,28, by=2)) +
   theme_minimal()
 ggsave(paste0(site, '_resp_free_days_28.pdf'),
        path = paste0(project_location, '/proj_output/graphs/'))
@@ -1720,7 +1720,7 @@ hospital_vector <- unique(na.omit(analytic_cohort$hospital_id))
 model_df <- analytic_cohort |> 
   mutate(
     resp_support_free_days28 = factor(resp_support_free_days28, 
-                                      levels = as.character(0:28),  # Levels from 0 to 28 as characters
+                                      levels = as.character(-1:28),  # Levels from 0 to 28 as characters
                                        ordered = TRUE),
     oxygenation_category =factor(oxygenation_category,
                                  levels = c('mild_hypoxemia', 'moderate_hypoxemia', 
