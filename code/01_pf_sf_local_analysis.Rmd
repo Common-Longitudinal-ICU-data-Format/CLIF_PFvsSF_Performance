@@ -1846,117 +1846,164 @@ cum_logit_function <- function(data, exposure) {
   return(model)
 }
 
-#Build the Models by Hospital
-metric_vector <- c('pf', 'sf')
-exposure_vector <- c('oxygenation_category', 'sofa2_cat', 'pf_sf_100_increase')
+#Initialize the list
 resp_free_day_models <- list()
 
-for (h in hospital_vector) {
-  resp_free_day_models[[h]] <- list()  # Initialize inner list for each hospital
+# Helper function to safely run models
+run_model_safely <- function(data_subset, exposure, hospital, metric) {
   
- for (m in metric_vector) {
-   for (e in exposure_vector) {
-    mod <- cum_logit_function(data = subset(model_df, primary_metric == m & hospital_id == h), 
-                              exposure = e)
-    
-    mod_table <- model_summary_table(mod) |>
-      mutate(
-        primary_metric = m,
-        hospital_id = h
-        ) |>
-      relocate(hospital_id, primary_metric, .after = site) |>
-      as.data.frame()
-    
-    resp_free_day_models[[h]][[e]][[m]] <- mod_table
-   }
- }
+  # Check if data exists
+  if (nrow(data_subset) < 10) {
+    cat("Skipping:", hospital, "-", metric, "-", exposure, "- Insufficient data (n =", nrow(data_subset), ")\n")
+    return(NULL)
+  }
+  
+  # Check for variation in exposure
+  if (is.factor(data_subset[[exposure]]) || is.character(data_subset[[exposure]])) {
+    n_levels <- length(unique(na.omit(data_subset[[exposure]])))
+    if (n_levels < 2) {
+      cat("Skipping:", hospital, "-", metric, "-", exposure, "- No variation\n")
+      return(NULL)
+    }
+  }
+  
+  # Try to fit model
+  mod <- tryCatch({
+    cum_logit_function(data = data_subset, exposure = exposure)
+  }, error = function(err) {
+    cat("Error for", hospital, "-", metric, "-", exposure, ":", err$message, "\n")
+    return(NULL)
+  })
+  
+  if (is.null(mod)) return(NULL)
+  
+  # Create summary table
+  mod_table <- model_summary_table(mod) |>
+    mutate(
+      primary_metric = metric,
+      hospital_id = hospital,
+      exposure_variable = exposure
+    ) |>
+    relocate(hospital_id, primary_metric, exposure_variable, .after = site) |>
+    as.data.frame()
+  
+  return(mod_table)
 }
 
-#Add Variables Assessed in Only Those with Both SF and PF
+# 1. Build the Models by Hospital (PF and SF separately)
+metric_vector <- c('pf', 'sf')
+exposure_vector <- c('oxygenation_category', 'sofa2_cat', 'pf_sf_100_increase')
+
+for (h in hospital_vector) {
+  if (!h %in% names(resp_free_day_models)) {
+    resp_free_day_models[[h]] <- list()
+  }
+  
+  for (m in metric_vector) {
+    for (e in exposure_vector) {
+      data_subset <- subset(model_df, primary_metric == m & hospital_id == h)
+      
+      mod_table <- run_model_safely(data_subset, e, h, m)
+      
+      if (!is.null(mod_table)) {
+        if (!e %in% names(resp_free_day_models[[h]])) {
+          resp_free_day_models[[h]][[e]] <- list()
+        }
+        resp_free_day_models[[h]][[e]][[m]] <- mod_table
+        cat("✓ Completed:", h, "-", m, "-", e, "\n")
+      }
+    }
+  }
+}
+
+# 2. Add SF median variables (SF and SF_PF cohorts)
 metric_vector <- c('sf_pf')
-exposure_vector <- c(
-    'sf_med_100_increase'
-    )
-for (h in hospital_vector) {
- for (m in metric_vector) {
-  for (e in exposure_vector) {
-    mod <- cum_logit_function(data = subset(model_df, exposure_group %in% c('sf', 'sf_pf') 
-                              & hospital_id == h), 
-                              exposure = e)
-    
-    mod_table <- model_summary_table(mod) |>
-      mutate(
-        primary_metric = m,
-        hospital_id = h
-      ) |>
-      relocate(hospital_id, primary_metric, .after = site) |>
-      as.data.frame()
-    
-    resp_free_day_models[[h]][[e]][[m]] <- mod_table
-  
-}
- } }
+exposure_vector <- c('sf_med_100_increase')
 
-exposure_vector <- c(
-    'pf_med_100_increase'
-    )
 for (h in hospital_vector) {
- for (m in metric_vector) {
-  for (e in exposure_vector) {
-    mod <- cum_logit_function(data = subset(model_df, exposure_group %in% c('pf', 'sf_pf') 
-                              & hospital_id == h), 
-                              exposure = e)
-    
-    mod_table <- model_summary_table(mod) |>
-      mutate(
-        primary_metric = m,
-        hospital_id = h
-      ) |>
-      relocate(hospital_id, primary_metric, .after = site) |>
-      as.data.frame()
-    
-    resp_free_day_models[[h]][[e]][[m]] <- mod_table
-  
+  for (m in metric_vector) {
+    for (e in exposure_vector) {
+      data_subset <- subset(model_df, exposure_group %in% c('sf', 'sf_pf') & hospital_id == h)
+      
+      mod_table <- run_model_safely(data_subset, e, h, m)
+      
+      if (!is.null(mod_table)) {
+        if (!e %in% names(resp_free_day_models[[h]])) {
+          resp_free_day_models[[h]][[e]] <- list()
+        }
+        resp_free_day_models[[h]][[e]][[m]] <- mod_table
+        cat("✓ Completed:", h, "-", m, "-", e, "\n")
+      }
+    }
+  }
 }
- } }
 
-#Add Median Values Assesed in the PF Cohort and SF Cohort Separately
+# 3. Add PF median variables (PF and SF_PF cohorts)
+exposure_vector <- c('pf_med_100_increase')
+
+for (h in hospital_vector) {
+  for (m in metric_vector) {
+    for (e in exposure_vector) {
+      data_subset <- subset(model_df, exposure_group %in% c('pf', 'sf_pf') & hospital_id == h)
+      
+      mod_table <- run_model_safely(data_subset, e, h, m)
+      
+      if (!is.null(mod_table)) {
+        if (!e %in% names(resp_free_day_models[[h]])) {
+          resp_free_day_models[[h]][[e]] <- list()
+        }
+        resp_free_day_models[[h]][[e]][[m]] <- mod_table
+        cat("✓ Completed:", h, "-", m, "-", e, "\n")
+      }
+    }
+  }
+}
+
+# 4. Add variables assessed in SF_PF cohort only
 metric_vector <- c('sf_or_sf_pf')
 exposure_vector <- c(
-    'oxygenation_category_sf_both',
-    'o2_cat_sf_pf_contemporary',
-    'sofa2_cat_sf_both',
-    'sofa2_cat_sf_contemp_pf',
-    'sf_100_increase',
-    'sf_100_increase_contemp',
-    'pf_100_increase'
-    )
-for (h in hospital_vector) {
- for (m in metric_vector) {
-  for (e in exposure_vector) {
-    mod <- cum_logit_function(data = subset(model_df, exposure_group == 'sf_pf' & hospital_id == h), 
-                              exposure = e)
-    
-    mod_table <- model_summary_table(mod) |>
-      mutate(
-        primary_metric = m,
-        hospital_id = h
-      ) |>
-      relocate(hospital_id, primary_metric, .after = site) |>
-      as.data.frame()
-    
-    resp_free_day_models[[h]][[e]][[m]] <- mod_table
-  
-}
-} }
+  'oxygenation_category_sf_both',
+  'o2_cat_sf_pf_contemporary',
+  'sofa2_cat_sf_both',
+  'sofa2_cat_sf_contemp_pf',
+  'sf_100_increase',
+  'sf_100_increase_contemp',
+  'pf_100_increase'
+)
 
-#Now Combine
+for (h in hospital_vector) {
+  for (m in metric_vector) {
+    for (e in exposure_vector) {
+      data_subset <- subset(model_df, exposure_group == 'sf_pf' & hospital_id == h)
+      
+      mod_table <- run_model_safely(data_subset, e, h, m)
+      
+      if (!is.null(mod_table)) {
+        if (!e %in% names(resp_free_day_models[[h]])) {
+          resp_free_day_models[[h]][[e]] <- list()
+        }
+        resp_free_day_models[[h]][[e]][[m]] <- mod_table
+        cat("✓ Completed:", h, "-", m, "-", e, "\n")
+      }
+    }
+  }
+}
+
+# 5. Combine all results
 combined_table <- resp_free_day_models |>
   unlist(recursive = FALSE) |>  # Flatten to exposure level
   unlist(recursive = FALSE) |>  # Flatten to metric level
   bind_rows()
 
-write_csv(combined_table, paste0(project_location, '/proj_output/',site,'_proportional_odds_models.csv'))
+# Check results
+cat("\nTotal models successfully fit:", nrow(combined_table), "\n")
+cat("Unique hospitals:", length(unique(combined_table$hospital_id)), "\n")
+cat("Unique metrics:", length(unique(combined_table$primary_metric)), "\n")
+cat("Unique exposures:", length(unique(combined_table$exposure_variable)), "\n")
+
+# Save
+write_csv(combined_table, paste0(project_location, '/proj_output/', site, '_proportional_odds_models.csv'))
+cat("\nResults saved to:", paste0(site, '_proportional_odds_models.csv\n'))
 ```
 
 
