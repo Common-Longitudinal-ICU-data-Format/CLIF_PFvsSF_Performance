@@ -277,7 +277,8 @@ if (!is.null(table$CatTable)) {
 required_tables = c(
   "analytic_cohort.parquet",
   "resp_first_24_long.parquet",
-  "resp_support_pf_v_sf.parquet"
+  "resp_support_pf_v_sf.parquet",
+  "resp_support_pf_v_sf_all_days.parquet"
 )
 
 # List all parquet files in the specified directory
@@ -489,7 +490,7 @@ analytic_cohort <- analytic_cohort |>
 #1 Need to Determine if Someone is Discharged on Resp Support (if Last device category is vent)
 RESP_SUPPORT <- c('imv', 'nippv', 
                   'high flow nc', 'high_flow_nc')
-dc_on_resp_support <- data_list$resp_support_pf_v_sf.parquet |>
+dc_on_resp_support <- data_list$resp_support_pf_v_sf_all_days.parquet |>
   as.data.table() |>
   semi_join(analytic_cohort, by = 'hospital_block_id') |>
   filter(!is.na(device_category)) |>
@@ -505,7 +506,7 @@ dc_on_resp_support <- data_list$resp_support_pf_v_sf.parquet |>
   select(hospital_block_id, dc_on_resp_support)
 
 #Now Define RSFDs through Day 28
-rsfds <- data_list$resp_support_pf_v_sf.parquet |>
+rsfds <- data_list$resp_support_pf_v_sf_all_days.parquet |>
   as.data.table() |>
   inner_join(
     analytic_cohort %>% 
@@ -566,6 +567,49 @@ ggplot(analytic_cohort) +
   theme_minimal()
 ggsave(paste0(site, '_resp_free_days_28.pdf'),
        path = paste0(project_location, '/proj_output/graphs/'))
+
+
+#Respiratory Free Days Summary Table
+rsfd_table <- analytic_cohort |>
+  group_by(resp_support_free_days28) |>
+  reframe(
+    'n_patients_in_rsfd' = n()
+  ) |>
+mutate(
+      less_than_5=(n_patients_in_rsfd<=5),
+      n_patients_in_rsfd=fifelse(less_than_5==T, NA_real_, n_patients_in_rsfd),
+      exposure_group='Overall'
+    ) |>
+  ungroup()
+
+rsfd_exposure <- analytic_cohort |>
+  group_by(exposure_group, resp_support_free_days28) |>
+  reframe(
+    'n_patients_in_rsfd' = n()
+  ) |>
+mutate(
+      less_than_5=(n_patients_in_rsfd<=5),
+      n_patients_in_rsfd=fifelse(less_than_5==T, NA_real_, n_patients_in_rsfd)) |>
+  ungroup()
+
+rsfd_support <- analytic_cohort |>
+  group_by(resp_support_category, resp_support_free_days28) |>
+  reframe(
+    'n_patients_in_rsfd' = n()
+  ) |>
+mutate(
+      less_than_5=(n_patients_in_rsfd<=5),
+      n_patients_in_rsfd=fifelse(less_than_5==T, NA_real_, n_patients_in_rsfd)) |>
+  rename(exposure_group=resp_support_category) |>
+  ungroup()
+
+rsfd_table <- rsfd_table |>
+  rowbind(rsfd_exposure) |>
+  rowbind(rsfd_support) |>
+  mutate(site=site)
+  
+write_csv(rsfd_table, paste0(project_location, '/proj_output/', site, '_rsfd_table.csv'))
+rm(rsfd_table, rsfd_exposure, rsfd_support)
 ```
 
 

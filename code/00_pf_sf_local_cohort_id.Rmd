@@ -479,42 +479,35 @@ rm(adt_info); gc()
 #To Asseess for Start of Respiratory Support within 7 Days of Admission Will COllect up to 8 days of Data (needs at least 24 hours)
 day_cutoff <- 8*24*60*60 #Eight Days in Seconds 
 
-resp_info <- data_list$respiratory_support |>
+resp_info_all_days <- data_list$respiratory_support |>
   #Just Evaluate Devices for Now
   filter(!is.na(device_category)) |>
   #Filter to Relevant Hospital Blocks
   inner_join(hid_jid_crosswalk %>% select(hospital_block_id, hospitalization_id)) |>
-  #Filter to Relevant Time Frame (within 7 days) - THis means keep up to 8 days
-  left_join(hospitalizations %>% 
-              select(hospital_block_id, final_admission_dttm, final_discharge_dttm)) |>
-  mutate(
-    cutoff_dttm = final_admission_dttm + as.difftime(day_cutoff, units = "secs")
-  ) |>
-  filter(recorded_dttm <= cutoff_dttm) |>
   as.data.table() #Pull into R for Further Manipulation
 
 #Filter to Only Encounters with Any IMV/NIV
-resp_info <- resp_info[
+resp_info_all_days <- resp_info_all_days[
   , .SD[any(tolower(device_category) %in% c("imv", "nippv", "high flow nc", "high_flow_nc"))],
   by = hospital_block_id
 ]
 
 #Address Some Outlier Issues Here
 ## Check fio2_set 
-fio2_mean <- resp_info |> 
+fio2_mean <- resp_info_all_days |> 
   select(fio2_set) |> 
   summarise(fio2_mean = mean(fio2_set, na.rm = TRUE)) |> 
   collect() |>
   pull() # fixing if its less than one # You will get a warning but it will be fixed on its own with IF statement 
 if(fio2_mean > 1) { 
   cat('Mean FiO2 > 1, changing to fraction. fio2_mean=', fio2_mean, '\n')
-  resp_info <- resp_info |> mutate(fio2_set = fio2_set / 100) |> compute() 
+  resp_info_all <- resp_info_all_days |> mutate(fio2_set = fio2_set / 100) |> compute() 
   } else {
   cat('Mean FiO2 <1, leaving as fraction. fio2_mean=', fio2_mean, '\n')
   }
 
 #Address Initial Outliers
-resp_info <- resp_info |>
+resp_info_all_days <- resp_info_all_days |>
   fmutate(
     # fio2_set
     fio2_set = fcase(
@@ -537,7 +530,7 @@ resp_info <- resp_info |>
          'high flow nc', device_category))
     
 #Waterfall Filling
-resp_info <- resp_info |>
+resp_info_all_days <- resp_info_all_days |>
   arrange(hospital_block_id, recorded_dttm) |>
   fmutate(
     fio2_carried=fio2_set,
@@ -548,6 +541,17 @@ resp_info <- resp_info |>
   ) |>
   tidytable::fill(fio2_carried, fio2_dttm, lpm_carried, tidal_volume_carried, peep_carried, .direction = 'downup', .by = c(hospital_block_id, device_category)) |>
   funique()
+
+#Now Just Filter to Needed Table
+  #Filter to Relevant Time Frame (within 7 days) - THis means keep up to 8 days
+resp_info <- resp_info_all_days |>  
+    #Filter to Relevant Time Frame (within 7 days) - THis means keep up to 8 days
+  left_join(hospitalizations %>% 
+              select(hospital_block_id, final_admission_dttm, final_discharge_dttm)) |>
+  mutate(
+    cutoff_dttm = final_admission_dttm + as.difftime(day_cutoff, units = "secs")
+  ) |>
+  filter(recorded_dttm <= cutoff_dttm)
 
 #Only Need to Evaluate Device Transitions and Last Row
 resp_devices <- resp_info |>
@@ -642,6 +646,9 @@ print(consort_table)
 
 #Filter Resp Info To Just These Patients
 resp_info <- resp_info |>
+  semi_join(resp_episodes_on_study, by='hospital_block_id')
+
+resp_info_all_days <- resp_info_all_days |>
   semi_join(resp_episodes_on_study, by='hospital_block_id')
 
 #Filter hid_jid_cosswalk to just these patients
@@ -1724,6 +1731,7 @@ analytic_cohort <- cohort_build |>
 write_parquet(analytic_cohort, paste0(project_location, '/proj_tables/analytic_cohort.parquet'))
 write_parquet(resp_first_24_long, paste0(project_location, '/proj_tables/resp_first_24_long.parquet'))
 write_parquet(resp_info, paste0(project_location, '/proj_tables/resp_support_pf_v_sf.parquet'))
+write_parquet(resp_info_all_days, paste0(project_location, '/proj_tables/resp_support_pf_v_sf_all_days.parquet'))
 write_csv(consort_table, paste0(project_location, '/proj_output/',site,'_consort_data.csv'))
 
 #Save Unique List of hospitalization_ids, patient_id, and hospital_block_id
