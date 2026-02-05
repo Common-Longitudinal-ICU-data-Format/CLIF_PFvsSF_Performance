@@ -1180,6 +1180,8 @@ ggsave(
 
 
 ```{r Contingency Table Oxygenation Category by SF v PF}
+LEFT OFF HERE
+
 oxygenation_agreement <- collate_tables('_table_agreement.csv')
 
 oxygenation_aggregate <- oxygenation_agreement |>
