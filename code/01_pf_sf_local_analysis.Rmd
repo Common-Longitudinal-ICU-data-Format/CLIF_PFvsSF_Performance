@@ -1375,22 +1375,15 @@ write_csv(aggregate_hours, paste0(project_location, '/proj_output/',site,'_aggre
 
 
 ```{r Distributions of Hypoxemia Classifications in Patients Using SF or PF}
+#First Table Stratified by Primary metric of Either PF or SF Defined Severity
 to_tab <- c(
   'oxygenation_category',
-  'sofa2_cat',
-  'oxygenation_category_sf_both', 
-  'o2_cat_sf_pf_contemporary',
-  'sofa2_cat_sf_both', 
-  'sofa2_cat_sf_contemp_pf'
+  'sofa2_cat'
 )
 
 factors_tab <- c(
    'oxygenation_category',
-  'sofa2_cat',
-  'oxygenation_category_sf_both', 
-  'o2_cat_sf_pf_contemporary',
-  'sofa2_cat_sf_both', 
-  'sofa2_cat_sf_contemp_pf'
+  'sofa2_cat'
 )
 
 table_agreement <- CreateTableOne(
@@ -1422,7 +1415,7 @@ for (x in measures) {
   for (z in strata) {
     # Create new stratified_metric
     df <- contingency_cohort |>
-      mutate(stratified_metric = paste(primary_metric, .data[[z]], sep = '_'))  # Access column value dynamically
+      mutate(stratified_metric = paste(exposure_group, .data[[z]], sep = '_'))  # Access column value dynamically
     
     # Create the contingency table for the current measure and strata
     contingency <- table(df[[x]], df$stratified_metric)
@@ -1466,9 +1459,50 @@ for (name in names(contingency_tables)) {
 contingency_tables
 saveRDS(contingency_tables, file=paste0(project_location, '/proj_output/',site,'_contingency_list.rds'))
 
+#Repeat But Now with Measures That Are Defined for Both SF and PF in SAME patients
+to_tab <- c(
+  'oxygenation_category',
+  'sofa2_cat',
+  'oxygenation_category_sf_both', 
+  'o2_cat_sf_pf_contemporary',
+  'sofa2_cat_sf_both', 
+  'sofa2_cat_sf_contemp_pf'
+)
+
+factors_tab <- c(
+   'oxygenation_category',
+  'sofa2_cat',
+  'oxygenation_category_sf_both', 
+  'o2_cat_sf_pf_contemporary',
+  'sofa2_cat_sf_both', 
+  'sofa2_cat_sf_contemp_pf'
+)
+
+table_agreement <- CreateTableOne(
+  data=subset(analytic_cohort,exposure_group=='sf_pf'),
+  vars=to_tab, 
+  factorVars = factors_tab)
+
+summary(table_agreement)
+
+#Output 'Full' Statistics on Agreement by Oxygenation Criteria and SOFA Criteria Here
+table_agreement_list <- tab_decomp(table_agreement)
+write_csv(table_agreement_list$categorical, paste0(project_location, '/proj_output/', site, '_table_agreement_sf_pf.csv'))
+
 ```
 
 ```{r Agreement Table Stratified by Respiratory Support}
+#First Table Stratified by Primary metric of Either PF or SF Defined Severity
+to_tab <- c(
+  'oxygenation_category',
+  'sofa2_cat'
+)
+
+factors_tab <- c(
+   'oxygenation_category',
+  'sofa2_cat'
+)
+
 agreement_results <- list()
 
 for (resp in resp_cat) {
@@ -1499,6 +1533,55 @@ for (resp in resp_cat) {
     paste0(project_location, '/proj_output/', site, '_table_agreement_', resp, '.csv')
   )
 }
+
+#Repeat But Now with Measures That Are Defined for Both SF and PF in SAME patients
+to_tab <- c(
+  'oxygenation_category',
+  'sofa2_cat',
+  'oxygenation_category_sf_both', 
+  'o2_cat_sf_pf_contemporary',
+  'sofa2_cat_sf_both', 
+  'sofa2_cat_sf_contemp_pf'
+)
+
+factors_tab <- c(
+   'oxygenation_category',
+  'sofa2_cat',
+  'oxygenation_category_sf_both', 
+  'o2_cat_sf_pf_contemporary',
+  'sofa2_cat_sf_both', 
+  'sofa2_cat_sf_contemp_pf'
+)
+
+for (resp in resp_cat) {
+  
+  # Subset the data
+  cohort_subset <- analytic_cohort %>% 
+    filter(
+      resp_support_category == resp,
+      exposure_group=='sf_pf')
+  
+  # Create table
+  table_agreement <- CreateTableOne(
+    data = cohort_subset, 
+    vars = to_tab, 
+    factorVars = factors_tab,
+    addOverall = TRUE
+  )
+  
+  # Store results
+  agreement_results[[resp]] <- list(
+    table = table_agreement,
+    summary = summary(table_agreement),
+    decomposed = tab_decomp(table_agreement)
+  )
+  
+  # Save CSV
+  write_csv(
+    agreement_results[[resp]]$decomposed$categorical, 
+    paste0(project_location, '/proj_output/', site, '_table_agreement_', resp, '_both.csv')
+  )
+}
 ```
 
 
@@ -1524,10 +1607,10 @@ analytic_cohort <- analytic_cohort |>
     #Now Contemporary
     o2_cat_sf_pf_contemporary=paste0('sf_pf_contemp', '-',o2_cat_sf_pf_contemporary),
     sofa2_cat_sf_contemp_pf=paste0('sf_pf_contemp', '-', sofa2_cat_sf_contemp_pf)
-    )
-strata <- c('o2_strata', 'sofa_strata', 
-            'o2_strata_sf_both', 'sofa_strata_sf_both',
-            'o2_cat_sf_pf_contemporary', 'sofa2_cat_sf_contemp_pf')
+    ) 
+
+#1st Do For SF and PF Strata
+strata <- c('o2_strata', 'sofa_strata')
 table_mortality_list <- list()
 for (s in strata) {
 table_mortality <- CreateTableOne(
@@ -1538,7 +1621,31 @@ table_mortality <- CreateTableOne(
   addOverall = T)
 
 #Output 'Full' Statistics on Agreement by Oxygenation Criteria and SOFA Criteria Here
-table_mortality_list[[s]] <- tab_decomp(table_mortality)
+tab <- tab_decomp(table_mortality)
+tab$categorical$analysis <- 'overall'
+
+table_mortality_list[[s]] <- tab
+}
+
+
+strata2 <- c('o2_strata', 'sofa_strata', 
+            'o2_strata_sf_both', 'sofa_strata_sf_both',
+            'o2_cat_sf_pf_contemporary', 'sofa2_cat_sf_contemp_pf')
+for (s2 in strata2) {
+sf_pf <- analytic_cohort |> filter(exposure_group=='sf_pf')
+table_mortality <- CreateTableOne(
+  data=sf_pf, 
+  vars=to_tab, 
+  factorVars = factors_tab,
+  strata=s2,
+  addOverall = T)
+
+names <- paste0('both', "_", s2)
+#Output 'Full' Statistics on Agreement by Oxygenation Criteria and SOFA Criteria Here
+tab <- tab_decomp(table_mortality)
+tab$categorical$analysis <- 'sf_pf'
+
+table_mortality_list[[names]] <- tab
 }
 
 #Extract Categorical Table
@@ -1551,7 +1658,6 @@ mortality_table <- do.call(rbind, lapply(table_mortality_list, as.data.frame)) |
       freq=fifelse(less_than_5==T, NA_integer_, as.integer(freq)),
       percent=as.numeric(percent))
 write_csv(mortality_table, paste0(project_location, '/proj_output/',site,'_aggregate_by_o2cat.csv'))
-
 
 #Repeat by Hospital
 hospital_id <- unique(analytic_cohort$hospital_id)
@@ -1571,7 +1677,9 @@ for (h in hospital_id) {
     )
     td <- tab_decomp(tm)
     cat_df <- as.data.frame(td$categorical) |>
-      mutate(hospital_id=h)
+      mutate(
+        hospital_id=h,
+        analysis='overall')
     
     # add identifiers
     cat_df$hospital_id <- h
@@ -1580,6 +1688,35 @@ for (h in hospital_id) {
     # unique key per hospital–strata
     out_list[[paste(h, s, sep = "__")]] <- cat_df
   }}
+
+#NOw Repeat for the Expanded Strata
+for (h in hospital_id) {
+  df <- dplyr::filter(analytic_cohort, hospital_id == h) |>
+    dplyr::filter(exposure_group=='sf_pf')
+  if (nrow(df) == 0) next
+  
+  for (s in strata2) {
+    tm <- CreateTableOne(
+      data = df,
+      vars = to_tab,
+      factorVars = factors_tab,
+      strata = s,
+      addOverall = TRUE
+    )
+    td <- tab_decomp(tm)
+    cat_df <- as.data.frame(td$categorical) |>
+      mutate(
+        hospital_id=h,
+        analysis='sf_pf')
+    
+    # add identifiers
+    cat_df$hospital_id <- h
+    cat_df$strata_type <- s2
+    
+    # unique key per hospital–strata
+    out_list[[paste(h, s2, 'both', sep = "__")]] <- cat_df
+  }}
+
 mortality_by_hospital <- dplyr::bind_rows(out_list, .id = "key") |>
   select(-key) |>
   mutate(
@@ -1609,7 +1746,9 @@ for (h in race_cat) {
     )
     td <- tab_decomp(tm)
     cat_df <- as.data.frame(td$categorical) |>
-      mutate(new_race_cat=h)
+      mutate(
+        new_race_cat=h,
+        analysis='overall')
     
     # add identifiers
     cat_df$new_race_cat <- h
@@ -1618,6 +1757,35 @@ for (h in race_cat) {
     # unique key per hospital–strata
     out_list[[paste(h, s, sep = "__")]] <- cat_df
   }}
+
+#NOw Repeat for the Expanded Strata
+for (h in race_cat) {
+  df <- dplyr::filter(analytic_cohort, new_race_cat == h) |>
+    dplyr::filter(exposure_group=='sf_pf')
+  if (nrow(df) == 0) next
+  
+  for (s in strata2) {
+    tm <- CreateTableOne(
+      data = df,
+      vars = to_tab,
+      factorVars = factors_tab,
+      strata = s,
+      addOverall = TRUE
+    )
+    td <- tab_decomp(tm)
+    cat_df <- as.data.frame(td$categorical) |>
+     mutate(
+        new_race_cat=h,
+        analysis='sf_pf')
+    
+    # add identifiers
+    cat_df$new_race_cat <- h
+    cat_df$strata_type <- s2
+    
+    # unique key per hospital–strata
+    out_list[[paste(h, s2, 'both', sep = "__")]] <- cat_df
+  }}
+
 mortality_by_race <- dplyr::bind_rows(out_list, .id = "key") |>
   select(-key) |>
   mutate(
@@ -1647,7 +1815,9 @@ for (h in resp) {
     )
     td <- tab_decomp(tm)
     cat_df <- as.data.frame(td$categorical) |>
-      mutate(resp_support_category=h)
+      mutate(
+        resp_support_category=h,
+        analysis='overall')
     
     # add identifiers
     cat_df$resp_support_category <- h
@@ -1655,6 +1825,34 @@ for (h in resp) {
     
     # unique key per hospital–strata
     out_list[[paste(h, s, sep = "__")]] <- cat_df
+  }}
+
+#Now Only in SF PF
+for (h in resp) {
+  df <- dplyr::filter(analytic_cohort, resp_support_category == h)|>
+    dplyr::filter(exposure_group=='sf_pf')
+  if (nrow(df) == 0) next
+  
+  for (s in strata2) {
+    tm <- CreateTableOne(
+      data = df,
+      vars = to_tab,
+      factorVars = factors_tab,
+      strata = s2,
+      addOverall = TRUE
+    )
+    td <- tab_decomp(tm)
+    cat_df <- as.data.frame(td$categorical) |>
+      mutate(
+        resp_support_category=h,
+        analysis='sf_pf')
+    
+    # add identifiers
+    cat_df$resp_support_category <- h
+    cat_df$strata_type <- s
+    
+    # unique key per hospital–strata
+    out_list[[paste(h, s2, 'both', sep = "__")]] <- cat_df
   }}
 mortality_by_resp_support <- dplyr::bind_rows(out_list, .id = "key") |>
   select(-key) |>
