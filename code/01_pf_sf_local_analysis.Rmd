@@ -2382,6 +2382,14 @@ write_csv(combined_table, paste0(project_location, '/proj_output/', site, '_prop
 cat("\nResults saved to:", paste0(site, '_proportional_odds_models.csv\n'))
 ```
 
+```{r Export Hospital Category}
+hospital_category <- analytic_cohort |>
+  distinct(hospital_id, hospital_type) |>
+  mutate(site=site)
+
+write_csv(hospital_category, paste0(project_location, '/proj_output/', site,'_hospital_categories.csv'))
+```
+
 
 ```{r}
 cat('This code is DONE!!! Thank you for your support for this CLIF project!')
