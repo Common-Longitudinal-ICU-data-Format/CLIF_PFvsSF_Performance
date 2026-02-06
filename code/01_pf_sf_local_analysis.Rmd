@@ -1584,6 +1584,110 @@ for (resp in resp_cat) {
 }
 ```
 
+```{r Confusion Matrices for SF-PF Both}
+to_tab <- c(
+  'oxygenation_category_sf_both', 
+  'o2_cat_sf_pf_contemporary'
+)
+
+factors_tab <- c(
+  'oxygenation_category_sf_both', 
+  'o2_cat_sf_pf_contemporary'
+)
+
+cm_df <- analytic_cohort |>
+  mutate(
+    oxygenation_category_pf=oxygenation_category,
+    sofa2_cat_pf=sofa2_cat
+  )
+
+#Create one Version of Dataset with 'all' respiratory support and then bind with stratified
+cm_temp <- cm_df |>
+  mutate(resp_support_category='all')
+cm_df <- cm_df |>
+  rowbind(cm_temp)
+rm(cm_temp)
+
+#Initiate List for Confusion Matrices
+cm_list <- list()
+cm_cat <- c('all', "imv", "high_flow_nc", "nippv")
+for (sub in cm_cat) {
+  
+  # Subset the data
+  cohort_subset <- cm_df %>% 
+    filter(
+      resp_support_category == sub,
+      exposure_group=='sf_pf')
+  
+  # Create table
+  table_agreement <- CreateTableOne(
+    data = cohort_subset, 
+    vars = to_tab, 
+    strata = 'oxygenation_category_pf',
+    factorVars = factors_tab,
+    addOverall = F
+  )
+  
+  table_name <- paste('o2_cat', sep = '_', sub)
+  tab_cat <- tab_decomp(table_agreement)
+  tab_cat <- as.data.frame(tab_cat$categorical)
+  tab_cat$analysis <- sub
+  
+  # Store results
+  cm_list[[table_name]] <- tab_cat
+  
+}
+
+#Now Repeat for SOFA
+to_tab <- c(
+  'sofa2_cat_sf_both', 
+  'sofa2_cat_sf_contemp_pf'
+)
+
+factors_tab <- c(
+  'sofa2_cat_sf_both', 
+  'sofa2_cat_sf_contemp_pf'
+)
+
+
+for (sub in cm_cat) {
+  
+  # Subset the data
+  cohort_subset <- cm_df %>% 
+    filter(
+      resp_support_category == sub,
+      exposure_group=='sf_pf')
+  
+  # Create table
+  table_agreement <- CreateTableOne(
+    data = cohort_subset, 
+    vars = to_tab, 
+    strata = 'sofa2_cat_pf',
+    factorVars = factors_tab,
+    addOverall = F
+  )
+  
+  table_name <- paste('sofa_cat', sep = '_', sub)
+  tab_cat <- tab_decomp(table_agreement)
+  tab_cat <- as.data.frame(tab_cat$categorical)
+  tab_cat$analysis <- sub
+  
+  # Store results
+  cm_list[[table_name]] <- tab_cat
+  
+}
+cm_outcomes <- bind_rows(cm_list) |>
+  mutate(
+    site = site,
+    freq = as.integer(freq),      # Convert table to integer
+    percent = as.numeric(percent)  # Convert table to numeric
+  ) |>
+  distinct()
+
+write_csv(cm_outcomes, paste0(project_location, '/proj_output/', site, '_confusion_matric_sf_pf.csv'))
+
+```
+
 
 ```{r Mortality by PF/SF Category}
 to_tab <- c(
