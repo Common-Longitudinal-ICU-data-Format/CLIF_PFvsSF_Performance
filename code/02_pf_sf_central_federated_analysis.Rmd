@@ -1740,7 +1740,7 @@ ggplot(heat_graph,
   geom_text(aes(label = label), size = 3, fontface='bold') +
   coord_equal() +
   labs(x = "Hypoxemia Severity Category", 
-       title = paste0("Death or Hospice by Day 28, (n=",sum(heat_graph$n_total, na.rm=T), '),\n Both PF and SF Measured'),
+       title = paste0("Death or Hospice by Day 28, (n=",sum(heat_graph$n_total[heat_graph$strata=='pf'], na.rm=T), '),\nBoth PF and SF Measured'),
        size=4) +
   theme_minimal()
 ggsave(
@@ -1770,7 +1770,7 @@ ggplot(heat_graph, aes(x = level, y = strata, fill = percent)) +
   geom_text(aes(label = label), size = 3, fontface='bold') +
   coord_equal() +
   labs(x = "Hypoxemia Severity Category", 
-       title = paste0("Death or Hospice by Day 28, (n=",sum(heat_graph$n_total, na.rm=T), '),\n Both PF and SF Measured'),
+       title = paste0("Death or Hospice by Day 28, (n=",sum(heat_graph$n_total[heat_graph$strata=='pf'], na.rm=T), '),\nBoth PF and SF Measured'),
        fontface='bold',
        size=4) +
   theme_minimal()
@@ -1802,7 +1802,7 @@ ggplot(heat_graph,
   geom_text(aes(label = label), size = 3, fontface='bold') +
   coord_equal() +
   labs(x = "Hypoxemia Severity Category", 
-       title = paste0("Death or Hospice by Day 28, (n=",sum(heat_graph$n_total, na.rm=T), '),\n PF and SF Measured Contemparaneously'),
+       title = paste0("Death or Hospice by Day 28, (n=",sum(heat_graph$n_total[heat_graph$strata=='pf'], na.rm=T), '),\nPF and SF Measured Contemparaneously'),
        size=4) +
   theme_minimal()
 ggsave(
@@ -1832,7 +1832,7 @@ ggplot(heat_graph, aes(x = level, y = strata, fill = percent)) +
   geom_text(aes(label = label), size = 3, fontface='bold') +
   coord_equal() +
   labs(x = "Hypoxemia Severity Category", 
-       title = paste0("Death or Hospice by Day 28, (n=",sum(heat_graph$n_total, na.rm=T), '),\n PF and SF Measured Contemparaneously'),
+       title = paste0("Death or Hospice by Day 28, (n=",sum(heat_graph$n_total[heat_graph$strata=='pf'], na.rm=T), '),\n PF and SF Measured Contemparaneously'),
        fontface='bold',
        size=4) +
   theme_minimal()
@@ -1852,7 +1852,7 @@ aggregate_mortality_race <- mortality_by_o2_race |>
   mutate(
     black=fifelse(new_race_cat=='black', 'black', 'not_black')
   ) |>
-  group_by(strata, strata_type, black, variable, level) |>
+  group_by(analysis, strata_type, strata, black, variable, level) |>
   dplyr::reframe(
     n_total=sum(n, na.rm=T),
     n_miss=sum(miss, na.rm=T),
@@ -1873,7 +1873,7 @@ mortality_tab_chi <- chisq_function(aggregate_mortality_race) |>
 
 #Merge Back with Table 1 and COnvert to Wide
 table_mortality_race_paper <- aggregate_mortality_race |>
-  select(strata, black, variable, level, n_total, count, percent, order_number) |>
+  select(analysis, strata_type, strata, black, variable, level, n_total, count, percent, order_number) |>
   mutate(
     percent=round((percent*100), digits = 2)
   ) |>
@@ -1896,6 +1896,14 @@ strata_values <- c(
   'sf-moderate_hypoxemia', 
   'sf-severe_hypoxemia',
   'sf-not_hypoxemic',
+  'sf_pf_-mild_hypoxemia', 
+  'sf_pf_-moderate_hypoxemia', 
+  'sf_pf_-severe_hypoxemia',
+  'sf_pf_-not_hypoxemic',
+  'sf_pf_contemp-mild_hypoxemia', 
+  'sf_pf_contemp-moderate_hypoxemia', 
+  'sf_pf_contemp-severe_hypoxemia',
+  'sf_pf_contemp-not_hypoxemic',
   'pf-0',
   'pf-1',
   'pf-2',
@@ -1905,8 +1913,18 @@ strata_values <- c(
   'sf-1',
   'sf-2',
   'sf-3',
-  'sf-4'
-)
+  'sf-4',
+  'sf_pf_-0',
+  'sf_pf_-1',
+  'sf_pf_-2',
+  'sf_pf_-3',
+  'sf_pf_-4',
+  'sf_pf_contemp-0',
+  'sf_pf_contemp-1',
+  'sf_pf_contemp-2',
+  'sf_pf_contemp-3',
+  'sf_pf_contemp-4'
+  )
 
 relocate_vector <- c()
 # Loop through the strata values to generate names for those strata
@@ -1925,12 +1943,12 @@ table_mortality_race_paper <- table_mortality_race_paper |>
   select(-order_number) |>
   filter(level==1)
 stratified_keep <- table_mortality_race_paper |>
-  select(black, variable, Overall_n_total) |>
+  select(black, variable, Overall_n_total, analysis, strata_type) |>
   distinct()
 
 table_mortality_race_paper <- readable_table(table_mortality_race_paper, strata_values, has_continuous=F, has_categorical=T) |>
   left_join(stratified_keep) |>
-  relocate(black, .after=variable)
+  relocate(analysis, strata_type, black, .before=variable)
 
 write_csv(table_mortality_race_paper, paste0(project_location, '/tables/table_o2cat_mortality_race.csv'))
 ```
