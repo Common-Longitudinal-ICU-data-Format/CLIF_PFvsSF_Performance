@@ -1893,7 +1893,8 @@ analytic_cohort <- analytic_cohort |>
 # Initialize a list to store aggregated outcomes
 aggregate_outcomes_list <- list()
 
-variables <- c('measure_value_5', 'sf_min_both_5', 'sf_contemporary_5', 'median_measure_5')
+variables <- c('measure_value_5', 'median_measure_5') #These are for the primary sf and pf analyses
+variables2 <- c('measure_value_5', 'sf_min_both_5', 'sf_contemporary_5', 'median_measure_5') #This is ONLY when you have SF and PF
 for (v in variables) {
   # Conduct aggregation for each variable
   aggregate_outcomes <- analytic_cohort |>
@@ -1912,7 +1913,8 @@ for (v in variables) {
       less_than_5=(n_in_group<=5),
       n_in_group=fifelse(less_than_5==T, NA_real_, n_in_group),
       n_deathhosp28=fifelse(less_than_5==T, NA_real_, n_deathhosp28),
-      n_deathhosp60=fifelse(less_than_5==T, NA_real_, n_deathhosp60)
+      n_deathhosp60=fifelse(less_than_5==T, NA_real_, n_deathhosp60),
+      analysis='overall'
     )
   
 # Store the result in the list, using the variable name for indexing
@@ -1936,7 +1938,8 @@ for (v in variables) {
         strata_cat = z,
         n_in_group=n(),
         n_deathhosp28=sum(death_hospice28, na.rm=T),
-        n_deathhosp60=sum(death_hospice60, na.rm=T)
+        n_deathhosp60=sum(death_hospice60, na.rm=T),
+        analysis='overall'
       )  |>
      mutate(
       less_than_5=(n_in_group<=5),
@@ -1960,6 +1963,77 @@ aggregate_outcomes <- rowbind(aggregate_outcomes, stratified_outcomes, fill=T) |
 
 #Save Aggregate Outcomes
 write_csv(aggregate_outcomes, paste0(project_location, '/proj_output/',site,'_aggregate_outcomes.csv'))
+
+#Now Do this for When you Have BOth SF and PF Measured
+for (v in variables2) {
+  # Conduct aggregation for each variable
+  aggregate_outcomes <- analytic_cohort |>
+    filter(
+      exposure_group=='sf_pf') |>
+    mutate(value=.data[[v]]) |>
+    group_by(primary_metric, value) |>
+    reframe(
+      variable = v,  # Store the name of the variable
+      strata = 'Overall',
+      strata_cat = 'Overall',
+      n_in_group = n(),
+      n_deathhosp28 = sum(death_hospice28, na.rm = TRUE),
+      n_deathhosp60 = sum(death_hospice60, na.rm = TRUE)
+    ) |>
+  mutate(
+      less_than_5=(n_in_group<=5),
+      n_in_group=fifelse(less_than_5==T, NA_real_, n_in_group),
+      n_deathhosp28=fifelse(less_than_5==T, NA_real_, n_deathhosp28),
+      n_deathhosp60=fifelse(less_than_5==T, NA_real_, n_deathhosp60),
+      analysis='sf_pf'
+    )
+  
+# Store the result in the list, using the variable name for indexing
+aggregate_outcomes_list[[v]] <- aggregate_outcomes
+}
+
+# Define strata for detailed calculations
+strata <- c('resp_support_category', 'new_race_cat', 'hospital_id')
+# Initialize a list to store stratified outcomes
+stratified_outcomes_list <- list()
+# Calculate stratified statistics
+for (v in variables) {
+  for (z in strata) {
+    aggregate_outcomes <- analytic_cohort |>
+      filter(exposure_group=='sf_pf') |>
+      mutate(value=.data[[v]]) |>
+      group_by(primary_metric, .data[[z]], value) |> # Group by the stratum
+      reframe(
+        variable = v,
+        strata = .data[[z]],  # Capture the current stratum
+        strata_cat = z,
+        n_in_group=n(),
+        n_deathhosp28=sum(death_hospice28, na.rm=T),
+        n_deathhosp60=sum(death_hospice60, na.rm=T)
+      )  |>
+     mutate(
+      less_than_5=(n_in_group<=5),
+      n_in_group=fifelse(less_than_5==T, NA_real_, n_in_group),
+      n_deathhosp28=fifelse(less_than_5==T, NA_real_, n_deathhosp28),
+      n_deathhosp60=fifelse(less_than_5==T, NA_real_, n_deathhosp60),
+      analysis='sf_pf'
+    )
+    
+    # Store the stratified result in the list
+    stratified_outcomes_list[[paste(v, z, sep = "_")]] <- aggregate_outcomes
+  }
+}
+
+# Combine all overall and stratified results into a single data frame
+aggregate_outcomes <- bind_rows(aggregate_outcomes_list) |>
+  distinct() 
+stratified_outcomes <- bind_rows(stratified_outcomes_list) |>
+  distinct()
+aggregate_outcomes <- rowbind(aggregate_outcomes, stratified_outcomes, fill=T) |>
+  mutate(site=site)
+
+#Save Aggregate Outcomes
+write_csv(aggregate_outcomes, paste0(project_location, '/proj_output/',site,'_aggregate_outcomes_sf_pf.csv'))
 ```
 
 ```{r Model Summary Function}
