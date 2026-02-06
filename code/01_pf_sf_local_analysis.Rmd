@@ -1815,10 +1815,10 @@ for (h in hospital_id) {
     
     # add identifiers
     cat_df$hospital_id <- h
-    cat_df$strata_type <- s2
+    cat_df$strata_type <- s
     
     # unique key per hospital–strata
-    out_list[[paste(h, s2, 'both', sep = "__")]] <- cat_df
+    out_list[[paste(h, s, 'both', sep = "__")]] <- cat_df
   }}
 
 mortality_by_hospital <- dplyr::bind_rows(out_list, .id = "key") |>
@@ -1884,10 +1884,10 @@ for (h in race_cat) {
     
     # add identifiers
     cat_df$new_race_cat <- h
-    cat_df$strata_type <- s2
+    cat_df$strata_type <- s
     
     # unique key per hospital–strata
-    out_list[[paste(h, s2, 'both', sep = "__")]] <- cat_df
+    out_list[[paste(h, s, 'both', sep = "__")]] <- cat_df
   }}
 
 mortality_by_race <- dplyr::bind_rows(out_list, .id = "key") |>
@@ -1942,7 +1942,7 @@ for (h in resp) {
       data = df,
       vars = to_tab,
       factorVars = factors_tab,
-      strata = s2,
+      strata = s,
       addOverall = TRUE
     )
     td <- tab_decomp(tm)
@@ -1956,7 +1956,7 @@ for (h in resp) {
     cat_df$strata_type <- s
     
     # unique key per hospital–strata
-    out_list[[paste(h, s2, 'both', sep = "__")]] <- cat_df
+    out_list[[paste(h, s, 'both', sep = "__")]] <- cat_df
   }}
 mortality_by_resp_support <- dplyr::bind_rows(out_list, .id = "key") |>
   select(-key) |>
