@@ -1506,7 +1506,9 @@ ggsave(
 
 ```{r Mortality by SF vs PF Oxygenation Category}
 #Do this Once Other Sites Have Run
-mortality_by_o2 <- collate_tables('_aggregate_by_o2cat.csv')
+mortality_by_o2 <- collate_tables('_aggregate_by_o2cat.csv') |>
+  #Fix strange Expanded Strata Name
+  mutate(strata = str_remove(strata, "sf_pf_contemp-sf_pf_contemp-sf_pf_contemp-"))
 
 #Prepare Data for 
 aggregate_table_mortality <- mortality_by_o2 |>
@@ -1740,7 +1742,7 @@ ggplot(heat_graph,
   geom_text(aes(label = label), size = 3, fontface='bold') +
   coord_equal() +
   labs(x = "Hypoxemia Severity Category", 
-       title = paste0("Death or Hospice by Day 28, (n=",sum(heat_graph$n_total, na.rm=T), '),\n Both PF and SF Measured'),
+       title = paste0("Death or Hospice by Day 28, (n=",sum(heat_graph$n_total[heat_graph$strata=='pf'], na.rm=T), '),\nBoth PF and SF Measured'),
        size=4) +
   theme_minimal()
 ggsave(
@@ -1770,7 +1772,7 @@ ggplot(heat_graph, aes(x = level, y = strata, fill = percent)) +
   geom_text(aes(label = label), size = 3, fontface='bold') +
   coord_equal() +
   labs(x = "Hypoxemia Severity Category", 
-       title = paste0("Death or Hospice by Day 28, (n=",sum(heat_graph$n_total, na.rm=T), '),\n Both PF and SF Measured'),
+       title = paste0("Death or Hospice by Day 28, (n=",sum(heat_graph$n_total[heat_graph$strata=='pf'], na.rm=T), '),\nBoth PF and SF Measured'),
        fontface='bold',
        size=4) +
   theme_minimal()
@@ -1802,7 +1804,7 @@ ggplot(heat_graph,
   geom_text(aes(label = label), size = 3, fontface='bold') +
   coord_equal() +
   labs(x = "Hypoxemia Severity Category", 
-       title = paste0("Death or Hospice by Day 28, (n=",sum(heat_graph$n_total, na.rm=T), '),\n PF and SF Measured Contemparaneously'),
+       title = paste0("Death or Hospice by Day 28, (n=",sum(heat_graph$n_total[heat_graph$strata=='pf'], na.rm=T), '),\nPF and SF Measured Contemparaneously'),
        size=4) +
   theme_minimal()
 ggsave(
@@ -1832,7 +1834,7 @@ ggplot(heat_graph, aes(x = level, y = strata, fill = percent)) +
   geom_text(aes(label = label), size = 3, fontface='bold') +
   coord_equal() +
   labs(x = "Hypoxemia Severity Category", 
-       title = paste0("Death or Hospice by Day 28, (n=",sum(heat_graph$n_total, na.rm=T), '),\n PF and SF Measured Contemparaneously'),
+       title = paste0("Death or Hospice by Day 28, (n=",sum(heat_graph$n_total[heat_graph$strata=='pf'], na.rm=T), '),\n PF and SF Measured Contemparaneously'),
        fontface='bold',
        size=4) +
   theme_minimal()
@@ -1845,14 +1847,16 @@ ggsave(
 
 ```{r Stratified Mortality by Categorization According to Black, Not Black}
 #Do this Once Other Sites Have Run
-mortality_by_o2_race <- collate_tables('_aggregate_by_o2cat_race.csv')
+mortality_by_o2_race <- collate_tables('_aggregate_by_o2cat_race.csv') |>
+  #Fix strange Expanded Strata Name
+  mutate(strata = str_remove(strata, "sf_pf_contemp-sf_pf_contemp-sf_pf_contemp-"))
 
 #Prepare Data for 
 aggregate_mortality_race <- mortality_by_o2_race |>
   mutate(
     black=fifelse(new_race_cat=='black', 'black', 'not_black')
   ) |>
-  group_by(strata, strata_type, black, variable, level) |>
+  group_by(analysis, strata_type, strata, black, variable, level) |>
   dplyr::reframe(
     n_total=sum(n, na.rm=T),
     n_miss=sum(miss, na.rm=T),
@@ -1870,21 +1874,6 @@ vars <- c(
 )
 mortality_tab_chi <- chisq_function(aggregate_mortality_race) |>
   mutate(rn=1)
-
-#Merge Back with Table 1 and COnvert to Wide
-table_mortality_race_paper <- aggregate_mortality_race |>
-  select(strata, black, variable, level, n_total, count, percent, order_number) |>
-  mutate(
-    percent=round((percent*100), digits = 2)
-  ) |>
-  rename(count_mean=count,
-         percent_sd=percent) |>
-  distinct() |>
-  pivot_wider(
-    names_from=c(strata),
-    names_glue="{strata}_{.value}",
-    values_from=c(n_total, count_mean, percent_sd)) 
-
 #Vector For Reordering Columns
 strata_values <- c(
   'Overall', 
@@ -1896,6 +1885,14 @@ strata_values <- c(
   'sf-moderate_hypoxemia', 
   'sf-severe_hypoxemia',
   'sf-not_hypoxemic',
+  'sf_pf_-mild_hypoxemia', 
+  'sf_pf_-moderate_hypoxemia', 
+  'sf_pf_-severe_hypoxemia',
+  'sf_pf_-not_hypoxemic',
+  'sf_pf_contemp-mild_hypoxemia', 
+  'sf_pf_contemp-moderate_hypoxemia', 
+  'sf_pf_contemp-severe_hypoxemia',
+  'sf_pf_contemp-not_hypoxemic',
   'pf-0',
   'pf-1',
   'pf-2',
@@ -1905,8 +1902,42 @@ strata_values <- c(
   'sf-1',
   'sf-2',
   'sf-3',
-  'sf-4'
-)
+  'sf-4',
+  'sf_pf_-0',
+  'sf_pf_-1',
+  'sf_pf_-2',
+  'sf_pf_-3',
+  'sf_pf_-4',
+  'sf_pf_contemp-0',
+  'sf_pf_contemp-1',
+  'sf_pf_contemp-2',
+  'sf_pf_contemp-3',
+  'sf_pf_contemp-4'
+  )
+
+
+#Merge Back with Table 1 and COnvert to Wide
+table_mortality_race_paper <- aggregate_mortality_race |>
+  select(analysis, strata_type, strata, black, variable, level, n_total, count, percent, order_number) |>
+  mutate(
+    percent=round((percent*100), digits = 2)
+  ) |>
+  rename(count_mean=count,
+         percent_sd=percent) |>
+  distinct() 
+
+#Keep Long Form Table
+table_mortality_long_by_race <- table_mortality_race_paper |>
+  filter(level==1,
+         strata %in% strata_values) |>
+  select(-level, -order_number) |>
+  left_join(mortality_tab_chi)
+
+table_mortality_race_paper <- table_mortality_race_paper |>
+  pivot_wider(
+    names_from=c(strata),
+    names_glue="{strata}_{.value}",
+    values_from=c(n_total, count_mean, percent_sd)) 
 
 relocate_vector <- c()
 # Loop through the strata values to generate names for those strata
@@ -1925,14 +1956,16 @@ table_mortality_race_paper <- table_mortality_race_paper |>
   select(-order_number) |>
   filter(level==1)
 stratified_keep <- table_mortality_race_paper |>
-  select(black, variable, Overall_n_total) |>
+  select(black, variable, Overall_n_total, analysis, strata_type) |>
   distinct()
 
 table_mortality_race_paper <- readable_table(table_mortality_race_paper, strata_values, has_continuous=F, has_categorical=T) |>
   left_join(stratified_keep) |>
-  relocate(black, .after=variable)
+  relocate(analysis, strata_type, black, .before=variable)
 
 write_csv(table_mortality_race_paper, paste0(project_location, '/tables/table_o2cat_mortality_race.csv'))
+write_csv(table_mortality_long_by_race, paste0(project_location, '/tables/table_o2cat_mortality_race_long.csv'))
+
 ```
 
 ```{r Mortality Heat Map Stratified by Race}
@@ -1948,7 +1981,8 @@ cat_levels <- c("not_hypoxemic", "mild_hypoxemia", "moderate_hypoxemia", "severe
 heat_map_o2_cat <- heat_map_o2_mortality |>
   filter(
     variable=='death_hospice28',
-    grepl('hypox', level)==T) |>
+    grepl('hypox', level)==T,
+    analysis=='overall') |>
   mutate(
     level = factor(level, levels = cat_levels),
     black  = factor(black, levels = c("black", "not_black"))
@@ -1993,7 +2027,8 @@ cat_levels <- c("0", "1", "2", "3", "4")
 heat_map_sofa <- heat_map_o2_mortality |>
   filter(
     variable=='death_hospice28',
-    grepl('hypox', level)==F) |>
+    grepl('hypox', level)==F,
+    analysis=='overall') |>
   mutate(level = factor(level, levels = cat_levels),
          black  = factor(black, levels = c("black", "not_black"))
 ) |>
@@ -2032,6 +2067,171 @@ ggsave(
   plot=last_plot(),
   path = paste0(project_location, '/graphs/'))
 ```
+
+```{r Mortality Heat Map Stratified by Race for SF Both}
+#Order Hypoxemia Categories
+cat_levels <- c("not_hypoxemic", "mild_hypoxemia", "moderate_hypoxemia", "severe_hypoxemia")
+heat_map_o2_cat <- heat_map_o2_mortality |>
+  filter(
+    variable=='death_hospice28',
+    grepl('hypox', level)==T) |>
+  mutate(
+    level = factor(level, levels = cat_levels),
+    black  = factor(black, levels = c("black", "not_black"))
+) |>
+group_by(black) |>
+complete(
+level  = levels(level),
+fill   = list(percent = NA_real_, label = "")
+) |>
+ungroup()
+
+heat_graph <- heat_map_o2_cat |>
+  filter(
+    analysis=='sf_pf',
+    strata %in% c('sf_pf_', 'pf'))
+ggplot(heat_graph, aes(x = level, y = strata, fill = percent)) +
+  geom_tile(color = "white", width = 0.95, height = 0.95) +
+  scale_fill_gradient2(name="",
+    low = 'dodgerblue4',
+    mid = 'white',
+    high = 'firebrick2',
+    limits = c(0, max(heat_graph$percent)),
+    midpoint = (max(heat_graph$percent)/2),
+    breaks = c(0, max(heat_graph$percent)),
+    labels = c('Lower', 'Higher')      # no labels on colorbar
+  ) +
+  scale_y_discrete(name='', labels = c('PaO2/FiO2 Defined', 'SpO2/FiO2 Defined')) +
+  scale_x_discrete(name='',
+                   labels = c('Not\nHypoxemic', 'Mild\nHypoxemia', 'Moderate\nHypoxemia', 'Severe\nHypoxemia')) +
+  geom_text(aes(label = label), size = 3, fontface='bold') +
+  coord_equal() +
+  facet_grid(. ~ black, labeller = ggplot2::as_labeller(c(black = "Black", not_black = "Not Black"))) +
+  facet_wrap(vars(black), ncol = 1) +
+  labs(x = "Hypoxemia Severity Category", 
+       title = paste0("Death or Hospice by Day 28, (n=",sum(heat_graph$n_total[heat_graph$strata=='pf'], na.rm=T), ')\nPatients with SF and PF'),
+       size=4) +
+  theme_minimal()
+ggsave(
+  filename='o2_category_mortality_race_sf_pf.pdf',
+  plot=last_plot(),
+  path = paste0(project_location, '/graphs/'))
+
+#Order Sofa Categories
+#Order Sofa Categories
+cat_levels <- c("0", "1", "2", "3", "4")
+heat_map_sofa <- heat_map_o2_mortality |>
+  filter(
+    variable=='death_hospice28',
+    grepl('hypox', level)==F) |>
+  mutate(level = factor(level, levels = cat_levels),
+         black  = factor(black, levels = c("black", "not_black"))
+) |>
+group_by(black) |>
+complete(
+level  = levels(level),
+strata = c("pf", "sf"),
+fill   = list(percent = NA_real_, label = "")) |>
+ungroup()
+
+heat_graph <- heat_map_sofa |>
+  filter(
+    analysis=='sf_pf',
+    strata %in% c('sf_pf_', 'pf'))
+
+ggplot(heat_graph, aes(x = level, y = strata, fill = percent)) +
+  geom_tile(color = "white", width = 0.95, height = 0.95) +
+  scale_fill_gradient2(name="",
+    low = 'dodgerblue4',
+    mid = 'white',
+    high = 'firebrick2',
+    limits = c(0, max(heat_graph$percent)),
+    midpoint = (max(heat_graph$percent)/2),
+    breaks = c(0, max(heat_graph$percent)),
+    labels = c('Lower', 'Higher')      # no labels on colorbar
+  ) +
+  scale_y_discrete(name='', labels = c('PaO2/FiO2 Defined', 'SpO2/FiO2 Defined')) +
+  scale_x_discrete(name='SOFA-2 Respiratory Score',
+                   labels = c('0', '1', '2', '3', '4')) +
+  geom_text(aes(label = label), size = 3, fontface='bold') +
+  coord_equal() +
+  facet_grid(. ~ black, labeller = ggplot2::as_labeller(c(black = "Black", not_black = "Not Black"))) +
+  facet_wrap(vars(black), ncol = 1) +
+  labs(x = "Hypoxemia Severity Category", 
+       title = paste0("Death or Hospice by Day 28, (n=",sum(heat_graph$n_total[heat_graph$strata=='pf'], na.rm=T), ')\nPatients with SF and PF'),
+       size=4) +
+  theme_minimal()
+ggsave(
+  filename='o2_sofa_mortality_race_sf_pf.pdf',
+  plot=last_plot(),
+  path = paste0(project_location, '/graphs/'))
+
+#Repeat for Contemporary SF-PF
+heat_graph <- heat_map_o2_cat |>
+  filter(
+    analysis=='sf_pf',
+    strata %in% c('sf_pf_contemp', 'pf'))
+ggplot(heat_graph, aes(x = level, y = strata, fill = percent)) +
+  geom_tile(color = "white", width = 0.95, height = 0.95) +
+  scale_fill_gradient2(name="",
+    low = 'dodgerblue4',
+    mid = 'white',
+    high = 'firebrick2',
+    limits = c(0, max(heat_graph$percent)),
+    midpoint = (max(heat_graph$percent)/2),
+    breaks = c(0, max(heat_graph$percent)),
+    labels = c('Lower', 'Higher')      # no labels on colorbar
+  ) +
+  scale_y_discrete(name='', labels = c('PaO2/FiO2 Defined', 'SpO2/FiO2 Defined')) +
+  scale_x_discrete(name='',
+                   labels = c('Not\nHypoxemic', 'Mild\nHypoxemia', 'Moderate\nHypoxemia', 'Severe\nHypoxemia')) +
+  geom_text(aes(label = label), size = 3, fontface='bold') +
+  coord_equal() +
+  facet_grid(. ~ black, labeller = ggplot2::as_labeller(c(black = "Black", not_black = "Not Black"))) +
+  facet_wrap(vars(black), ncol = 1) +
+  labs(x = "Hypoxemia Severity Category", 
+       title = paste0("Death or Hospice by Day 28, (n=",sum(heat_graph$n_total[heat_graph$strata=='pf'], na.rm=T), ')\nPatients with SF Contemporary to PF'),
+       size=4) +
+  theme_minimal()
+ggsave(
+  filename='o2_category_mortality_race_sf_pf_contemp.pdf',
+  plot=last_plot(),
+  path = paste0(project_location, '/graphs/'))
+
+#Order Sofa Categories
+heat_graph <- heat_map_sofa |>
+  filter(
+    analysis=='sf_pf',
+    strata %in% c('sf_pf_contemp', 'pf'))
+
+ggplot(heat_graph, aes(x = level, y = strata, fill = percent)) +
+  geom_tile(color = "white", width = 0.95, height = 0.95) +
+  scale_fill_gradient2(name="",
+    low = 'dodgerblue4',
+    mid = 'white',
+    high = 'firebrick2',
+    limits = c(0, max(heat_graph$percent)),
+    midpoint = (max(heat_graph$percent)/2),
+    breaks = c(0, max(heat_graph$percent)),
+    labels = c('Lower', 'Higher')      # no labels on colorbar
+  ) +
+  scale_y_discrete(name='', labels = c('PaO2/FiO2 Defined', 'SpO2/FiO2 Defined')) +
+  scale_x_discrete(name='SOFA-2 Respiratory Score',
+                   labels = c('0', '1', '2', '3', '4')) +
+  geom_text(aes(label = label), size = 3, fontface='bold') +
+  coord_equal() +
+  facet_grid(. ~ black, labeller = ggplot2::as_labeller(c(black = "Black", not_black = "Not Black"))) +
+  facet_wrap(vars(black), ncol = 1) +
+  labs(x = "Hypoxemia Severity Category", 
+       title = paste0("Death or Hospice by Day 28, (n=",sum(heat_graph$n_total[heat_graph$strata=='pf'], na.rm=T), ')\nPatients with SF Contemporary to PF'),
+       size=4) +
+  theme_minimal()
+ggsave(
+  filename='o2_sofa_mortality_race_sf_pf_contemp.pdf',
+  plot=last_plot(),
+  path = paste0(project_location, '/graphs/'))
+```
+
 ```{r Stratified Mortality by Respiratory Support}
 #Do this Once Other Sites Have Run
 mortality_by_o2_resp <- collate_tables('_aggregate_by_o2cat_resp_support.csv')
