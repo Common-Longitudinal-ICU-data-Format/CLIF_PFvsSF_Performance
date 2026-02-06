@@ -1506,7 +1506,9 @@ ggsave(
 
 ```{r Mortality by SF vs PF Oxygenation Category}
 #Do this Once Other Sites Have Run
-mortality_by_o2 <- collate_tables('_aggregate_by_o2cat.csv')
+mortality_by_o2 <- collate_tables('_aggregate_by_o2cat.csv') |>
+  #Fix strange Expanded Strata Name
+  mutate(strata = str_remove(strata, "sf_pf_contemp-sf_pf_contemp-sf_pf_contemp-"))
 
 #Prepare Data for 
 aggregate_table_mortality <- mortality_by_o2 |>
@@ -1845,7 +1847,9 @@ ggsave(
 
 ```{r Stratified Mortality by Categorization According to Black, Not Black}
 #Do this Once Other Sites Have Run
-mortality_by_o2_race <- collate_tables('_aggregate_by_o2cat_race.csv')
+mortality_by_o2_race <- collate_tables('_aggregate_by_o2cat_race.csv') |>
+  #Fix strange Expanded Strata Name
+  mutate(strata = str_remove(strata, "sf_pf_contemp-sf_pf_contemp-sf_pf_contemp-"))
 
 #Prepare Data for 
 aggregate_mortality_race <- mortality_by_o2_race |>
@@ -1870,21 +1874,6 @@ vars <- c(
 )
 mortality_tab_chi <- chisq_function(aggregate_mortality_race) |>
   mutate(rn=1)
-
-#Merge Back with Table 1 and COnvert to Wide
-table_mortality_race_paper <- aggregate_mortality_race |>
-  select(analysis, strata_type, strata, black, variable, level, n_total, count, percent, order_number) |>
-  mutate(
-    percent=round((percent*100), digits = 2)
-  ) |>
-  rename(count_mean=count,
-         percent_sd=percent) |>
-  distinct() |>
-  pivot_wider(
-    names_from=c(strata),
-    names_glue="{strata}_{.value}",
-    values_from=c(n_total, count_mean, percent_sd)) 
-
 #Vector For Reordering Columns
 strata_values <- c(
   'Overall', 
@@ -1926,6 +1915,30 @@ strata_values <- c(
   'sf_pf_contemp-4'
   )
 
+
+#Merge Back with Table 1 and COnvert to Wide
+table_mortality_race_paper <- aggregate_mortality_race |>
+  select(analysis, strata_type, strata, black, variable, level, n_total, count, percent, order_number) |>
+  mutate(
+    percent=round((percent*100), digits = 2)
+  ) |>
+  rename(count_mean=count,
+         percent_sd=percent) |>
+  distinct() 
+
+#Keep Long Form Table
+table_mortality_long_by_race <- table_mortality_race_paper |>
+  filter(level==1,
+         strata %in% strata_values) |>
+  select(-level, -order_number) |>
+  left_join(mortality_tab_chi)
+
+table_mortality_race_paper <- table_mortality_race_paper |>
+  pivot_wider(
+    names_from=c(strata),
+    names_glue="{strata}_{.value}",
+    values_from=c(n_total, count_mean, percent_sd)) 
+
 relocate_vector <- c()
 # Loop through the strata values to generate names for those strata
 for (stratum in strata_values) {
@@ -1951,6 +1964,8 @@ table_mortality_race_paper <- readable_table(table_mortality_race_paper, strata_
   relocate(analysis, strata_type, black, .before=variable)
 
 write_csv(table_mortality_race_paper, paste0(project_location, '/tables/table_o2cat_mortality_race.csv'))
+write_csv(table_mortality_long_by_race, paste0(project_location, '/tables/table_o2cat_mortality_race_long.csv'))
+
 ```
 
 ```{r Mortality Heat Map Stratified by Race}
