@@ -94,6 +94,7 @@ tables <- c(
   "_arf_per_quarter.csv",
   "_aggregate_outcomes.csv",
   "_aggregate_by_o2cat_hospital.csv",
+  "_aggregate_outcomes_sf_pf.csv",
   "_aggregate_by_o2cat_resp_support.csv",
   "_aggregate_by_o2cat_race.csv",
   "_aggregate_by_o2cat.csv",
@@ -103,7 +104,8 @@ tables <- c(
   "_pf_sf_count_table.csv",
   "_proportional_odds_models.csv",
   "_sofa_missing.csv",                          
-  "_table_agreement.csv",                       
+  "_table_agreement.csv",  
+  "_table_agreement_sf_pf.csv",
   "_table1_cat_by_exposure_high_flow_nc.csv",  
   "_table1_cat_by_exposure_imv.csv",           
   "_table1_cat_by_exposure_nippv.csv", 
@@ -1180,8 +1182,6 @@ ggsave(
 
 
 ```{r Contingency Table Oxygenation Category by SF v PF}
-LEFT OFF HERE
-
 oxygenation_agreement <- collate_tables('_table_agreement.csv')
 
 oxygenation_aggregate <- oxygenation_agreement |>
@@ -1247,6 +1247,51 @@ strata_values <- c('Overall', 'pf', 'sf')
 tab_o2_agreement_paper <- readable_table(tab_oxygenation_agreement, strata_values, has_continuous=F,has_categorical=T) 
 
 write_csv(tab_o2_agreement_paper, paste0(project_location, '/tables/table_o2cat_agreement.csv'))
+```
+```{r Agreement in Categories When Both SF and PF Available}
+oxygenation_agreement_sfpf <- collate_tables('_table_agreement_sf_pf.csv')
+
+oxygenation_aggregate_sfpf <- oxygenation_agreement_sfpf |>
+  group_by(strata, variable, level) |>
+  dplyr::reframe(
+    n_total=sum(n),
+    n_miss=sum(miss, na.rm=T),
+    count=sum(freq,na.rm=T),
+    percent=count/(n_total-n_miss)
+  ) |>
+  filter(level!='undefined')
+
+#Order of Variables
+order_vec <- oxygenation_aggregate_sfpf$variable
+order <- data.frame(
+  variable=unique(order_vec)) |>
+  mutate(order_number=dplyr::row_number())
+
+oxygenation_aggregate_sfpf <- oxygenation_aggregate_sfpf |>
+  left_join(order, by='variable') |>
+  arrange(strata, order_number)
+
+#For now Table 1 Purposes This Ignores Clustering by Site
+vars <- c(
+  'oxygenation_category',
+  'sofa2_cat',
+  'o2_cat_sf_pf_contemporary',
+  'oxygenation_category_sf_both',
+  'sofa2_cat_sf_both',
+  'sofa2_cat_sf_contemp_pf')
+
+#oxygenation_agreement_chi <- chisq_function(oxygenation_aggregate_sfpf) |> mutate(rn=1)
+
+#Covert to Wide
+tab_oxygenation_agreement_sf_pf <- oxygenation_aggregate_sfpf |>
+  select(strata, variable, level, n_total, count, percent, order_number) |>
+  mutate(
+    percent=round((percent*100), digits = 2)
+  ) |>
+  rename(count_mean=count,
+         percent_sd=percent) 
+
+write_csv(tab_oxygenation_agreement_sf_pf, paste0(project_location, '/tables/table_o2cat_agreement_sf_pf.csv'))
 ```
 
 
@@ -1321,12 +1366,11 @@ ggsave(
 
 
 #Now Illustrate How O2 Category and O2 Category Both Correlate
-heat_map_o2 <- oxygenation_aggregate %>%
+heat_map_o2 <- oxygenation_aggregate_sfpf %>%
 filter(variable %in% c('oxygenation_category', 
               'oxygenation_category_sf_both', 
               'o2_cat_sf_pf_contemporary',
-              'sofa2_cat', 'sofa2_cat_sf_both', 'sofa2_cat_sf_contemp_pf'),
-       strata %in% c("pf", "sf_pf")) |>
+              'sofa2_cat', 'sofa2_cat_sf_both', 'sofa2_cat_sf_contemp_pf')) |>
   mutate(label = paste0(count, " (", percent(percent, accuracy = 0.1), ")"))
 
 #Order Hypoxemia Categories
@@ -1401,7 +1445,7 @@ heat_map_o2_sofa <- heat_map_o2 |>
   filter(variable %in% c('sofa2_cat', 'sofa2_cat_sf_both')) |>
   mutate(level = factor(level, levels = cat_levels))
 
-ggplot(heat_map_o2_sofa, aes(x = level, y = strata, fill = percent)) +
+ggplot(heat_map_o2_sofa, aes(x = level, y = variable, fill = percent)) +
   geom_tile(color = "white", width = 0.95, height = 0.95) +
   scale_fill_gradient2(name="Prevalence",
     low = 'dodgerblue4',
@@ -1433,7 +1477,7 @@ heat_map_o2_sofa <- heat_map_o2 |>
   filter(variable %in% c('sofa2_cat', 'sofa2_cat_sf_contemp_pf')) |>
   mutate(level = factor(level, levels = cat_levels))
 
-ggplot(heat_map_o2_sofa, aes(x = level, y = strata, fill = percent)) +
+ggplot(heat_map_o2_sofa, aes(x = level, y = variable, fill = percent)) +
   geom_tile(color = "white", width = 0.95, height = 0.95) +
   scale_fill_gradient2(name="Prevalence",
     low = 'dodgerblue4',
@@ -1466,7 +1510,7 @@ mortality_by_o2 <- collate_tables('_aggregate_by_o2cat.csv')
 
 #Prepare Data for 
 aggregate_table_mortality <- mortality_by_o2 |>
-  group_by(strata, variable, level) |>
+  group_by(analysis, strata, variable, level) |>
   dplyr::reframe(
     n_total=sum(n),
     n_miss=sum(miss, na.rm=T),
@@ -1474,6 +1518,7 @@ aggregate_table_mortality <- mortality_by_o2 |>
     percent=count/(n_total-n_miss)
   ) 
 
+#First Comparison of PF and SF Defined Strata
 #Order of Variables
 order_vec <-  mortality_by_o2$variable
 order <- data.frame(
@@ -1482,18 +1527,26 @@ order <- data.frame(
 
 aggregate_table_mortality  <- aggregate_table_mortality  |>
   left_join(order, by='variable') |>
-  arrange(strata, order_number)
+  arrange(analysis, strata, order_number)
 
 vars <- c(
   'death_hospice28',
   'death_hospice60'
 )
-mortality_tab_chi <- chisq_function(aggregate_table_mortality) |>
-  mutate(rn=1)
+overall <- aggregate_table_mortality |> filter(analysis=='overall')
+mortality_tab_chi <- chisq_function(overall) |>
+  mutate(rn=1,
+         analysis='overall')
+sf_pf <- aggregate_table_mortality |> filter(analysis=='sf_pf')
+mortality_tab_chi_sf_pf <- chisq_function(sf_pf) |>
+  mutate(rn=1,
+         analysis='sf_pf')
+mortality_tab_chi <- rbind(mortality_tab_chi, mortality_tab_chi_sf_pf)
+
 
 #Merge Back with Table 1 and COnvert to Wide
 table_mortality_paper <- aggregate_table_mortality |>
-  select(strata, variable, level, n_total, count, percent, order_number) |>
+  select(analysis, strata, variable, level, n_total, count, percent, order_number) |>
   mutate(
     percent=round((percent*100), digits = 2)
   ) |>
@@ -1546,7 +1599,8 @@ strata_values <- c(
 table_mortality_long <- table_mortality_paper |>
   filter(level==1,
          strata %in% strata_values) |>
-  select(-level, -order_number)
+  select(-level, -order_number) |>
+  left_join(mortality_tab_chi)
   
 table_mortality_paper <- table_mortality_paper |>
   pivot_wider(
@@ -1562,12 +1616,12 @@ for (stratum in strata_values) {
                        paste(stratum, c("n_total", "count_mean", "percent_sd"), sep = "_"))
 }
 
-
 #Reorder and Add Statistical Testing
 table_mortality_paper <- table_mortality_paper |>
   relocate(all_of(relocate_vector), .after = level) |>
-  group_by(variable) |>
+  group_by(analysis, variable) |>
   mutate(rn=dplyr::row_number()) |>
+  ungroup() |>
   left_join(tab1_chi, by=c('variable', 'rn')) |>
   arrange(order_number, variable) |>
   select(-order_number, -rn) |>
@@ -1597,7 +1651,9 @@ heat_map_o2_cat <- heat_map_o2_mortality |>
 
 #Just SF and PF for Main Graph
 heat_graph <- heat_map_o2_cat |>
-  filter(strata %in% c('sf', 'pf'))
+  filter(
+    strata %in% c('sf', 'pf'),
+    analysis=='overall')
 ggplot(heat_graph,
               aes(x = level, y = strata, fill = percent)) +
   geom_tile(color = "white", width = 0.95, height = 0.95) +
@@ -1633,7 +1689,8 @@ heat_map_sofa <- heat_map_o2_mortality |>
   mutate(level = factor(level, levels = cat_levels))
 
 heat_graph <- heat_map_sofa |>
-  filter(strata %in% c('sf', 'pf'))
+  filter(strata %in% c('sf', 'pf'),
+         analysis=='overall')
 ggplot(heat_graph, aes(x = level, y = strata, fill = percent)) +
   geom_tile(color = "white", width = 0.95, height = 0.95) +
   scale_fill_gradient2(name="",
@@ -1662,7 +1719,9 @@ ggsave(
 
 #Now Repeat For those with Both SF and PF
 heat_graph <- heat_map_o2_cat |>
-  filter(strata %in% c('sf_pf_', 'pf'))
+  filter(
+    strata %in% c('sf_pf_', 'pf'),
+    analysis=='sf_pf')
 ggplot(heat_graph,
               aes(x = level, y = strata, fill = percent)) +
   geom_tile(color = "white", width = 0.95, height = 0.95) +
@@ -1681,24 +1740,19 @@ ggplot(heat_graph,
   geom_text(aes(label = label), size = 3, fontface='bold') +
   coord_equal() +
   labs(x = "Hypoxemia Severity Category", 
-       title = paste0("Death or Hospice by Day 28, (n=",sum(heat_graph$n_total, na.rm=T), ')'),
+       title = paste0("Death or Hospice by Day 28, (n=",sum(heat_graph$n_total, na.rm=T), '),\n Both PF and SF Measured'),
        size=4) +
   theme_minimal()
 ggsave(
-  filename='o2_category_mortality.pdf',
+  filename='o2_category_mortality_sf_pf.pdf',
   plot=last_plot(),
   path = paste0(project_location, '/graphs/'))
 
 #Order Sofa Categories
-cat_levels <- c("0", "1", "2", "3", "4")
-heat_map_sofa <- heat_map_o2_mortality |>
-  filter(
-    variable=='death_hospice28',
-    grepl('hypox', level)==F) |>
-  mutate(level = factor(level, levels = cat_levels))
-
 heat_graph <- heat_map_sofa |>
-  filter(strata %in% c('sf', 'pf'))
+  filter( 
+    strata %in% c('sf_pf_', 'pf'),
+    analysis=='sf_pf')
 ggplot(heat_graph, aes(x = level, y = strata, fill = percent)) +
   geom_tile(color = "white", width = 0.95, height = 0.95) +
   scale_fill_gradient2(name="",
@@ -1716,18 +1770,77 @@ ggplot(heat_graph, aes(x = level, y = strata, fill = percent)) +
   geom_text(aes(label = label), size = 3, fontface='bold') +
   coord_equal() +
   labs(x = "Hypoxemia Severity Category", 
-       title = paste0("Death or Hospice by Day 28, (n=",sum(heat_graph$n_total, na.rm=T), ')'),
+       title = paste0("Death or Hospice by Day 28, (n=",sum(heat_graph$n_total, na.rm=T), '),\n Both PF and SF Measured'),
        fontface='bold',
        size=4) +
   theme_minimal()
 ggsave(
-  filename='o2_sofa_mortality.pdf',
+  filename='o2_sofa_mortality_sf_pf.pdf',
   plot=last_plot(),
   path = paste0(project_location, '/graphs/'))
 
-
-
 #Now repeat for those with Contemporary SF and PF
+heat_graph <- heat_map_o2_cat |>
+  filter(
+    strata %in% c('sf_pf_contemp', 'pf'),
+    analysis=='sf_pf')
+ggplot(heat_graph,
+              aes(x = level, y = strata, fill = percent)) +
+  geom_tile(color = "white", width = 0.95, height = 0.95) +
+  scale_fill_gradient2(name="",
+    low = 'dodgerblue4',
+    mid = 'white',
+    high = 'firebrick2',
+    limits = c(0, max(heat_graph$percent)),
+    midpoint = (max(heat_graph$percent)/2),
+    breaks = c(0, max(heat_graph$percent)),
+    labels = c('Lower', 'Higher')      # no labels on colorbar
+  ) +
+  scale_y_discrete(name='', labels = c('PaO2/FiO2 Defined', 'SpO2/FiO2 Defined')) +
+  scale_x_discrete(name='',
+                   labels = c('Not\nHypoxemic', 'Mild\nHypoxemia', 'Moderate\nHypoxemia', 'Severe\nHypoxemia')) +
+  geom_text(aes(label = label), size = 3, fontface='bold') +
+  coord_equal() +
+  labs(x = "Hypoxemia Severity Category", 
+       title = paste0("Death or Hospice by Day 28, (n=",sum(heat_graph$n_total, na.rm=T), '),\n PF and SF Measured Contemparaneously'),
+       size=4) +
+  theme_minimal()
+ggsave(
+  filename='o2_category_mortality_sf_pf_contemp.pdf',
+  plot=last_plot(),
+  path = paste0(project_location, '/graphs/'))
+
+#Order Sofa Categories
+heat_graph <- heat_map_sofa |>
+  filter( 
+    strata %in% c('sf_pf_contemp', 'pf'),
+    analysis=='sf_pf')
+ggplot(heat_graph, aes(x = level, y = strata, fill = percent)) +
+  geom_tile(color = "white", width = 0.95, height = 0.95) +
+  scale_fill_gradient2(name="",
+    low = 'dodgerblue4',
+    mid = 'white',
+    high = 'firebrick2',
+    limits = c(0, max(heat_graph$percent)),
+    midpoint = (max(heat_graph$percent)/2),
+    breaks = c(0, max(heat_graph$percent)),
+    labels = c('Lower', 'Higher')      # no labels on colorbar
+  ) +
+  scale_y_discrete(name='', labels = c('PaO2/FiO2 Defined', 'SpO2/FiO2 Defined')) +
+  scale_x_discrete(name='SOFA-2 Respiratory Score',
+                   labels = c('0', '1', '2', '3', '4')) +
+  geom_text(aes(label = label), size = 3, fontface='bold') +
+  coord_equal() +
+  labs(x = "Hypoxemia Severity Category", 
+       title = paste0("Death or Hospice by Day 28, (n=",sum(heat_graph$n_total, na.rm=T), '),\n PF and SF Measured Contemparaneously'),
+       fontface='bold',
+       size=4) +
+  theme_minimal()
+ggsave(
+  filename='o2_sofa_mortality_sf_pf_contemp.pdf',
+  plot=last_plot(),
+  path = paste0(project_location, '/graphs/'))
+
 ```
 
 ```{r Stratified Mortality by Categorization According to Black, Not Black}
@@ -2112,42 +2225,28 @@ ggsave(
 ```
 
 ```{r Now Evaluate Discrimination by Fitting Logistic Regression}
-#Include Cubic Spline Terms with 3 Knotw
-#aggregate_continuous <- collate_tables("_aggregate_outcomes.csv")
-aggregate_continuous_hospital <- site_table_data$hopkins_aggregate_outcomes.csv |>
-  mutate(site='hopkins') |>
-  rowbind(site_table_data$rush_aggregate_outcomes.csv, fill=T) |>
-  mutate(site=fifelse(is.na(site), 'rush', site)) |>
-  rowbind(site_table_data$nu_aggregate_outcomes.csv, fill=T) |>
-  mutate(site=fifelse(is.na(site), 'nu', site)) |>
-  rowbind(site_table_data$umn_aggregate_outcomes.csv, fill=T) |>
-  mutate(site=fifelse(is.na(site), 'umn', site)) |>
-  rowbind(site_table_data$michigan_aggregate_outcomes.csv, fill=T) |>
-  mutate(site=fifelse(is.na(site), 'michigan', site)) |>
-  rowbind(site_table_data$penn_aggregate_outcomes.csv, fill=T) |>
-  mutate(site=fifelse(is.na(site), 'penn', site)) |>
-  rowbind(site_table_data$ucmc_aggregate_outcomes.csv, fill=T) |>
-  mutate(site=fifelse(is.na(site), 'ucmc', site)) |>
-  rowbind(site_table_data$emory_aggregate_outcomes.csv, fill=T) |>
-  mutate(site=fifelse(is.na(site), 'emory', site)) |>
-  rowbind(site_table_data$ohsu_aggregate_outcomes.csv, fill=T) |>
-  mutate(site=fifelse(is.na(site), 'ohsu', site)) |>
-  filter(strata_cat=='hospital_id') |>
+#Include Cubic Spline Terms with 4 Knots
+aggregate_continuous_hospital <-  collate_tables("_aggregate_outcomes.csv") |>
+  filter(!is.na(hospital_id)) |>
   mutate(
     prob_death28=n_deathhosp28/n_in_group,
     prob_death60=n_deathhosp60/n_in_group)
 
 #Evaluate Shape of Relationship Using Smoothing Term
 ggplot(data=
-         subset(aggregate_continuous_hospital, primary_metric=='pf'), 
-       aes(x=measure_value_5, y=prob_death28)) +
+         subset(aggregate_continuous_hospital, 
+                primary_metric=='pf' & variable=='measure_value_5'), 
+       aes(x=value, y=prob_death28)) +
   geom_point() +
   geom_smooth()
 
 #Run Random Effects Aggregate Logistic Regression for Death/Hospice by Day 28
+#Note Proportion with Weights Gives Equivalent Results to the cbind method
 pf_glm <- glmmTMB(
-prob_death28 ~ rcs(measure_value_5, 4) + (1 | hospital_id),
-data   = dplyr::filter(aggregate_continuous_hospital, primary_metric == "pf"),
+prob_death28 ~ rcs(value, 4) + (1 | hospital_id),
+data   = dplyr::filter(aggregate_continuous_hospital, 
+                       primary_metric == "pf" & 
+                       variable=='measure_value_5'),
 family = binomial(link = "logit"),
 weights = n_in_group
 )
@@ -2163,20 +2262,21 @@ tidy_fix_pf
 
 #Visualize
 grid <- aggregate_continuous_hospital |>
-  filter(primary_metric=='pf') |>
-  group_by(measure_value_5) |>
+  filter(primary_metric=='pf',
+         variable=='measure_value_5') |>
+  group_by(value) |>
   summarise(
     n_in_group=sum(n_in_group, na.rm=T)
   )
 predicted_pf <- as_tibble(predictions(pf_glm, new_data=grid, re.form=NA)) |>
-  select(measure_value_5, n_in_group, estimate, conf.low, conf.high) |>
-  group_by(measure_value_5) |>
+  select(value, n_in_group, estimate, conf.low, conf.high) |>
+  group_by(value) |>
   mutate(
     n_in_group=sum(n_in_group, na.rm=T)
   ) |>
   distinct()
 
-ggplot(predicted_pf, aes(x = measure_value_5, y = estimate)) +
+ggplot(predicted_pf, aes(x = value, y = estimate)) +
   geom_ribbon(aes(ymin = conf.low, ymax = conf.high),
               fill = "grey80", alpha = 0.5) +
   geom_line(color = "firebrick2", linewidth = 1) +
@@ -2199,15 +2299,18 @@ ggsave(
 
 #Evaluate Shape of Relationship Using Smoothing Term
 ggplot(data=
-         subset(aggregate_continuous_hospital, primary_metric=='sf'), 
-       aes(x=measure_value_5, y=prob_death28)) +
+         subset(aggregate_continuous_hospital, 
+                primary_metric=='sf' & variable=='measure_value_5'), 
+       aes(x=value, y=prob_death28)) +
   geom_point() +
   geom_smooth()
 
 #Run Random Effects Aggregate Logistic Regression for Death/Hospice by Day 28
 sf_glm <- glmmTMB(
-prob_death28 ~ rcs(measure_value_5, 4) + (1 | hospital_id),
-data   = dplyr::filter(aggregate_continuous_hospital, primary_metric == "sf"),
+prob_death28 ~ rcs(value, 4) + (1 | hospital_id),
+data   = dplyr::filter(aggregate_continuous_hospital, 
+                       primary_metric == "sf" &
+                       variable=='measure_value_5'),
 family = binomial(link = "logit"),
 weights = n_in_group
 )
@@ -2223,20 +2326,21 @@ tidy_fix_sf
 
 #Visualize
 grid <- aggregate_continuous_hospital |>
-  filter(primary_metric=='sf') |>
-  group_by(measure_value_5) |>
+  filter(primary_metric=='sf',
+         variable=='measure_value_5') |>
+  group_by(value) |>
   summarise(
     n_in_group=sum(n_in_group, na.rm=T)
   )
 predicted_sf <- as_tibble(predictions(sf_glm, new_data=grid, re.form=NA)) |>
-  select(measure_value_5, n_in_group, estimate, conf.low, conf.high) |>
-  group_by(measure_value_5) |>
+  select(value, n_in_group, estimate, conf.low, conf.high) |>
+  group_by(value) |>
   mutate(
     n_in_group=sum(n_in_group, na.rm=T)
   ) |>
   distinct()
 
-ggplot(predicted_sf, aes(x = measure_value_5, y = estimate)) +
+ggplot(predicted_sf, aes(x = value, y = estimate)) +
   geom_ribbon(aes(ymin = conf.low, ymax = conf.high),
               fill = "grey80", alpha = 0.5) +
   geom_line(color = "firebrick2", linewidth = 1) +
@@ -2299,7 +2403,8 @@ set.seed(3982)
 BOOT_NUM <- 2500 #Number of Bootstrap Replicates
 #SF Ratio
 dat_sf <- aggregate_continuous_hospital %>%
-  filter(primary_metric=='sf') 
+  filter(primary_metric=='sf',
+         variable=='measure_value_5') 
 dat_sf <- dat_sf |>
   mutate(pred = predict(sf_glm, newdata = dat_sf, type = "response", re.form = NA),
          deaths = n_deathhosp28,
@@ -2332,7 +2437,8 @@ roc_table <- data.frame(
 
 #PF Ratio
 dat_pf <- aggregate_continuous_hospital %>%
-  filter(primary_metric=='pf') 
+  filter(primary_metric=='pf',
+         variable == 'measure_value_5') 
 dat_pf <- dat_pf |>
   mutate(pred = predict(pf_glm, newdata = dat_pf, type = "response", re.form = NULL),
          deaths = n_deathhosp28,
