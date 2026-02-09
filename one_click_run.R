@@ -37,8 +37,20 @@ required_packages <- c(
 cat("\n[1/4] Checking and installing required packages...\n")
 install_and_load(required_packages)
 
+# Create necessary directories
+cat("\n[2/4] Setting up R Markdown directory...\n")
+dirs_to_create <- c("markdown_output")
+for (dir_name in dirs_to_create) {
+  if (!dir.exists(dir_name)) {
+    dir.create(dir_name, recursive = TRUE)
+    cat(paste("  Created directory:", dir_name, "\n"))
+  } else {
+    cat(paste("  ✓ Directory exists:", dir_name, "\n"))
+  }
+}
+
 # Source main analysis scripts
-cat("\n[2/4] Running analysis scripts...\n")
+cat("\n[3/4] Running analysis scripts...\n")
 
 # Check which R scripts exist and source them
 r_scripts <- list.files(pattern = "\\.R$", ignore.case = TRUE)
@@ -88,7 +100,7 @@ cat("Setup Complete!\n")
 cat(rep("=", 72), "\n", sep = "")
 cat("\nNext steps:\n")
 cat("1. Ensure your CLIF data files are in the 'data/' directory\n")
-cat("2. Check the 'output/' and 'figures/' directories for results\n")
+cat("2. Check the 'output/' for results\n")
 cat("3. Review any error messages above\n")
 cat("\nFor more information, see the repository README:\n")
 cat("https://github.com/Common-Longitudinal-ICU-data-Format/CLIF_PFvsSF_Performance\n")
