@@ -511,18 +511,18 @@ resp_info_all_days <- resp_info_all_days |>
   fmutate(
     # fio2_set
     fio2_set = fcase(
-      fio2_set >= FIO2_MAX, NA_real_, 
-      fio2_set <= FIO2_MIN, NA_real_,
+      fio2_set > FIO2_MAX, NA_real_, 
+      fio2_set < FIO2_MIN, NA_real_,
       default = fio2_set),
     # Set tidal_volume_set
     tidal_volume_set = fcase(
-      tidal_volume_set >= TV_MAX, NA_real_, 
-      tidal_volume_set <= TV_MIN, NA_real_,
+      tidal_volume_set > TV_MAX, NA_real_, 
+      tidal_volume_set < TV_MIN, NA_real_,
       default = tidal_volume_set),
     # PEEP SET
     peep_set = fcase(
-      peep_set >= PEEP_MAX, NA_real_, 
-      peep_set <= PEEP_MIN, NA_real_,
+      peep_set > PEEP_MAX, NA_real_, 
+      peep_set < PEEP_MIN, NA_real_,
       default = peep_set),
     #For Nasal Cannula with high flow and high Fio2 mark as hiflow
     device_category=fifelse(
