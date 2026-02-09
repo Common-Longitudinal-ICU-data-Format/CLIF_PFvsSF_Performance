@@ -76,6 +76,10 @@ if (length(r_scripts) > 0) {
 cat("\n  Searching for R Markdown files...\n")
 rmd_files <- list.files(path = ".", pattern = "\\.Rmd$", ignore.case = TRUE, recursive = TRUE, full.names = TRUE)
 
+# Check for RMarkdown files
+cat("\n  Searching for R Markdown files...\n")
+rmd_files <- list.files(path = ".", pattern = "\\.Rmd$", ignore.case = TRUE, recursive = TRUE, full.names = TRUE)
+
 if (length(rmd_files) > 0) {
   cat(paste("  Found", length(rmd_files), "R Markdown file(s):\n"))
   for (rmd_file in rmd_files) {
@@ -83,17 +87,26 @@ if (length(rmd_files) > 0) {
   }
   
   cat("\n  Rendering R Markdown files...\n")
-  for (rmd_file in rmd_files) {
-    cat(paste("  Rendering:", rmd_file, "...\n"))
+  for (j in seq_along(rmd_files)) {
+    current_rmd <- rmd_files[j]
+    cat(paste("  [", j, "/", length(rmd_files), "] Rendering:", current_rmd, "...\n"))
+    
     result <- try({
-      output_file <- rmarkdown::render(rmd_file)
-      cat(paste("  ✓ Completed:", basename(rmd_file), "\n"))
-      cat(paste("    Output:", output_file, "\n"))
-    }, silent = FALSE)
+      rmarkdown::render(
+        input = current_rmd,
+        envir = new.env(),  # Use a fresh environment for each render
+        quiet = FALSE
+      )
+    }, silent = TRUE)
     
     if (inherits(result, "try-error")) {
-      cat(paste("  ✗ Error rendering", basename(rmd_file), "\n"))
+      cat(paste("  ✗ Error rendering", basename(current_rmd), "\n"))
+      cat(paste("    Error message:", attr(result, "condition")$message, "\n"))
+    } else {
+      cat(paste("  ✓ Completed:", basename(current_rmd), "\n"))
+      cat(paste("    Output:", result, "\n"))
     }
+    cat("\n")
   }
 } else {
   cat("  No R Markdown files found\n")
