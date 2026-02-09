@@ -9,7 +9,7 @@ output: html_document
 project_location <- '~/Library/CloudStorage/OneDrive-JohnsHopkins/Research Projects/CLIF/CLIF_Projects/CLIF_PF-to-SF/federated_summary_analysis'
 
 #Which Sites Participated
-sites <- c("hopkins")
+sites <- c("hopkins", "nu")
 
 if (!dir.exists(paste0(project_location, "/tables"))) {
   dir.create(paste0(project_location, "/tables"))
@@ -1432,8 +1432,6 @@ ggplot(heat_map_o2_cat, aes(x = level, y = variable, fill = percent)) +
   theme_minimal()
 ggsave(
   filename='o2_category_distribution_pf_vs_sf_both.pdf',
-  plot=last_plot(),
-  cairo_pdf(),
   path = paste0(project_location, '/graphs/'))
 
 cat_levels <- c("not_hypoxemic", "mild_hypoxemia", "moderate_hypoxemia", "severe_hypoxemia")
@@ -1709,7 +1707,7 @@ ggplot(heat_graph,
   theme_minimal()
 ggsave(
   filename='o2_category_mortality.pdf',
-  plot=last_plot(),
+  device=cairo_pdf(),
   path = paste0(project_location, '/graphs/'))
 
 #Order Sofa Categories
