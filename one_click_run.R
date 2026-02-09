@@ -85,7 +85,7 @@ if (length(rmd_files) > 0) {
   for (rmd_file in rmd_files) {
     cat(paste("  Rendering:", rmd_file, "...\n"))
     tryCatch({
-      rmarkdown::render(rmd_file, output_dir = "markdown_output")
+      rmarkdown::render(rmd_file, output_dir = "markdown_output", envir = new.env(parent = globalenv()))
       cat(paste("  ✓ Completed:", rmd_file, "\n"))
     }, error = function(e) {
       cat(paste("  ✗ Error rendering", rmd_file, ":", e$message, "\n"))

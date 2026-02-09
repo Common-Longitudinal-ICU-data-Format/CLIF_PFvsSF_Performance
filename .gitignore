@@ -35,3 +35,6 @@ proj_tables/
 # Ignore renv cache
 renv/cache/*
 renv/library
+
+markdown_output/
+config/config.yaml
