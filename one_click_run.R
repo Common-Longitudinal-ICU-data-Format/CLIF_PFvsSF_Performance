@@ -85,7 +85,7 @@ if (length(rmd_files) > 0) {
   for (rmd_file in rmd_files) {
     cat(paste("  Rendering:", rmd_file, "...\n"))
     tryCatch({
-      rmarkdown::render(rmd_file, output_dir = "output")
+      rmarkdown::render(rmd_file, output_dir = "markdown_output")
       cat(paste("  ✓ Completed:", rmd_file, "\n"))
     }, error = function(e) {
       cat(paste("  ✗ Error rendering", rmd_file, ":", e$message, "\n"))
@@ -100,7 +100,7 @@ cat("Setup Complete!\n")
 cat(rep("=", 72), "\n", sep = "")
 cat("\nNext steps:\n")
 cat("1. Ensure your CLIF data files are in the 'data/' directory\n")
-cat("2. Check the 'output/' for results\n")
+cat("2. Check the 'markdown_output/' for results\n")
 cat("3. Review any error messages above\n")
 cat("\nFor more information, see the repository README:\n")
 cat("https://github.com/Common-Longitudinal-ICU-data-Format/CLIF_PFvsSF_Performance\n")
