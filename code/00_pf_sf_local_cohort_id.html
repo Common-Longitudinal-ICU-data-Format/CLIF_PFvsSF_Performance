@@ -517,9 +517,9 @@ if (length(missing_tables) &gt; 0) {
 }</code></pre>
 <pre><code>## All required tables are present.</code></pre>
 <pre class="r"><code>rm(allowed_files, missing_tables); gc()</code></pre>
-<pre><code>##           used  (Mb) gc trigger  (Mb)  max used   (Mb)
-## Ncells 4887011 261.0    8751975 467.5   8751975  467.5
-## Vcells 8600885  65.7  106334442 811.3 282162090 2152.8</code></pre>
+<pre><code>##            used  (Mb) gc trigger  (Mb)  max used   (Mb)
+## Ncells  5454147 291.3    8751976 467.5   8751976  467.5
+## Vcells 10327960  78.8  116638086 889.9 555602603 4239.0</code></pre>
 <pre class="r"><code>## load tables -----------------------------------------------------------------
 
 #For Arrow Need to Convert Large String (sometimes saved as UTF-8 to String)
@@ -745,8 +745,8 @@ hid_jid_crosswalk &lt;- hid_jid_crosswalk |&gt;
 <pre><code>## semi join: hid_jid_crosswalk[hospital_block_id] 248642/528039 (47.1%) &lt;1.02:1st&gt; hospitalizations[hospital_block_id] 242793/242793 (100%)</code></pre>
 <pre class="r"><code>rm(adt_info); gc()</code></pre>
 <pre><code>##            used  (Mb) gc trigger  (Mb)  max used   (Mb)
-## Ncells  5588806 298.5    8751975 467.5   8751975  467.5
-## Vcells 16660589 127.2   68054044 519.3 282162090 2152.8</code></pre>
+## Ncells  6074900 324.5   11005224 587.8  11005224  587.8
+## Vcells 17439771 133.1   74648376 569.6 555602603 4239.0</code></pre>
 <p>#Define Respiratory Support</p>
 <pre class="r"><code>#Load Respiratory Support and Filter to Relevant Time Frame 
 #Perform Limited Respiratory Waterfill
@@ -767,7 +767,7 @@ resp_info_all_days &lt;- resp_info_all_days[
   , .SD[any(tolower(device_category) %in% c(&quot;imv&quot;, &quot;nippv&quot;, &quot;high flow nc&quot;, &quot;high_flow_nc&quot;))],
   by = hospital_block_id
 ]</code></pre>
-<pre><code>## Processed 8878 groups out of 242617. 4% done. Time elapsed: 3s. ETA: 78s.Processed 14299 groups out of 242617. 6% done. Time elapsed: 4s. ETA: 63s.Processed 19661 groups out of 242617. 8% done. Time elapsed: 5s. ETA: 56s.Processed 24922 groups out of 242617. 10% done. Time elapsed: 6s. ETA: 52s.Processed 30367 groups out of 242617. 13% done. Time elapsed: 7s. ETA: 48s.Processed 35857 groups out of 242617. 15% done. Time elapsed: 8s. ETA: 46s.Processed 41184 groups out of 242617. 17% done. Time elapsed: 9s. ETA: 44s.Processed 46507 groups out of 242617. 19% done. Time elapsed: 10s. ETA: 42s.Processed 51974 groups out of 242617. 21% done. Time elapsed: 11s. ETA: 40s.Processed 57832 groups out of 242617. 24% done. Time elapsed: 12s. ETA: 38s.Processed 62807 groups out of 242617. 26% done. Time elapsed: 13s. ETA: 37s.Processed 68543 groups out of 242617. 28% done. Time elapsed: 14s. ETA: 35s.Processed 73582 groups out of 242617. 30% done. Time elapsed: 15s. ETA: 34s.Processed 79098 groups out of 242617. 33% done. Time elapsed: 16s. ETA: 33s.Processed 84216 groups out of 242617. 35% done. Time elapsed: 17s. ETA: 32s.Processed 89780 groups out of 242617. 37% done. Time elapsed: 18s. ETA: 30s.Processed 95390 groups out of 242617. 39% done. Time elapsed: 19s. ETA: 29s.Processed 100946 groups out of 242617. 42% done. Time elapsed: 20s. ETA: 28s.Processed 106448 groups out of 242617. 44% done. Time elapsed: 21s. ETA: 27s.Processed 111898 groups out of 242617. 46% done. Time elapsed: 23s. ETA: 27s.Processed 117870 groups out of 242617. 49% done. Time elapsed: 24s. ETA: 25s.Processed 123785 groups out of 242617. 51% done. Time elapsed: 25s. ETA: 24s.Processed 129643 groups out of 242617. 53% done. Time elapsed: 26s. ETA: 22s.Processed 135486 groups out of 242617. 56% done. Time elapsed: 27s. ETA: 21s.Processed 141190 groups out of 242617. 58% done. Time elapsed: 28s. ETA: 20s.Processed 146882 groups out of 242617. 61% done. Time elapsed: 29s. ETA: 19s.Processed 152520 groups out of 242617. 63% done. Time elapsed: 30s. ETA: 17s.Processed 158237 groups out of 242617. 65% done. Time elapsed: 31s. ETA: 16s.Processed 163909 groups out of 242617. 68% done. Time elapsed: 32s. ETA: 15s.Processed 169495 groups out of 242617. 70% done. Time elapsed: 33s. ETA: 14s.Processed 174821 groups out of 242617. 72% done. Time elapsed: 34s. ETA: 13s.Processed 180668 groups out of 242617. 74% done. Time elapsed: 35s. ETA: 12s.Processed 186021 groups out of 242617. 77% done. Time elapsed: 36s. ETA: 11s.Processed 190945 groups out of 242617. 79% done. Time elapsed: 37s. ETA: 10s.Processed 196198 groups out of 242617. 81% done. Time elapsed: 38s. ETA: 9s.Processed 201399 groups out of 242617. 83% done. Time elapsed: 39s. ETA: 8s.Processed 206817 groups out of 242617. 85% done. Time elapsed: 40s. ETA: 7s.Processed 211007 groups out of 242617. 87% done. Time elapsed: 41s. ETA: 6s.Processed 216259 groups out of 242617. 89% done. Time elapsed: 42s. ETA: 5s.Processed 221762 groups out of 242617. 91% done. Time elapsed: 43s. ETA: 4s.Processed 226642 groups out of 242617. 93% done. Time elapsed: 44s. ETA: 3s.Processed 231835 groups out of 242617. 96% done. Time elapsed: 45s. ETA: 2s.Processed 237419 groups out of 242617. 98% done. Time elapsed: 46s. ETA: 1s.Processed 242352 groups out of 242617. 100% done. Time elapsed: 47s. ETA: 0s.Processed 242617 groups out of 242617. 100% done. Time elapsed: 47s. ETA: 0s.</code></pre>
+<pre><code>## Processed 7714 groups out of 242617. 3% done. Time elapsed: 3s. ETA: 91s.Processed 13301 groups out of 242617. 5% done. Time elapsed: 4s. ETA: 68s.Processed 19054 groups out of 242617. 8% done. Time elapsed: 5s. ETA: 58s.Processed 24406 groups out of 242617. 10% done. Time elapsed: 6s. ETA: 53s.Processed 29955 groups out of 242617. 12% done. Time elapsed: 7s. ETA: 49s.Processed 35595 groups out of 242617. 15% done. Time elapsed: 8s. ETA: 46s.Processed 41430 groups out of 242617. 17% done. Time elapsed: 9s. ETA: 43s.Processed 47255 groups out of 242617. 19% done. Time elapsed: 10s. ETA: 41s.Processed 52498 groups out of 242617. 22% done. Time elapsed: 11s. ETA: 39s.Processed 58280 groups out of 242617. 24% done. Time elapsed: 12s. ETA: 37s.Processed 63722 groups out of 242617. 26% done. Time elapsed: 13s. ETA: 36s.Processed 69242 groups out of 242617. 29% done. Time elapsed: 14s. ETA: 35s.Processed 74857 groups out of 242617. 31% done. Time elapsed: 15s. ETA: 33s.Processed 80512 groups out of 242617. 33% done. Time elapsed: 16s. ETA: 32s.Processed 86210 groups out of 242617. 36% done. Time elapsed: 17s. ETA: 31s.Processed 92515 groups out of 242617. 38% done. Time elapsed: 18s. ETA: 29s.Processed 97784 groups out of 242617. 40% done. Time elapsed: 19s. ETA: 28s.Processed 103675 groups out of 242617. 43% done. Time elapsed: 20s. ETA: 26s.Processed 108952 groups out of 242617. 45% done. Time elapsed: 21s. ETA: 25s.Processed 114304 groups out of 242617. 47% done. Time elapsed: 22s. ETA: 24s.Processed 120549 groups out of 242617. 50% done. Time elapsed: 23s. ETA: 23s.Processed 126344 groups out of 242617. 52% done. Time elapsed: 24s. ETA: 22s.Processed 131154 groups out of 242617. 54% done. Time elapsed: 25s. ETA: 21s.Processed 136389 groups out of 242617. 56% done. Time elapsed: 26s. ETA: 20s.Processed 142066 groups out of 242617. 59% done. Time elapsed: 27s. ETA: 19s.Processed 147275 groups out of 242617. 61% done. Time elapsed: 28s. ETA: 18s.Processed 152611 groups out of 242617. 63% done. Time elapsed: 29s. ETA: 17s.Processed 158419 groups out of 242617. 65% done. Time elapsed: 30s. ETA: 16s.Processed 163789 groups out of 242617. 68% done. Time elapsed: 31s. ETA: 15s.Processed 169396 groups out of 242617. 70% done. Time elapsed: 32s. ETA: 13s.Processed 175054 groups out of 242617. 72% done. Time elapsed: 33s. ETA: 12s.Processed 180714 groups out of 242617. 74% done. Time elapsed: 34s. ETA: 11s.Processed 185890 groups out of 242617. 77% done. Time elapsed: 35s. ETA: 10s.Processed 191065 groups out of 242617. 79% done. Time elapsed: 36s. ETA: 9s.Processed 196935 groups out of 242617. 81% done. Time elapsed: 37s. ETA: 8s.Processed 202776 groups out of 242617. 84% done. Time elapsed: 38s. ETA: 7s.Processed 207910 groups out of 242617. 86% done. Time elapsed: 39s. ETA: 6s.Processed 213511 groups out of 242617. 88% done. Time elapsed: 40s. ETA: 5s.Processed 219291 groups out of 242617. 90% done. Time elapsed: 41s. ETA: 4s.Processed 223978 groups out of 242617. 92% done. Time elapsed: 42s. ETA: 3s.Processed 229414 groups out of 242617. 95% done. Time elapsed: 43s. ETA: 2s.Processed 234454 groups out of 242617. 97% done. Time elapsed: 44s. ETA: 1s.Processed 239640 groups out of 242617. 99% done. Time elapsed: 45s. ETA: 0s.Processed 242617 groups out of 242617. 100% done. Time elapsed: 45s. ETA: 0s.</code></pre>
 <pre class="r"><code>#Address Some Outlier Issues Here
 ## Check fio2_set 
 fio2_mean &lt;- resp_info_all_days |&gt; 
@@ -787,18 +787,18 @@ resp_info_all_days &lt;- resp_info_all_days |&gt;
   fmutate(
     # fio2_set
     fio2_set = fcase(
-      fio2_set &gt;= FIO2_MAX, NA_real_, 
-      fio2_set &lt;= FIO2_MIN, NA_real_,
+      fio2_set &gt; FIO2_MAX, NA_real_, 
+      fio2_set &lt; FIO2_MIN, NA_real_,
       default = fio2_set),
     # Set tidal_volume_set
     tidal_volume_set = fcase(
-      tidal_volume_set &gt;= TV_MAX, NA_real_, 
-      tidal_volume_set &lt;= TV_MIN, NA_real_,
+      tidal_volume_set &gt; TV_MAX, NA_real_, 
+      tidal_volume_set &lt; TV_MIN, NA_real_,
       default = tidal_volume_set),
     # PEEP SET
     peep_set = fcase(
-      peep_set &gt;= PEEP_MAX, NA_real_, 
-      peep_set &lt;= PEEP_MIN, NA_real_,
+      peep_set &gt; PEEP_MAX, NA_real_, 
+      peep_set &lt; PEEP_MIN, NA_real_,
       default = peep_set),
     #For Nasal Cannula with high flow and high Fio2 mark as hiflow
     device_category=fifelse(
@@ -937,8 +937,8 @@ hid_jid_crosswalk &lt;- hid_jid_crosswalk |&gt;
 #REmove Tables no Longer Neededd
 rm(resp_devices); gc()</code></pre>
 <pre><code>##            used  (Mb) gc trigger   (Mb)  max used   (Mb)
-## Ncells  5597818 299.0    8751976  467.5   8751976  467.5
-## Vcells 90138655 687.8  355951184 2715.7 555602603 4239.0</code></pre>
+## Ncells  6071728 324.3   11005224  587.8  11005224  587.8
+## Vcells 90889063 693.5  356547990 2720.3 557105994 4250.4</code></pre>
 <p>Exclusions #First Airway is Tracheostomy #No Available Data on FiO2
 in the First 24 Hours #Not Comfort Care Status in First 24 Hours of
 Respiratory Support #No Eligible PF or SF Measures (that is PF or SF
@@ -1022,7 +1022,7 @@ codes =
   fsummarize(code_status = flast(code_status_category)) |&gt;
   #If no code status present Within 7 Days Prior to and 24 Hours After Respiratory Failure Start Presume Full
   fmutate(limited_code_status_24h = if_else(tolower(code_status) %in% dni_equivalent, 1L, 0L, 0L))</code></pre>
-<pre><code>## left join: resp_episodes_on_study[hospital_block_id] 9863/9866 (100%) &lt;1:6.8&gt; codes[hospital_block_id] 67022/67022 (100%)</code></pre>
+<pre><code>## left join: resp_episodes_on_study[hospital_block_id] 10041/10045 (100%) &lt;1:6.79&gt; codes[hospital_block_id] 68180/68180 (100%)</code></pre>
 <pre class="r"><code>#Join Back wiht Respiratory Episodes
 resp_episodes_on_study &lt;- resp_episodes_on_study |&gt;
   left_join(codes, by = &#39;hospital_block_id&#39;) |&gt;
@@ -1102,7 +1102,7 @@ abgs = data_list[[&quot;labs&quot;]] |&gt;
     ) |&gt;
   rename(recorded_dttm=lab_collect_dttm) |&gt;
   select(hospital_block_id, recorded_dttm, ph_arterial, po2_arterial, pco2_arterial, ph_venous, pco2_venous)</code></pre>
-<pre><code>## Processed 88985 groups out of 96909. 92% done. Time elapsed: 3s. ETA: 0s.Processed 96909 groups out of 96909. 100% done. Time elapsed: 3s. ETA: 0s.</code></pre>
+<pre><code>## Processed 93810 groups out of 98730. 95% done. Time elapsed: 3s. ETA: 0s.Processed 98730 groups out of 98730. 100% done. Time elapsed: 3s. ETA: 0s.</code></pre>
 <pre class="r"><code>#Bring in SpO2 Data
 spo2 = data_list[[&quot;vitals&quot;]] |&gt;
     mutate(hospitalization_id = as.character(hospitalization_id)) |&gt;
@@ -1250,38 +1250,38 @@ resp_first_24_long &lt;- resp_first_24 |&gt;
        .by=hospital_block_id) |&gt;
   ungroup() |&gt;
   select(hospital_block_id, recorded_dttm, eligible_measure_by_time, eligible_spo2, max_resp_support24, fio2_dttm, fio2_carried, fio2_set, spo2, po2_arterial, min_pf_dttm, min_pf_device, pf_24_min, min_pf_pao2, min_pf_fio2, pf_24_mean, pf_24_median, ph_pf, paco2_pf, this_pf, po2_arterial, pf_ratio, ph_arterial, pco2_arterial,spo2, this_sf, min_sf_dttm, min_sf_device, sf_24_min, sf_24_mean, sf_24_median, min_sf_spo2, min_sf_fio2, ph_venous, pco2_venous, vbg_dttm, sf_ph_venous, sf_pco2_venous, sf_contemporary_to_pf, sf_contemporary_to_pf_spo2, sf_contemporary_to_pf_fio2, sf_contemporary_dttm)</code></pre>
-<pre><code>## Warning: There were 8352 warnings in `mutate()`.
+<pre><code>## Warning: There were 8369 warnings in `mutate()`.
 ## The first warning was:
 ## ℹ In argument: `pf_24_min = fifelse(...)`.
 ## ℹ In group 1: `hospital_block_id = &quot;CIL0008m5zramt_4&quot;` `eligible_measure_by_time = 0`.
 ## Caused by warning in `min()`:
 ## ! no non-missing arguments to min; returning Inf
-## ℹ Run `dplyr::last_dplyr_warnings()` to see the 8351 remaining warnings.</code></pre>
-<pre><code>## Warning: There were 3600 warnings in `mutate()`.
+## ℹ Run `dplyr::last_dplyr_warnings()` to see the 8368 remaining warnings.</code></pre>
+<pre><code>## Warning: There were 3344 warnings in `mutate()`.
 ## The first warning was:
 ## ℹ In argument: `this_pf = row_number() == min(which(this_pf_temp == 1), na.rm = TRUE)`.
 ## ℹ In group 5: `hospital_block_id = &quot;CIL0015zra1tpr_5&quot;`.
 ## Caused by warning in `min()`:
 ## ! no non-missing arguments to min; returning Inf
-## ℹ Run `dplyr::last_dplyr_warnings()` to see the 3599 remaining warnings.</code></pre>
-<pre><code>## Warning: There were 169 warnings in `mutate()`.
+## ℹ Run `dplyr::last_dplyr_warnings()` to see the 3343 remaining warnings.</code></pre>
+<pre><code>## Warning: There were 187 warnings in `mutate()`.
 ## The first warning was:
 ## ℹ In argument: `sf_24_min = fifelse(...)`.
-## ℹ In group 26: `hospital_block_id = &quot;CIL003pqt5zrat_3&quot;` `eligible_spo2 = 0`.
+## ℹ In group 28: `hospital_block_id = &quot;CIL003pqt5zrat_3&quot;` `eligible_spo2 = 0`.
 ## Caused by warning in `min()`:
 ## ! no non-missing arguments to min; returning Inf
-## ℹ Run `dplyr::last_dplyr_warnings()` to see the 168 remaining warnings.</code></pre>
-<pre><code>## Warning: There were 1447 warnings in `mutate()`.
+## ℹ Run `dplyr::last_dplyr_warnings()` to see the 186 remaining warnings.</code></pre>
+<pre><code>## Warning: There were 1295 warnings in `mutate()`.
 ## The first warning was:
 ## ℹ In argument: `this_sf = row_number() == min(which(this_sf_temp == 1), na.rm = TRUE)`.
 ## ℹ In group 1: `hospital_block_id = &quot;CIL0008m5zramt_4&quot;`.
 ## Caused by warning in `min()`:
 ## ! no non-missing arguments to min; returning Inf
-## ℹ Run `dplyr::last_dplyr_warnings()` to see the 1446 remaining warnings.</code></pre>
+## ℹ Run `dplyr::last_dplyr_warnings()` to see the 1294 remaining warnings.</code></pre>
 <pre class="r"><code>rm(abgs, spo2, resp_first_24); gc()</code></pre>
 <pre><code>##             used  (Mb) gc trigger   (Mb)  max used   (Mb)
-## Ncells   5981313 319.5    8751976  467.5   8751976  467.5
-## Vcells 109785400 837.6  355951184 2715.7 555602603 4239.0</code></pre>
+## Ncells   6080906 324.8   11005224  587.8  11005224  587.8
+## Vcells 110273977 841.4  356547990 2720.3 557105994 4250.4</code></pre>
 <pre class="r"><code>#Exclude if NO Eligible PF or SF (Within 4 Hours of FIO2 Documentation)
 exclude &lt;- resp_first_24_long |&gt;
   group_by(hospital_block_id) |&gt;
@@ -1371,8 +1371,8 @@ resp_first_24_long &lt;- resp_first_24_long |&gt;
 
 rm(randomly_select); gc()</code></pre>
 <pre><code>##             used  (Mb) gc trigger   (Mb)  max used   (Mb)
-## Ncells   5981081 319.5    8751976  467.5   8751976  467.5
-## Vcells 108362739 826.8  355951184 2715.7 555602603 4239.0</code></pre>
+## Ncells   6079924 324.8   11005224  587.8  11005224  587.8
+## Vcells 108784325 830.0  356547990 2720.3 557105994 4250.4</code></pre>
 <pre class="r"><code>#Summary Table of PF and SF Measures at Patient Level 
 resp_first_24_summary &lt;- resp_first_24_long |&gt;
   group_by(hospital_block_id) |&gt;
@@ -1526,8 +1526,8 @@ cohort_build &lt;- cohort_build |&gt;
 
 rm(elix, elixhauser_count, vw_elixhauser); gc()</code></pre>
 <pre><code>##             used  (Mb) gc trigger   (Mb)  max used   (Mb)
-## Ncells   5432352 290.2    8751976  467.5   8751976  467.5
-## Vcells 102876789 784.9  284760948 2172.6 555602603 4239.0</code></pre>
+## Ncells   5523312 295.0   11005224  587.8  11005224  587.8
+## Vcells 103254592 787.8  285238392 2176.2 557105994 4250.4</code></pre>
 <pre class="r"><code>#Calculate BMI
 bmi &lt;- data_list[[&#39;vitals&#39;]] |&gt;
   mutate(hospitalization_id = as.character(hospitalization_id)) |&gt;
@@ -1946,8 +1946,8 @@ cohort_build &lt;- cohort_build |&gt;
 <pre><code>## Joining with `by = join_by(hospital_block_id)`</code></pre>
 <pre class="r"><code>rm(bmi, cohort_sofa, sofa_missing, sofa_bili, sofa_cr, sofa_gcs, sofa_map, sofa_plt, sofa_pressors, sofa_rass, pressor_data, norepi_equivalent) ; gc()</code></pre>
 <pre><code>##             used  (Mb) gc trigger   (Mb)  max used   (Mb)
-## Ncells   5448888 291.1    8751976  467.5   8751976  467.5
-## Vcells 102873616 784.9  284760948 2172.6 555602603 4239.0</code></pre>
+## Ncells   5526281 295.2   11005224  587.8  11005224  587.8
+## Vcells 103248668 787.8  285238392 2176.2 557105994 4250.4</code></pre>
 <pre class="r"><code>#Create Data Frame For Defining This
 location_data &lt;- data_list$adt |&gt;
   select(hospitalization_id, hospital_id, hospital_type, in_dttm, out_dttm, location_category, location_type) |&gt;
@@ -2009,8 +2009,8 @@ cohort_build &lt;- cohort_build |&gt;
 
 rm(location_data); gc()</code></pre>
 <pre><code>##             used  (Mb) gc trigger   (Mb)  max used   (Mb)
-## Ncells   5445639 290.9    8751976  467.5   8751976  467.5
-## Vcells 102898910 785.1  284760948 2172.6 555602603 4239.0</code></pre>
+## Ncells   5523227 295.0   11005224  587.8  11005224  587.8
+## Vcells 103285336 788.1  285238392 2176.2 557105994 4250.4</code></pre>
 <pre class="r"><code>analytic_cohort &lt;- cohort_build |&gt;
   left_join(resp_episodes_on_study, by=&#39;hospital_block_id&#39;) |&gt;
   left_join(resp_first_24_summary, by=&#39;hospital_block_id&#39;)</code></pre>
@@ -2024,7 +2024,7 @@ write_csv(consort_table, paste0(project_location, &#39;/proj_output/&#39;,site,&
 write_parquet(hid_jid_crosswalk, 
               paste0(project_location, 
                    &#39;/proj_tables/hid_jid_crosswalk.parquet&#39;))</code></pre>
-<pre class="r"><code>rm(list = ls())</code></pre>
+<pre class="r"><code>#rm(list = ls())</code></pre>
 
 
 
