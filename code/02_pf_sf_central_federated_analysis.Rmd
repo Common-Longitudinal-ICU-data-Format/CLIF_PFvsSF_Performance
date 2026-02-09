@@ -270,7 +270,11 @@ combine_lists <- function(data_list, table_name) {
 
 
 ```{r Pool Data for Consort Diagram}
-consort_table <- collate_tables('_consort_data.csv') |>
+consort_table <- collate_tables('_consort_data.csv') 
+
+write_csv(consort_table, paste0(project_location, '/tables/consort_by_site.csv'))
+
+consort_table <- consort_table |>
   group_by(site) |>
   mutate(rn=dplyr::row_number()) |>
   group_by(step) |>
@@ -281,6 +285,9 @@ consort_table <- collate_tables('_consort_data.csv') |>
   ) |>
   ungroup() |>
   arrange(rn)
+
+write_csv(consort_table, paste0(project_location, '/tables/consort_overall.csv'))
+
 ```
 
 
@@ -934,7 +941,9 @@ sf_pf_graph <- collate_tables('_pf_sf_count_table.csv') |>
   ) |>
   filter(strata_cat %in% c('Overall', 'resp_support_category'),
          variable %in% c('n_eligible_sf_spo2_gt97', 'n_eligible_sf_spo2_lt98')) |>
-  left_join(sf_pf_counts %>% select(strata, spo2_with_sf, n_eligible_spo2), by = 'strata') |>
+  left_join(sf_pf_counts %>% 
+              filter(site=='Overall') %>%
+              select(strata, spo2_with_sf, n_eligible_spo2), by = 'strata') |>
   mutate(
     variable = ifelse(
       variable == 'n_eligible_sf_spo2_lt98', 'n_calculable_sf', variable),
@@ -1057,8 +1066,7 @@ quarter_labels <- c(
 quarter_admit_graph <- admits_by_quarter |>
   dplyr::group_by(site, study_quarter) |>
   dplyr::arrange(site, study_quarter) |>
-  filter(dplyr::row_number()==1) |>
-  mutate(site=as.character(1:length(unique(admits_by_quarter$site))))
+  filter(dplyr::row_number()==1) 
 
 #Select the Relevant Months from This Vector Using the min_month, max_month
 min_quarter <- min(quarter_admit_graph$study_quarter)
