@@ -73,43 +73,43 @@ if (length(r_scripts) > 0) {
 
 # Check for RMarkdown files
 # Check for RMarkdown files
-cat("\n  Searching for R Markdown files...\n")
-rmd_files <- list.files(path = ".", pattern = "\\.Rmd$", ignore.case = TRUE, recursive = TRUE, full.names = TRUE)
+# Render specific RMarkdown files
+cat("\n  Rendering R Markdown files...\n")
 
-# Check for RMarkdown files
-cat("\n  Searching for R Markdown files...\n")
-rmd_files <- list.files(path = ".", pattern = "\\.Rmd$", ignore.case = TRUE, recursive = TRUE, full.names = TRUE)
+# List the specific .Rmd files you want to render (in order)
+rmd_files_to_render <- c(
+  "code/00_pf_sf_local_cohort_id.Rmd",
+  "code/01_pf_sf_local_analysis.Rmd"
+  # Add more files as needed
+)
 
-if (length(rmd_files) > 0) {
-  cat(paste("  Found", length(rmd_files), "R Markdown file(s):\n"))
-  for (rmd_file in rmd_files) {
-    cat(paste("    -", rmd_file, "\n"))
+for (j in seq_along(rmd_files_to_render)) {
+  current_rmd <- rmd_files_to_render[j]
+  
+  # Check if file exists
+  if (!file.exists(current_rmd)) {
+    cat(paste("  ⚠ Skipping (file not found):", current_rmd, "\n"))
+    next
   }
   
-  cat("\n  Rendering R Markdown files...\n")
-  for (j in seq_along(rmd_files)) {
-    current_rmd <- rmd_files[j]
-    cat(paste("  [", j, "/", length(rmd_files), "] Rendering:", current_rmd, "...\n"))
-    
-    result <- try({
-      rmarkdown::render(
-        input = current_rmd,
-        envir = new.env(),  # Use a fresh environment for each render
-        quiet = FALSE
-      )
-    }, silent = TRUE)
-    
-    if (inherits(result, "try-error")) {
-      cat(paste("  ✗ Error rendering", basename(current_rmd), "\n"))
-      cat(paste("    Error message:", attr(result, "condition")$message, "\n"))
-    } else {
-      cat(paste("  ✓ Completed:", basename(current_rmd), "\n"))
-      cat(paste("    Output:", result, "\n"))
-    }
-    cat("\n")
+  cat(paste("  [", j, "/", length(rmd_files_to_render), "] Rendering:", current_rmd, "...\n"))
+  
+  result <- try({
+    rmarkdown::render(
+      input = current_rmd,
+      envir = new.env(),
+      quiet = FALSE
+    )
+  }, silent = TRUE)
+  
+  if (inherits(result, "try-error")) {
+    cat(paste("  ✗ Error rendering", basename(current_rmd), "\n"))
+    cat(paste("    Error message:", attr(result, "condition")$message, "\n"))
+  } else {
+    cat(paste("  ✓ Completed:", basename(current_rmd), "\n"))
+    cat(paste("    Output:", result, "\n"))
   }
-} else {
-  cat("  No R Markdown files found\n")
+  cat("\n")
 }
 
 # Final summary
