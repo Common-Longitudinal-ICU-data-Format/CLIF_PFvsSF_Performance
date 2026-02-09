@@ -57,10 +57,8 @@ file_type
 
 Libraries are loaded in the R markdown files.
 
-## 3. Run code: There are two options to run this project. 
-1) One-click run. In the main repo folder run the 'one_click_run.R' file from your preferred R platform. This will run the 2 Rmarkdown files in the 'code' subfolder.
-
-2) In the code subfolder, you can run each R markdown local file individually. 
+## 3. Run code: 
+1) In the code subfolder, please run each R markdown file individually. 
 00_pf_sf_cohort_id.Rmd
 01_pf_sf_local_analysis.Rmd
 

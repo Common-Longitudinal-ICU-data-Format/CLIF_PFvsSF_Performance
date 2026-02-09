@@ -302,7 +302,7 @@ rm(common_names, table_file_map, filtered_tables, table_filename, required_table
 
 ## Load Analytic Cohort--------------------------------------------------------
 analytic_cohort <- data_list$analytic_cohort |>
-  mutate(clif_site='site') |> #Distinct from Hospital ID
+  mutate(clif_site=site) |> #Distinct from Hospital ID
   as.data.table()
 
 ## How many Hospitals?--------------------------------------------------------
@@ -348,7 +348,7 @@ analytic_cohort <- analytic_cohort |>
     #Now Include an Oxygenation Category SF for those with PF
   oxygenation_category_sf_both=fcase(
     exposure_group %in% c("sf_pf") & sf_24_min > SF_NO_HYPOXEMIA, 'not_hypoxemic',
-    exposure_group %in% c("sf_pf") & sf_24_min > SF_MILD[1] & sf_24_min <= PF_MILD[2], 'mild_hypoxemia',
+    exposure_group %in% c("sf_pf") & sf_24_min > SF_MILD[1] & sf_24_min <= SF_MILD[2], 'mild_hypoxemia',
     exposure_group %in% c("sf_pf") & sf_24_min > SF_MOD[1] & sf_24_min <= SF_MOD[2], 'moderate_hypoxemia',
     exposure_group %in% c("sf_pf") & sf_24_min <= SF_SEV, 'severe_hypoxemia',
     default='undefined'),
@@ -358,7 +358,7 @@ analytic_cohort <- analytic_cohort |>
        sf_contemporary_to_pf > SF_NO_HYPOXEMIA, 'not_hypoxemic',
     exposure_group %in% c("sf_pf") & 
       sf_contemporary_to_pf > SF_MILD[1] & 
-      sf_contemporary_to_pf <= PF_MILD[2], 'mild_hypoxemia',
+      sf_contemporary_to_pf <= SF_MILD[2], 'mild_hypoxemia',
     exposure_group %in% c("sf_pf") & sf_contemporary_to_pf > SF_MOD[1] &
       sf_contemporary_to_pf <= SF_MOD[2], 'moderate_hypoxemia',
     exposure_group %in% c("sf_pf") & sf_contemporary_to_pf <= SF_SEV, 'severe_hypoxemia',
