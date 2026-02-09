@@ -72,6 +72,7 @@ if (length(r_scripts) > 0) {
 }
 
 # Check for RMarkdown files
+# Check for RMarkdown files
 cat("\n  Searching for R Markdown files...\n")
 rmd_files <- list.files(path = ".", pattern = "\\.Rmd$", ignore.case = TRUE, recursive = TRUE, full.names = TRUE)
 
@@ -84,23 +85,27 @@ if (length(rmd_files) > 0) {
   cat("\n  Rendering R Markdown files...\n")
   for (rmd_file in rmd_files) {
     cat(paste("  Rendering:", rmd_file, "...\n"))
-    tryCatch({
-      rmarkdown::render(rmd_file, output_dir = "markdown_output")
-      cat(paste("  ✓ Completed:", rmd_file, "\n"))
-    }, error = function(e) {
-      cat(paste("  ✗ Error rendering", rmd_file, ":", e$message, "\n"))
-    })
+    result <- try({
+      output_file <- rmarkdown::render(rmd_file)
+      cat(paste("  ✓ Completed:", basename(rmd_file), "\n"))
+      cat(paste("    Output:", output_file, "\n"))
+    }, silent = FALSE)
+    
+    if (inherits(result, "try-error")) {
+      cat(paste("  ✗ Error rendering", basename(rmd_file), "\n"))
+    }
   }
 } else {
   cat("  No R Markdown files found\n")
 }
+
 # Final summary
 cat("\n", rep("=", 72), "\n", sep = "")
 cat("Setup Complete!\n")
 cat(rep("=", 72), "\n", sep = "")
 cat("\nNext steps:\n")
 cat("1. Ensure your CLIF data files are in the 'data/' directory\n")
-cat("2. Check the 'markdown_output/' for results\n")
+cat("2. Check the 'output/' for results\n")
 cat("3. Review any error messages above\n")
 cat("\nFor more information, see the repository README:\n")
 cat("https://github.com/Common-Longitudinal-ICU-data-Format/CLIF_PFvsSF_Performance\n")
