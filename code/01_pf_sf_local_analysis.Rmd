@@ -324,6 +324,13 @@ SF_MILD <- c(235,315)
 SF_MOD <- c(148,235)
 SF_SEV <- 148
 
+#-----------------------------------------------------------------------
+# SMALL-GROUP THRESHOLD (adjust as needed)
+# Hospitals with fewer patients than this are excluded from
+# hospital-stratified tables and models (overall tables unaffected)
+#-----------------------------------------------------------------------
+MIN_HOSPITAL_N <- 50
+
 #Where Exposure Group is SF Only, SF defines Severity; SF_PF, PF defines severity, PF Only, PF
 analytic_cohort <- analytic_cohort |>
  mutate(oxygenation_category=fcase(
@@ -1763,7 +1770,17 @@ mortality_table <- do.call(rbind, lapply(table_mortality_list, as.data.frame)) |
       percent=as.numeric(percent))
 write_csv(mortality_table, paste0(project_location, '/proj_output/',site,'_aggregate_by_o2cat.csv'))
 
-#Repeat by Hospital
+#Repeat by Hospital (exclude hospitals below MIN_HOSPITAL_N threshold)
+hospital_id_all <- unique(na.omit(analytic_cohort$hospital_id))
+hospital_counts <- analytic_cohort |>
+  summarise(n = dplyr::n(), .by = hospital_id)
+hospital_id <- hospital_counts$hospital_id[hospital_counts$n >= MIN_HOSPITAL_N]
+dropped <- setdiff(hospital_id_all, hospital_id)
+if (length(dropped) > 0) {
+  message(sprintf("Dropped %d hospital(s) below %d-patient threshold: %s",
+          length(dropped), MIN_HOSPITAL_N, paste(dropped, collapse = ", ")))
+}
+
 hospital_id <- unique(analytic_cohort$hospital_id)
 
 out_list <- list()
@@ -2172,8 +2189,7 @@ return(model_table)
 
 ```{r Cumulative Logistic Regression for Respiratory Free Days}
 #Do by Hospital
-hospital_vector <- unique(na.omit(analytic_cohort$hospital_id))
-
+hospital_vector <- na.omit(hospital_id)  # Use filtered hospital list (MIN_HOSPITAL_N threshold)
 model_df <- analytic_cohort |> 
   mutate(
     resp_support_free_days28 = factor(resp_support_free_days28, 
