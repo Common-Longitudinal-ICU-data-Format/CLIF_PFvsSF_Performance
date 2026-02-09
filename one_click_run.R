@@ -73,7 +73,7 @@ if (length(r_scripts) > 0) {
 
 # Check for RMarkdown files
 cat("\n  Searching for R Markdown files...\n")
-rmd_files <- list.files(path = ".", pattern = "\\.Rmd$", ignore.case = TRUE, recursive = TRUE, full.names = TRUE)
+rmd_files <- list.files(path = "code", pattern = "\\.Rmd$", ignore.case = TRUE, recursive = FALSE, full.names = TRUE)
 
 if (length(rmd_files) > 0) {
   cat(paste("  Found", length(rmd_files), "R Markdown file(s):\n"))
