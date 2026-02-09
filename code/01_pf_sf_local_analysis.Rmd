@@ -718,7 +718,7 @@ max_quarter <- max(analytic_cohort$study_quarter)
 site_quarter_labels <- quarter_labels[min_quarter:max_quarter]
 max_quarter_n <- arf_per_quarter |>
   group_by(study_quarter) |>
-  mutate(sum_n=sum(n_patients_quarter)) |>
+  mutate(sum_n=sum(n_patients_quarter, na.rm=T)) |>
   ungroup() 
 max_quarter_n <- max(max_quarter_n$sum_n)
 
