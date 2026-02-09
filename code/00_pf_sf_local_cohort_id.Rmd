@@ -501,7 +501,7 @@ fio2_mean <- resp_info_all_days |>
   pull() # fixing if its less than one # You will get a warning but it will be fixed on its own with IF statement 
 if(fio2_mean > 1) { 
   cat('Mean FiO2 > 1, changing to fraction. fio2_mean=', fio2_mean, '\n')
-  resp_info_all <- resp_info_all_days |> mutate(fio2_set = fio2_set / 100) |> compute() 
+  resp_info_all_days <- resp_info_all_days |> mutate(fio2_set = fio2_set / 100) |> compute() 
   } else {
   cat('Mean FiO2 <1, leaving as fraction. fio2_mean=', fio2_mean, '\n')
   }
