@@ -9,7 +9,7 @@ output: html_document
 project_location <- '~/Library/CloudStorage/OneDrive-JohnsHopkins/Research Projects/CLIF/CLIF_Projects/CLIF_PF-to-SF/federated_summary_analysis'
 
 #Which Sites Participated
-sites <- c("hopkins", "nu")
+sites <- c("hopkins", "nu", "umn", "rush")
 
 if (!dir.exists(paste0(project_location, "/tables"))) {
   dir.create(paste0(project_location, "/tables"))
@@ -270,7 +270,8 @@ combine_lists <- function(data_list, table_name) {
 
 
 ```{r Pool Data for Consort Diagram}
-consort_table <- collate_tables('_consort_data.csv') 
+consort_table <- collate_tables('_consort_data.csv') |>
+  distinct()
 
 write_csv(consort_table, paste0(project_location, '/tables/consort_by_site.csv'))
 
