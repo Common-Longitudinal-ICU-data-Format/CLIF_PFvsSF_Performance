@@ -9,7 +9,7 @@ output: html_document
 project_location <- '~/Library/CloudStorage/OneDrive-JohnsHopkins/Research Projects/CLIF/CLIF_Projects/CLIF_PF-to-SF/federated_summary_analysis'
 
 #Which Sites Participated
-sites <- c("hopkins", "nu", "umn", "rush")
+sites <- c("hopkins", "nu", "umn", "rush", "ohsu", "ucmc")
 
 if (!dir.exists(paste0(project_location, "/tables"))) {
   dir.create(paste0(project_location, "/tables"))
@@ -2660,7 +2660,7 @@ ggsave(
 
 
 
-```{r Now Evaluate Discrimination by Fitting Logistic Regression}
+```{r Now Evaluate Discrimination by Fitting Logistic Regression - Contnuous Measure}
 #Include Cubic Spline Terms with 4 Knots
 aggregate_continuous_hospital <-  collate_tables("_aggregate_outcomes.csv") |>
   filter(!is.na(hospital_id)) |>
@@ -2670,18 +2670,39 @@ aggregate_continuous_hospital <-  collate_tables("_aggregate_outcomes.csv") |>
   #Bring in ABG and Hospital Data
   left_join(abgs_by_hospital, by=c('site', 'hospital_id'))
 
+##################
+### PF Ratio
+#################
+
 #Evaluate Shape of Relationship Using Smoothing Term
+#First FOr Lowest Value in 1st 24 Hours
 ggplot(data=
          subset(aggregate_continuous_hospital, 
                 primary_metric=='pf' & variable=='measure_value_5'), 
        aes(x=value, y=prob_death28)) +
   geom_point() +
   geom_smooth()
+ggsave(
+  filename='lowest_pf_deathhospice28_raw.pdf',
+  plot=last_plot(),
+  path = paste0(project_location, '/graphs/'))
+
+#Now Median Value in 1st 24 Hours
+ggplot(data=
+         subset(aggregate_continuous_hospital, 
+                primary_metric=='pf' & variable=='median_measure_5'), 
+       aes(x=value, y=prob_death28)) +
+  geom_point() +
+  geom_smooth()
+ggsave(
+  filename='median_pf_deathhospice28_raw.pdf',
+  plot=last_plot(),
+  path = paste0(project_location, '/graphs/'))
 
 #Run Random Effects Aggregate Logistic Regression for Death/Hospice by Day 28
 #Note Proportion with Weights Gives Equivalent Results to the cbind method
 #Start with Univariable and Hospital Random Effect
-pf_glm <- glmmTMB(
+pf_glm_linear <- glmmTMB(
 prob_death28 ~ rcs(value, 4) + (1 | hospital_id),
 data   = dplyr::filter(aggregate_continuous_hospital, 
                        primary_metric == "pf" & 
@@ -2691,7 +2712,7 @@ weights = n_in_group
 )
 
 tidy_fix_pf <- broom.mixed::tidy(
-  pf_glm,
+  pf_glm_linear,
   effects = "fixed",
   component = "cond",
   conf.int = TRUE,
@@ -2699,7 +2720,25 @@ tidy_fix_pf <- broom.mixed::tidy(
 ) 
 tidy_fix_pf
 
-#Visualize
+pf_glm_median <- glmmTMB(
+prob_death28 ~ rcs(value, 4) + (1 | hospital_id),
+data   = dplyr::filter(aggregate_continuous_hospital, 
+                       primary_metric == "pf" & 
+                       variable=='median_measure_5'),
+family = binomial(link = "logit"),
+weights = n_in_group
+)
+
+tidy_fix_pf <- broom.mixed::tidy(
+  pf_glm_median,
+  effects = "fixed",
+  component = "cond",
+  conf.int = TRUE,
+  exponentiate = TRUE
+) 
+tidy_fix_pf
+
+#Visualize COntinuous Lowest Measure
 grid <- aggregate_continuous_hospital |>
   filter(primary_metric=='pf',
          variable=='measure_value_5') |>
@@ -2707,7 +2746,7 @@ grid <- aggregate_continuous_hospital |>
   summarise(
     n_in_group=sum(n_in_group, na.rm=T)
   )
-predicted_pf <- as_tibble(predictions(pf_glm, new_data=grid, re.form=NA)) |>
+predicted_pf <- as_tibble(predictions(pf_glm_linear, new_data=grid, re.form=NA)) |>
   select(value, n_in_group, estimate, conf.low, conf.high) |>
   group_by(value) |>
   mutate(
@@ -2726,7 +2765,7 @@ ggplot(predicted_pf, aes(x = value, y = estimate)) +
     breaks = seq(0, 1, by = 0.1),
     labels = scales::label_percent(accuracy = 1)
 ) +
-  labs(x = "PaO2/FiO2",
+  labs(x = "Lowest PaO2/FiO2",
        y = "Predicted probability",
        title = "Predicted probability with 95% CI band") +
 theme_minimal()
@@ -2735,6 +2774,45 @@ ggsave(
   plot=last_plot(),
   path = paste0(project_location, '/graphs/'))
 
+#Median
+grid <- aggregate_continuous_hospital |>
+  filter(primary_metric=='pf',
+         variable=='median_measure_5') |>
+  group_by(value) |>
+  summarise(
+    n_in_group=sum(n_in_group, na.rm=T)
+  )
+predicted_pf_median <- as_tibble(predictions(pf_glm_median, new_data=grid, re.form=NA)) |>
+  select(value, n_in_group, estimate, conf.low, conf.high) |>
+  group_by(value) |>
+  mutate(
+    n_in_group=sum(n_in_group, na.rm=T)
+  ) |>
+  distinct()
+
+ggplot(predicted_pf_median, aes(x = value, y = estimate)) +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high),
+              fill = "grey80", alpha = 0.5) +
+  geom_line(color = "firebrick2", linewidth = 1) +
+  geom_point(aes(size = n_in_group), alpha = 0.6) +
+  scale_size(range = c(0.25, 2), guide = "none") +
+  scale_y_continuous(
+    limits = c(0, 1),
+    breaks = seq(0, 1, by = 0.1),
+    labels = scales::label_percent(accuracy = 1)
+) +
+  labs(x = "Median PaO2/FiO2",
+       y = "Predicted probability",
+       title = "Predicted probability with 95% CI band") +
+theme_minimal()
+ggsave(
+  filename='predicted_deathhospice28_pf_median.pdf',
+  plot=last_plot(),
+  path = paste0(project_location, '/graphs/'))
+
+##################
+### SF Ratio
+#################
 
 #Evaluate Shape of Relationship Using Smoothing Term
 ggplot(data=
@@ -2743,9 +2821,24 @@ ggplot(data=
        aes(x=value, y=prob_death28)) +
   geom_point() +
   geom_smooth()
+ggsave(
+  filename='lowest_sf_deathhospice28_raw.pdf',
+  plot=last_plot(),
+  path = paste0(project_location, '/graphs/'))
+
+ggplot(data=
+         subset(aggregate_continuous_hospital, 
+                primary_metric=='sf' & variable=='median_measure_5'), 
+       aes(x=value, y=prob_death28)) +
+  geom_point() +
+  geom_smooth()
+ggsave(
+  filename='median_sf_deathhospice28_raw.pdf',
+  plot=last_plot(),
+  path = paste0(project_location, '/graphs/'))
 
 #Run Random Effects Aggregate Logistic Regression for Death/Hospice by Day 28
-sf_glm <- glmmTMB(
+sf_glm_linear <- glmmTMB(
 prob_death28 ~ rcs(value, 4) + (1 | hospital_id),
 data   = dplyr::filter(aggregate_continuous_hospital, 
                        primary_metric == "sf" &
@@ -2755,7 +2848,7 @@ weights = n_in_group
 )
 
 tidy_fix_sf <- broom.mixed::tidy(
-  sf_glm,
+  sf_glm_linear,
   effects = "fixed",
   component = "cond",
   conf.int = TRUE,
@@ -2763,7 +2856,26 @@ tidy_fix_sf <- broom.mixed::tidy(
 ) 
 tidy_fix_sf
 
-#Visualize
+#Now Median
+sf_glm_median <- glmmTMB(
+prob_death28 ~ rcs(value, 4) + (1 | hospital_id),
+data   = dplyr::filter(aggregate_continuous_hospital, 
+                       primary_metric == "sf" &
+                       variable=='median_measure_5'),
+family = binomial(link = "logit"),
+weights = n_in_group
+)
+
+tidy_fix_sf <- broom.mixed::tidy(
+  sf_glm_median,
+  effects = "fixed",
+  component = "cond",
+  conf.int = TRUE,
+  exponentiate = TRUE
+) 
+tidy_fix_sf
+
+#Visualize SF Lowest
 grid <- aggregate_continuous_hospital |>
   filter(primary_metric=='sf',
          variable=='measure_value_5') |>
@@ -2771,7 +2883,7 @@ grid <- aggregate_continuous_hospital |>
   summarise(
     n_in_group=sum(n_in_group, na.rm=T)
   )
-predicted_sf <- as_tibble(predictions(sf_glm, new_data=grid, re.form=NA)) |>
+predicted_sf <- as_tibble(predictions(sf_glm_linear, new_data=grid, re.form=NA)) |>
   select(value, n_in_group, estimate, conf.low, conf.high) |>
   group_by(value) |>
   mutate(
@@ -2790,13 +2902,50 @@ ggplot(predicted_sf, aes(x = value, y = estimate)) +
     breaks = seq(0, 1, by = 0.1),
     labels = scales::label_percent(accuracy = 1)
 ) +
-  labs(x = "SpO2/FiO2",
+  labs(x = "Lowest SpO2/FiO2",
        y = "Predicted probability",
        title = "Predicted probability with 95% CI band") +
 theme_minimal()
 
 ggsave(
   filename='predicted_deathhospice28_sf.pdf',
+  plot=last_plot(),
+  path = paste0(project_location, '/graphs/'))
+
+#Visualize SF Median
+grid <- aggregate_continuous_hospital |>
+  filter(primary_metric=='sf',
+         variable=='median_measure_5') |>
+  group_by(value) |>
+  summarise(
+    n_in_group=sum(n_in_group, na.rm=T)
+  )
+predicted_sf_median <- as_tibble(predictions(sf_glm_median, new_data=grid, re.form=NA)) |>
+  select(value, n_in_group, estimate, conf.low, conf.high) |>
+  group_by(value) |>
+  mutate(
+    n_in_group=sum(n_in_group, na.rm=T)
+  ) |>
+  distinct()
+
+ggplot(predicted_sf_median, aes(x = value, y = estimate)) +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high),
+              fill = "grey80", alpha = 0.5) +
+  geom_line(color = "firebrick2", linewidth = 1) +
+  geom_point(aes(size = n_in_group), alpha = 0.6) +
+  scale_size(range = c(0.5, 3), guide = "none") +
+  scale_y_continuous(
+    limits = c(0, 1),
+    breaks = seq(0, 1, by = 0.1),
+    labels = scales::label_percent(accuracy = 1)
+) +
+  labs(x = "Median SpO2/FiO2",
+       y = "Predicted probability",
+       title = "Predicted probability with 95% CI band") +
+theme_minimal()
+
+ggsave(
+  filename='predicted_deathhospice28_sf_median.pdf',
   plot=last_plot(),
   path = paste0(project_location, '/graphs/'))
 ```
@@ -2835,7 +2984,7 @@ compute_weighted_brier <- function(df, boot_n = 2000) {
 ```
 
 
-```{r AUROC and ROC Curves}
+```{r AUROC and ROC Curves - Continuous Measures}
 roc_table <- data.frame()
 
 set.seed(3982)
@@ -2845,7 +2994,7 @@ dat_sf <- aggregate_continuous_hospital %>%
   filter(primary_metric=='sf',
          variable=='measure_value_5') 
 dat_sf <- dat_sf |>
-  mutate(pred = predict(sf_glm, newdata = dat_sf, type = "response", re.form = NA),
+  mutate(pred = predict(sf_glm_linear, newdata = dat_sf, type = "response", re.form = NA),
          deaths = n_deathhosp28,
          survivors = n_in_group - deaths) |>
   filter(!is.na(pred), (deaths + survivors) > 0)
@@ -2863,7 +3012,7 @@ ci_sf <- as.numeric(pROC::ci.auc(roc_sf, method = "bootstrap", boot.n = BOOT_NUM
 brier_sf <- compute_weighted_brier(dat_sf, boot_n = BOOT_NUM)
 
 roc_table <- data.frame(
-  model = "Overall_SF_Ratio",
+  model = "Overall_SF_Ratio_Linear",
   auc = round(auc_sf, digits=3),
   ci_low = round(ci_sf[1], digits=3),
   ci_hi = round(ci_sf[3], digits=3),
@@ -2879,7 +3028,7 @@ dat_pf <- aggregate_continuous_hospital %>%
   filter(primary_metric=='pf',
          variable == 'measure_value_5') 
 dat_pf <- dat_pf |>
-  mutate(pred = predict(pf_glm, newdata = dat_pf, type = "response", re.form = NULL),
+  mutate(pred = predict(pf_glm_linear, newdata = dat_pf, type = "response", re.form = NULL),
          deaths = n_deathhosp28,
          survivors = n_in_group - deaths) |>
   filter(!is.na(pred), (deaths + survivors) > 0)
@@ -2899,20 +3048,112 @@ test <- roc.test(roc_pf, roc_sf, method='bootstrap', boot.n=BOOT_NUM)
 roc_table <- bind_rows(
   roc_table,
   data.frame(
-    model = "Overall_PF_Ratio",
+    model = "Overall_PF_Ratio_Linear",
     auc = round(auc_pf, 3),
     ci_low = round(ci_pf[1], 3),
     ci_hi = round(ci_pf[3], 3),
     brier       = round(brier_pf$value, 3),
     brier_low   = round(brier_pf$ci[1], 3),
     brier_hi    = round(brier_pf$ci[2], 3),
-    comparison = "Overall_PFvSF",
+    comparison = "Overall_PFvSF_Linear",
+    p.value = round(test$p.value, 3)
+  )
+) |>
+  arrange(model, comparison)
+```
+```{r  AUROC and ROC Curves - Continuous Medians}
+set.seed(3982)
+BOOT_NUM <- 2500 #Number of Bootstrap Replicates
+#SF Ratio
+dat_sf_median <- aggregate_continuous_hospital %>%
+  filter(primary_metric=='sf',
+         variable=='median_measure_5') 
+dat_sf_median <- dat_sf_median |>
+  mutate(pred = predict(sf_glm_median, newdata = dat_sf_median, type = "response", re.form = NA),
+         deaths = n_deathhosp28,
+         survivors = n_in_group - deaths) |>
+  filter(!is.na(pred), (deaths + survivors) > 0)
+
+roc_df_sf_median <- bind_rows(
+  transmute(dat_sf_median, label = 1, score = pred, w = deaths),
+  transmute(dat_sf_median, label = 0, score = pred, w = survivors)
+) %>%
+  filter(w > 0)
+
+roc_sf_median <- roc(response = roc_df_sf_median$label, predictor = roc_df_sf_median$score, weights = roc_df_sf_median$w)
+auc_sf_median <- auc(roc_sf_median)
+ci_sf_median <- as.numeric(pROC::ci.auc(roc_sf_median, method = "bootstrap", boot.n = BOOT_NUM, stratified = TRUE))
+# Weighted Brier score + 95% CI via stratified multinomial bootstrap (aggregated df)
+brier_sf_median <- compute_weighted_brier(dat_sf_median, boot_n = BOOT_NUM)
+
+roc_table <- bind_rows(
+  roc_table,
+  data.frame(
+  model = "Overall_SF_Ratio_Median",
+  auc = round(auc_sf_median, digits=3),
+  ci_low = round(ci_sf_median[1], digits=3),
+  ci_hi = round(ci_sf_median[3], digits=3),
+  brier       = round(brier_sf_median$value, 3),
+  brier_low   = round(brier_sf_median$ci[1], 3),
+  brier_hi    = round(brier_sf_median$ci[2], 3),
+  comparison = NA_character_,
+  p.value = NA_real_
+))
+
+#PF Ratio
+dat_pf <- aggregate_continuous_hospital %>%
+  filter(primary_metric=='pf',
+         variable == 'measure_value_5') 
+dat_pf <- dat_pf |>
+  mutate(pred = predict(pf_glm_linear, newdata = dat_pf, type = "response", re.form = NULL),
+         deaths = n_deathhosp28,
+         survivors = n_in_group - deaths) |>
+  filter(!is.na(pred), (deaths + survivors) > 0)
+
+roc_df_pf <- bind_rows(
+  transmute(dat_pf, label = 1, score = pred, w = deaths),
+  transmute(dat_pf, label = 0, score = pred, w = survivors)
+) %>%
+  filter(w > 0)
+
+roc_pf <- roc(response = roc_df_pf$label, predictor = roc_df_pf$score, weights = roc_df_pf$w)
+auc_pf <- auc(roc_pf)
+ci_pf <- as.numeric(pROC::ci.auc(roc_pf, method = "bootstrap", boot.n = BOOT_NUM, stratified = TRUE))
+# Weighted Brier score + 95% CI via stratified multinomial bootstrap (aggregated df)
+brier_pf <- compute_weighted_brier(dat_pf, boot_n = BOOT_NUM)
+test <- roc.test(roc_pf, roc_sf, method='bootstrap', boot.n=BOOT_NUM)
+roc_table <- bind_rows(
+  roc_table,
+  data.frame(
+    model = "Overall_PF_Ratio_Linear",
+    auc = round(auc_pf, 3),
+    ci_low = round(ci_pf[1], 3),
+    ci_hi = round(ci_pf[3], 3),
+    brier       = round(brier_pf$value, 3),
+    brier_low   = round(brier_pf$ci[1], 3),
+    brier_hi    = round(brier_pf$ci[2], 3),
+    comparison = "Overall_PFvSF_Linear",
     p.value = round(test$p.value, 3)
   )
 ) |>
   arrange(model, comparison)
 ```
  
+
+```{r Logistic Models Using SF or PF Derived Categorical Classifications}
+aggregate_mortality_hospital <- collate_tables('_aggregate_by_o2cat_hospital.csv') |>
+  filter(!is.na(hospital_id),
+         level==1,
+         variable=='death_hospice28') |>
+  rename(
+    n_deathhosp28=freq,
+    n_in_group=n) |>
+  mutate(
+    prob_death28=n_deathhosp28/n_in_group) |>
+  #Bring in ABG and Hospital Data
+  left_join(abgs_by_hospital, by=c('site', 'hospital_id'))
+```
+
 
 ```{r Repeat ROC With Race}
 --LEFT OFF HERE
