@@ -3143,13 +3143,13 @@ roc_table <- bind_rows(
 
 ```{r Logistic Models Using SF or PF Derived Categorical Classifications}
 #Create Vectors of PF, SF and SF_PF derived measures
-pf_o2_cat <- paste0('pf-', c('not_hypoxemic', 'mild_hypoxemia_', 'moderate_hypoxemia', 'severe_hypoxemia'))
-sf_o2_cat <- paste0('sf-', c('not_hypoxemic', 'mild_hypoxemia_', 'moderate_hypoxemia', 'severe_hypoxemia'))
+pf_o2_cat <- paste0('pf-', c('not_hypoxemic', 'mild_hypoxemia', 'moderate_hypoxemia', 'severe_hypoxemia'))
+sf_o2_cat <- paste0('sf-', c('not_hypoxemic', 'mild_hypoxemia', 'moderate_hypoxemia', 'severe_hypoxemia'))
 pf_sofa <- paste0('pf-', c(0:4))
 sf_sofa <- paste0('sf-', c(0:4))
 #SF_PF Vectors
-sf_pf_o2_cat <- paste0('sf_pf_-', c('not_hypoxemic', 'mild_hypoxemia_', 'moderate_hypoxemia', 'severe_hypoxemia'))
-sf_pf_o2_contemp_cat <- paste0('sf_pf_contemp-', c('not_hypoxemic', 'mild_hypoxemia_', 'moderate_hypoxemia', 'severe_hypoxemia'))
+sf_pf_o2_cat <- paste0('sf_pf_-', c('not_hypoxemic', 'mild_hypoxemia', 'moderate_hypoxemia', 'severe_hypoxemia'))
+sf_pf_o2_contemp_cat <- paste0('sf_pf_contemp-', c('not_hypoxemic', 'mild_hypoxemia', 'moderate_hypoxemia', 'severe_hypoxemia'))
 sf_pf_sofa <- paste0('sf_pf_-', c(0:4))
 sf_pf_sofa_contemp <- paste0('sf_pf_contemp-', c(0:4))
 
@@ -3164,6 +3164,164 @@ aggregate_mortality_hospital <- collate_tables('_aggregate_by_o2cat_hospital.csv
     prob_death28=n_deathhosp28/n_in_group) |>
   #Bring in ABG and Hospital Data
   left_join(abgs_by_hospital, by=c('site', 'hospital_id'))
+
+##PF RATIO MODELS 
+#Categorical
+pf_glm_o2_cat <- glmmTMB(
+prob_death28 ~ strata + (1 | hospital_id),
+data   = aggregate_mortality_hospital |> 
+  dplyr::filter(strata %in%  pf_o2_cat) |>
+  mutate(strata = factor(strata, levels = pf_o2_cat, ordered = F)),
+family = binomial(link = "logit"),
+weights = n_in_group
+)
+
+tidy_fix_pf <- broom.mixed::tidy(
+  pf_glm_o2_cat,
+  effects = "fixed",
+  component = "cond",
+  conf.int = TRUE,
+  exponentiate = TRUE
+) 
+tidy_fix_pf
+
+#SOFA
+pf_glm_sofa_cat <- glmmTMB(
+prob_death28 ~ strata + (1 | hospital_id),
+data   = aggregate_mortality_hospital |> 
+  dplyr::filter(strata %in%  pf_sofa) |>
+  mutate(strata = factor(strata, levels = pf_sofa, ordered = F)),
+family = binomial(link = "logit"),
+weights = n_in_group
+)
+
+tidy_fix_pf <- broom.mixed::tidy(
+  pf_glm_sofa_cat,
+  effects = "fixed",
+  component = "cond",
+  conf.int = TRUE,
+  exponentiate = TRUE
+) 
+tidy_fix_pf
+
+#SF RATIO MODELS 
+#SF Categories
+sf_glm_o2_cat <- glmmTMB(
+prob_death28 ~ strata + (1 | hospital_id),
+data   = aggregate_mortality_hospital |> 
+  dplyr::filter(strata %in%  sf_o2_cat) |>
+  mutate(strata = factor(strata, levels = sf_o2_cat, ordered = F)),
+family = binomial(link = "logit"),
+weights = n_in_group
+)
+
+tidy_fix_sf <- broom.mixed::tidy(
+  sf_glm_o2_cat,
+  effects = "fixed",
+  component = "cond",
+  conf.int = TRUE,
+  exponentiate = TRUE
+) 
+tidy_fix_sf
+
+#SF SOFA
+#SOFA
+sf_glm_sofa_cat <- glmmTMB(
+prob_death28 ~ strata + (1 | hospital_id),
+data   = aggregate_mortality_hospital |> 
+  dplyr::filter(strata %in%  sf_sofa) |>
+  mutate(strata = factor(strata, levels = sf_sofa, ordered = F)),
+family = binomial(link = "logit"),
+weights = n_in_group
+)
+
+tidy_fix_pf <- broom.mixed::tidy(
+  sf_glm_sofa_cat,
+  effects = "fixed",
+  component = "cond",
+  conf.int = TRUE,
+  exponentiate = TRUE
+) 
+tidy_fix_pf
+
+#SF_and_PF O2 Cat
+sf_pf_glm_cat <- glmmTMB(
+prob_death28 ~ strata + (1 | hospital_id),
+data   = aggregate_mortality_hospital |> 
+  dplyr::filter(strata %in%  sf_pf_o2_cat) |>
+  mutate(strata = factor(strata, levels = sf_pf_o2_cat, ordered = F)),
+family = binomial(link = "logit"),
+weights = n_in_group
+)
+
+tidy_fix_sf <- broom.mixed::tidy(
+  sf_pf_glm_cat,
+  effects = "fixed",
+  component = "cond",
+  conf.int = TRUE,
+  exponentiate = TRUE
+) 
+tidy_fix_sf
+
+#SF_PF_Categorical: Contemporaneously Measured
+sf_pf_glm_cat_contemp <- glmmTMB(
+prob_death28 ~ strata + (1 | hospital_id),
+data   = aggregate_mortality_hospital |> 
+  dplyr::filter(strata %in% sf_pf_o2_contemp_cat) |>
+  mutate(strata = factor(strata, levels = sf_pf_o2_contemp_cat, ordered = F)),
+family = binomial(link = "logit"),
+weights = n_in_group
+)
+
+tidy_fix_sf <- broom.mixed::tidy(
+  sf_pf_glm_cat_contemp,
+  effects = "fixed",
+  component = "cond",
+  conf.int = TRUE,
+  exponentiate = TRUE
+) 
+tidy_fix_sf
+
+#SF_PF_SOFA: Both Measured - Lowest of Each
+sf_pf_glm_sofa <- glmmTMB(
+prob_death28 ~ strata + (1 | hospital_id),
+data   = aggregate_mortality_hospital |> 
+  dplyr::filter(strata %in% sf_pf_sofa) |>
+  mutate(strata = factor(strata, levels = sf_pf_sofa, ordered = F)),
+family = binomial(link = "logit"),
+weights = n_in_group
+)
+
+tidy_fix_sf <- broom.mixed::tidy(
+  sf_pf_glm_sofa,
+  effects = "fixed",
+  component = "cond",
+  conf.int = TRUE,
+  exponentiate = TRUE
+) 
+tidy_fix_sf
+
+#SF_PF_SOFA: Contemporaneously Measured
+sf_pf_glm_sofa_contemp <- glmmTMB(
+prob_death28 ~ strata + (1 | hospital_id),
+data   = aggregate_mortality_hospital |> 
+  dplyr::filter(strata %in% sf_pf_sofa_contemp) |>
+  mutate(strata = factor(strata, levels = sf_pf_sofa_contemp, ordered = F)),
+family = binomial(link = "logit"),
+weights = n_in_group
+)
+
+tidy_fix_sf <- broom.mixed::tidy(
+  sf_pf_glm_sofa_contemp,
+  effects = "fixed",
+  component = "cond",
+  conf.int = TRUE,
+  exponentiate = TRUE
+) 
+tidy_fix_sf
+```
+```{r ROC Analysis for the Categorical Exposure}
+
 ```
 
 
