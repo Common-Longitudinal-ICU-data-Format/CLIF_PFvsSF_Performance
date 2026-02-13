@@ -3085,6 +3085,7 @@ auc_sf_median <- auc(roc_sf_median)
 ci_sf_median <- as.numeric(pROC::ci.auc(roc_sf_median, method = "bootstrap", boot.n = BOOT_NUM, stratified = TRUE))
 # Weighted Brier score + 95% CI via stratified multinomial bootstrap (aggregated df)
 brier_sf_median <- compute_weighted_brier(dat_sf_median, boot_n = BOOT_NUM)
+test <- roc.test(roc_sf, roc_sf_median, method='bootstrap', boot.n=BOOT_NUM)
 
 roc_table <- bind_rows(
   roc_table,
@@ -3096,23 +3097,23 @@ roc_table <- bind_rows(
   brier       = round(brier_sf_median$value, 3),
   brier_low   = round(brier_sf_median$ci[1], 3),
   brier_hi    = round(brier_sf_median$ci[2], 3),
-  comparison = NA_character_,
-  p.value = NA_real_
+  comparison = "Overall_SF_Lowest_v_Median",
+  p.value = round(test$p.value, 3)
 ))
 
-#PF Ratio
-dat_pf <- aggregate_continuous_hospital %>%
+#PF Ratio Median
+dat_pf_median <- aggregate_continuous_hospital %>%
   filter(primary_metric=='pf',
-         variable == 'measure_value_5') 
-dat_pf <- dat_pf |>
-  mutate(pred = predict(pf_glm_linear, newdata = dat_pf, type = "response", re.form = NULL),
+         variable == 'median_measure_5') 
+dat_pf_median <- dat_pf_median |>
+  mutate(pred = predict(pf_glm_median, newdata = dat_pf_median, type = "response", re.form = NULL),
          deaths = n_deathhosp28,
          survivors = n_in_group - deaths) |>
   filter(!is.na(pred), (deaths + survivors) > 0)
 
 roc_df_pf <- bind_rows(
-  transmute(dat_pf, label = 1, score = pred, w = deaths),
-  transmute(dat_pf, label = 0, score = pred, w = survivors)
+  transmute(dat_pf_median, label = 1, score = pred, w = deaths),
+  transmute(dat_pf_median, label = 0, score = pred, w = survivors)
 ) %>%
   filter(w > 0)
 
@@ -3120,20 +3121,20 @@ roc_pf <- roc(response = roc_df_pf$label, predictor = roc_df_pf$score, weights =
 auc_pf <- auc(roc_pf)
 ci_pf <- as.numeric(pROC::ci.auc(roc_pf, method = "bootstrap", boot.n = BOOT_NUM, stratified = TRUE))
 # Weighted Brier score + 95% CI via stratified multinomial bootstrap (aggregated df)
-brier_pf <- compute_weighted_brier(dat_pf, boot_n = BOOT_NUM)
-test <- roc.test(roc_pf, roc_sf, method='bootstrap', boot.n=BOOT_NUM)
+brier_pf <- compute_weighted_brier(dat_pf_median, boot_n = BOOT_NUM)
+
 roc_table <- bind_rows(
   roc_table,
   data.frame(
-    model = "Overall_PF_Ratio_Linear",
+    model = "Overall_PF_Ratio_Median",
     auc = round(auc_pf, 3),
     ci_low = round(ci_pf[1], 3),
     ci_hi = round(ci_pf[3], 3),
     brier       = round(brier_pf$value, 3),
     brier_low   = round(brier_pf$ci[1], 3),
     brier_hi    = round(brier_pf$ci[2], 3),
-    comparison = "Overall_PFvSF_Linear",
-    p.value = round(test$p.value, 3)
+    comparison = NA_character_,
+    p.value = NA_real_
   )
 ) |>
   arrange(model, comparison)
@@ -3141,6 +3142,17 @@ roc_table <- bind_rows(
  
 
 ```{r Logistic Models Using SF or PF Derived Categorical Classifications}
+#Create Vectors of PF, SF and SF_PF derived measures
+pf_o2_cat <- paste0('pf-', c('not_hypoxemic', 'mild_hypoxemia_', 'moderate_hypoxemia', 'severe_hypoxemia'))
+sf_o2_cat <- paste0('sf-', c('not_hypoxemic', 'mild_hypoxemia_', 'moderate_hypoxemia', 'severe_hypoxemia'))
+pf_sofa <- paste0('pf-', c(0:4))
+sf_sofa <- paste0('sf-', c(0:4))
+#SF_PF Vectors
+sf_pf_o2_cat <- paste0('sf_pf_-', c('not_hypoxemic', 'mild_hypoxemia_', 'moderate_hypoxemia', 'severe_hypoxemia'))
+sf_pf_o2_contemp_cat <- paste0('sf_pf_contemp-', c('not_hypoxemic', 'mild_hypoxemia_', 'moderate_hypoxemia', 'severe_hypoxemia'))
+sf_pf_sofa <- paste0('sf_pf_-', c(0:4))
+sf_pf_sofa_contemp <- paste0('sf_pf_contemp-', c(0:4))
+
 aggregate_mortality_hospital <- collate_tables('_aggregate_by_o2cat_hospital.csv') |>
   filter(!is.na(hospital_id),
          level==1,
