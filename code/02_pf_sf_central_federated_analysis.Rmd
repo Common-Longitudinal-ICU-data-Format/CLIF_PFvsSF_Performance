@@ -3321,6 +3321,117 @@ tidy_fix_sf <- broom.mixed::tidy(
 tidy_fix_sf
 ```
 ```{r ROC Analysis for the Categorical Exposure}
+set.seed(3982)
+BOOT_NUM <- 2500 #Number of Bootstrap Replicates
+
+#SF Ratio O2 Cat
+dat_sf_o2_cat <- aggregate_mortality_hospital %>%
+  filter(strata %in% sf_o2_cat) 
+dat_sf_o2_cat <- dat_sf_o2_cat |>
+  mutate(pred = predict(sf_glm_o2_cat, newdata = dat_sf_o2_cat, type = "response", re.form = NA),
+         deaths = n_deathhosp28,
+         survivors = n_in_group - deaths) |>
+  filter(!is.na(pred), (deaths + survivors) > 0)
+
+roc_df_sf_o2_cat <- bind_rows(
+  transmute(dat_sf_o2_cat, label = 1, score = pred, w = deaths),
+  transmute(dat_sf_o2_cat, label = 0, score = pred, w = survivors)
+) %>%
+  filter(w > 0)
+
+roc_sf_o2_cat <- roc(response = roc_df_sf_o2_cat$label, predictor = roc_df_sf_o2_cat$score, weights = roc_df_sf_o2_cat$w)
+auc_sf_o2_cat <- auc(roc_sf_o2_cat)
+ci_sf_o2_cat <- as.numeric(pROC::ci.auc(roc_sf_o2_cat, method = "bootstrap", boot.n = BOOT_NUM, stratified = TRUE))
+# Weighted Brier score + 95% CI via stratified multinomial bootstrap (aggregated df)
+brier_sf_o2_cat <- compute_weighted_brier(dat_sf_o2_cat, boot_n = BOOT_NUM)
+#test <- roc.test(roc_sf, roc_sf_median, method='bootstrap', boot.n=BOOT_NUM)
+
+roc_table <- bind_rows(
+  roc_table,
+  data.frame(
+  model = "Overall_SF_O2_Cat",
+  auc = round(auc_sf_o2_cat, digits=3),
+  ci_low = round(ci_sf_o2_cat[1], digits=3),
+  ci_hi = round(ci_sf_o2_cat[3], digits=3),
+  brier       = round(brier_sf_o2_cat$value, 3),
+  brier_low   = round(brier_sf_o2_cat$ci[1], 3),
+  brier_hi    = round(brier_sf_o2_cat$ci[2], 3),
+  comparison = NA_character_,
+  p.value = NA_real_
+))
+
+
+#PF O2 Cat
+dat_pf_o2_cat <- aggregate_mortality_hospital %>%
+  filter(strata %in% pf_o2_cat) 
+dat_pf_o2_cat <- dat_pf_o2_cat |>
+  mutate(pred = predict(pf_glm_o2_cat, newdata = dat_pf_o2_cat, type = "response", re.form = NA),
+         deaths = n_deathhosp28,
+         survivors = n_in_group - deaths) |>
+  filter(!is.na(pred), (deaths + survivors) > 0)
+
+roc_df_pf_o2_cat <- bind_rows(
+  transmute(dat_pf_o2_cat, label = 1, score = pred, w = deaths),
+  transmute(dat_pf_o2_cat, label = 0, score = pred, w = survivors)
+) %>%
+  filter(w > 0)
+
+roc_pf_o2_cat <- roc(response = roc_df_pf_o2_cat$label, predictor = roc_df_pf_o2_cat$score, weights = roc_df_pf_o2_cat$w)
+auc_pf_o2_cat <- auc(roc_pf_o2_cat)
+ci_pf_o2_cat <- as.numeric(pROC::ci.auc(roc_pf_o2_cat, method = "bootstrap", boot.n = BOOT_NUM, stratified = TRUE))
+# Weighted Brier score + 95% CI via stratified multinomial bootstrap (aggregated df)
+brier_pf_o2_cat <- compute_weighted_brier(dat_pf_o2_cat, boot_n = BOOT_NUM)
+test <- roc.test(roc_pf_o2_cat, roc_sf_o2_cat, method='bootstrap', boot.n=BOOT_NUM)
+
+roc_table <- bind_rows(
+  roc_table,
+  data.frame(
+  model = "Overall_PF_O2_Cat",
+  auc = round(auc_pf_o2_cat, digits=3),
+  ci_low = round(ci_pf_o2_cat[1], digits=3),
+  ci_hi = round(ci_pf_o2_cat[3], digits=3),
+  brier       = round(brier_pf_o2_cat$value, 3),
+  brier_low   = round(brier_pf_o2_cat$ci[1], 3),
+  brier_hi    = round(brier_pf_o2_cat$ci[2], 3),
+  comparison = "PF vs SF: O2Cat Exposure",
+  p.value = round(test$p.value, 3)
+))
+
+#SF SOFA Category
+dat_sf_sofa_cat <- aggregate_mortality_hospital %>%
+  filter(strata %in% sf_sofa) 
+dat_sf_sofa_cat <- dat_sf_sofa_cat |>
+  mutate(pred = predict(sf_glm_sofa_cat, newdata = dat_sf_sofa_cat, type = "response", re.form = NA),
+         deaths = n_deathhosp28,
+         survivors = n_in_group - deaths) |>
+  filter(!is.na(pred), (deaths + survivors) > 0)
+
+roc_df_sf_sofa_cat <- bind_rows(
+  transmute(dat_sf_sofa_cat, label = 1, score = pred, w = deaths),
+  transmute(dat_sf_sofa_cat, label = 0, score = pred, w = survivors)
+) %>%
+  filter(w > 0)
+
+roc_sf_sofa_cat <- roc(response = roc_df_sf_sofa_cat$label, predictor = roc_df_sf_sofa_cat$score, weights = roc_df_sf_sofa_cat$w)
+auc_sf_sofa_cat <- auc(roc_sf_sofa_cat)
+ci_sf_sofa_cat <- as.numeric(pROC::ci.auc(roc_sf_sofa_cat, method = "bootstrap", boot.n = BOOT_NUM, stratified = TRUE))
+# Weighted Brier score + 95% CI via stratified multinomial bootstrap (aggregated df)
+brier_sf_sofa_cat <- compute_weighted_brier(dat_sf_sofa_cat, boot_n = BOOT_NUM)
+#test <- roc.test(roc_sf, roc_sf_median, method='bootstrap', boot.n=BOOT_NUM)
+
+roc_table <- bind_rows(
+  roc_table,
+  data.frame(
+  model = "Overall_SF_SOFA_Cat",
+  auc = round(auc_sf_sofa_cat, digits=3),
+  ci_low = round(ci_sf_sofa_cat[1], digits=3),
+  ci_hi = round(ci_sf_sofa_cat[3], digits=3),
+  brier       = round(brier_sf_sofa_cat$value, 3),
+  brier_low   = round(brier_sf_sofa_cat$ci[1], 3),
+  brier_hi    = round(brier_sf_sofa_cat$ci[2], 3),
+  comparison = NA_character_,
+  p.value = NA_real_
+))
 
 ```
 
