@@ -3910,33 +3910,17 @@ rm(roc_both_df_sofa_cat_type)
 ```
 
 
-```{r Repeat ROC With Race}
---LEFT OFF HERE
- aggregate_continuous_race <- site_table_data$hopkins_aggregate_outcomes.csv |>
-  mutate(site='hopkins') |>
-  rowbind(site_table_data$rush_aggregate_outcomes.csv, fill=T) |>
-  mutate(site=fifelse(is.na(site), 'rush', site)) |>
-  rowbind(site_table_data$nu_aggregate_outcomes.csv, fill=T) |>
-  mutate(site=fifelse(is.na(site), 'nu', site)) |>
-  rowbind(site_table_data$umn_aggregate_outcomes.csv, fill=T) |>
-  mutate(site=fifelse(is.na(site), 'umn', site)) |>
-  rowbind(site_table_data$michigan_aggregate_outcomes.csv, fill=T) |>
-  mutate(site=fifelse(is.na(site), 'michigan', site)) |>
-  rowbind(site_table_data$penn_aggregate_outcomes.csv, fill=T) |>
-  mutate(site=fifelse(is.na(site), 'penn', site)) |>
-  rowbind(site_table_data$ucmc_aggregate_outcomes.csv, fill=T) |>
-  mutate(site=fifelse(is.na(site), 'ucmc', site)) |>
-  rowbind(site_table_data$emory_aggregate_outcomes.csv, fill=T) |>
-  mutate(site=fifelse(is.na(site), 'emory', site)) |>
-  rowbind(site_table_data$ohsu_aggregate_outcomes.csv, fill=T) |>
-  mutate(site=fifelse(is.na(site), 'ohsu', site)) |>
-  filter(!is.na(new_race_cat)) |>
+```{r Repeat Catgorical ROC With Race}
+aggregate_categories_race <- collate_tables('_aggregate_by_o2cat_race.csv') |>
+  filter(!is.na(new_race_cat),
+         level==1,
+         variable=='death_hospice28') |> #only need One Row per Outcome) 
   mutate(
     black=fifelse(new_race_cat=='black', 'black', 'not_black')
   ) |>
- group_by(primary_metric, site, black, measure_value_5) |>
+ group_by(site, black, strata_type, strata) |>
  summarise(
-   n_in_group=sum(n_in_group, na.rm=T), 
+   n_in_group=sum(n, na.rm=T), 
    n_deathhosp28=sum(n_deathhosp28, na.rm=T),
    n_deathhosp60=sum(n_deathhosp60, na.rm=T)
  ) |>
@@ -4420,6 +4404,10 @@ ggsave(
 
 ```
 
+```{r Export Tidied Models and ROC Table}
+tidied_models <- rbindlist(tidy_models_list)
+
+```
 
 
 
