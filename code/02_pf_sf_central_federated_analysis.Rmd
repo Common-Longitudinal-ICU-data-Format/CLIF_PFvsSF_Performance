@@ -10,7 +10,8 @@ project_location <- '~/Library/CloudStorage/OneDrive-JohnsHopkins/Research Proje
 
 #Which Sites Participated
 sites <- c("hopkins", "nu", "umn", "rush", 
-           "ohsu", "ucmc", "emory", "penn")
+           "ohsu", "ucmc", "emory", "penn",
+           "michigan")
 
 if (!dir.exists(paste0(project_location, "/tables"))) {
   dir.create(paste0(project_location, "/tables"))
@@ -120,7 +121,7 @@ tables <- c(
   "_table1_cont_by_exposure_imv.csv",          
   "_table1_cont_by_exposure_nippv.csv",   
   "_table1_cont_by_exposure_high_flow_ncno_undefined.csv", 
-  "_table1_cont_by_exposure_imv.csvno_undefined",          
+  "_table1_cont_by_exposure_imv.no_undefined",          
   "_table1_cont_by_exposure_nippvno_undefined.csv",   
   "_table1_cont_by_exposure.csv",               
   "_table1_cont_by_oxygenation.csv",           
@@ -2659,9 +2660,36 @@ ggsave(
   path = paste0(project_location, '/graphs/'))
 ```
 
+```{r Function for glmmTMB Tidyier}
+tidy_make <- function(mod, name) {
+  fixed <- broom.mixed::tidy(
+    mod,
+    effects = c("fixed"),
+    component = "cond",
+    conf.int = TRUE,
+    exponentiate = TRUE
+  )
+
+  ranpars <- broom.mixed::tidy(
+    mod,
+    effects = "ran_pars",
+    component = "cond",
+    conf.int = TRUE,
+    exponentiate = FALSE
+  )
+
+  dplyr::bind_rows(fixed, ranpars) |>
+    dplyr::mutate(model = name) |>
+    dplyr::relocate(model, .before = effect)
+}
+
+```
+
 
 
 ```{r Now Evaluate Discrimination by Fitting Logistic Regression - Contnuous Measure}
+tidy_models_list <- list()
+
 #Include Cubic Spline Terms with 4 Knots
 aggregate_continuous_hospital <-  collate_tables("_aggregate_outcomes.csv") |>
   filter(!is.na(hospital_id)) |>
@@ -2704,40 +2732,25 @@ ggsave(
 #Note Proportion with Weights Gives Equivalent Results to the cbind method
 #Start with Univariable and Hospital Random Effect
 pf_glm_linear <- glmmTMB(
-prob_death28 ~ rcs(value, 4) + (1 | hospital_id),
-data   = dplyr::filter(aggregate_continuous_hospital, 
-                       primary_metric == "pf" & 
-                       variable=='measure_value_5'),
-family = binomial(link = "logit"),
-weights = n_in_group
+  cbind(n_deathhosp28, n_in_group - n_deathhosp28) ~ 
+    rms::rcs(value, 4) + (1 | hospital_id),
+  data = dplyr::filter(aggregate_continuous_hospital,
+                       primary_metric == "pf",
+                       variable == "measure_value_5"),
+  family = binomial(link="logit")
 )
 
-tidy_fix_pf <- broom.mixed::tidy(
-  pf_glm_linear,
-  effects = "fixed",
-  component = "cond",
-  conf.int = TRUE,
-  exponentiate = TRUE
-) 
-tidy_fix_pf
+tidy_models_list[['pf_only']] <- tidy_make(pf_glm_linear, "PF Ratio - Continuous")
 
 pf_glm_median <- glmmTMB(
-prob_death28 ~ rcs(value, 4) + (1 | hospital_id),
+ cbind(n_deathhosp28, n_in_group - n_deathhosp28) ~ 
+    rms::rcs(value, 4) + (1 | hospital_id),
 data   = dplyr::filter(aggregate_continuous_hospital, 
                        primary_metric == "pf" & 
                        variable=='median_measure_5'),
-family = binomial(link = "logit"),
-weights = n_in_group
+family = binomial(link = "logit")
 )
-
-tidy_fix_pf <- broom.mixed::tidy(
-  pf_glm_median,
-  effects = "fixed",
-  component = "cond",
-  conf.int = TRUE,
-  exponentiate = TRUE
-) 
-tidy_fix_pf
+tidy_models_list[['pf_median']] <- tidy_make(pf_glm_linear, "Median PF - Continuous")
 
 #Visualize COntinuous Lowest Measure
 grid <- aggregate_continuous_hospital |>
@@ -2840,41 +2853,26 @@ ggsave(
 
 #Run Random Effects Aggregate Logistic Regression for Death/Hospice by Day 28
 sf_glm_linear <- glmmTMB(
-prob_death28 ~ rcs(value, 4) + (1 | hospital_id),
+  cbind(n_deathhosp28, n_in_group - n_deathhosp28) ~ 
+    rms::rcs(value, 4) + (1 | hospital_id),
 data   = dplyr::filter(aggregate_continuous_hospital, 
                        primary_metric == "sf" &
                        variable=='measure_value_5'),
-family = binomial(link = "logit"),
-weights = n_in_group
+family = binomial(link = "logit")
 )
+tidy_models_list$sf_only <- tidy_make(sf_glm_linear, 'SF-Continuous')
 
-tidy_fix_sf <- broom.mixed::tidy(
-  sf_glm_linear,
-  effects = "fixed",
-  component = "cond",
-  conf.int = TRUE,
-  exponentiate = TRUE
-) 
-tidy_fix_sf
 
 #Now Median
 sf_glm_median <- glmmTMB(
-prob_death28 ~ rcs(value, 4) + (1 | hospital_id),
+  cbind(n_deathhosp28, n_in_group - n_deathhosp28) ~ 
+    rms::rcs(value, 4) + (1 | hospital_id),
 data   = dplyr::filter(aggregate_continuous_hospital, 
                        primary_metric == "sf" &
                        variable=='median_measure_5'),
-family = binomial(link = "logit"),
-weights = n_in_group
+family = binomial(link = "logit")
 )
-
-tidy_fix_sf <- broom.mixed::tidy(
-  sf_glm_median,
-  effects = "fixed",
-  component = "cond",
-  conf.int = TRUE,
-  exponentiate = TRUE
-) 
-tidy_fix_sf
+tidy_models_list$sf_median <- tidy_make(sf_glm_median, 'SF_Median_Continuous')
 
 #Visualize SF Lowest
 grid <- aggregate_continuous_hospital |>
@@ -2952,36 +2950,88 @@ ggsave(
 ```
 
 ```{r Function for Computing Weighted Brier Score From Summary Data}
-compute_weighted_brier <- function(df, boot_n = 2000) {
-  # Totals
-  n_pos <- sum(df$deaths, na.rm = TRUE)
-  n_neg <- sum(df$survivors, na.rm = TRUE)
-  N_tot <- n_pos + n_neg
+#Samples Bootstrap by Hospital for Clustered Boostrap
+compute_weighted_brier <- function(df, 
+                                             cluster_col = "hospital_id",
+                                             boot_n = 2000, 
+                                             seed = NULL) {
   
-  if (N_tot == 0) {
-    return(list(value = NA_real_, ci = c(NA_real_, NA_real_)))
+  if (!is.null(seed)) set.seed(seed)
+  
+  
+  # Validate inputs
+  
+  df <- df[is.finite(df$pred) & df$pred >= 0 & df$pred <= 1, , drop = FALSE]
+  df$deaths    <- as.integer(df$deaths)
+  df$survivors <- as.integer(df$survivors)
+  
+  if (!cluster_col %in% names(df)) {
+    stop("cluster_col '", cluster_col, "' not found in df")
   }
   
-  # Point estimate (weighted over aggregated counts)
-  brier_val <- (sum(df$deaths    * (1 - df$pred)^2, na.rm = TRUE) +
-                  sum(df$survivors * (df$pred)^2,     na.rm = TRUE)) / N_tot
   
-  # Stratified bootstrap: resample positive and negative counts across rows
-  prob_pos <- if (n_pos > 0) df$deaths    / n_pos else rep(0, nrow(df))
-  prob_neg <- if (n_neg > 0) df$survivors / n_neg else rep(0, nrow(df))
+  # Point estimate
+  
+  N_tot <- sum(df$deaths + df$survivors, na.rm = TRUE)
+  if (N_tot == 0) return(list(value = NA_real_, ci = c(NA_real_, NA_real_)))
+  
+  brier_val <- (sum(df$deaths * (1 - df$pred)^2, na.rm = TRUE) +
+                  sum(df$survivors * df$pred^2,    na.rm = TRUE)) / N_tot
+  
+  
+  # Cluster bootstrap
+  
+  clusters <- unique(df[[cluster_col]])
+  n_clusters <- length(clusters)
+  
+  # Pre-split data by cluster for speed
+  df_by_cluster <- split(df, df[[cluster_col]])
   
   brier_boot <- numeric(boot_n)
+  
   for (b in seq_len(boot_n)) {
-    counts_pos <- if (n_pos > 0) as.integer(stats::rmultinom(1, n_pos, prob = prob_pos)) else integer(nrow(df))
-    counts_neg <- if (n_neg > 0) as.integer(stats::rmultinom(1, n_neg, prob = prob_neg)) else integer(nrow(df))
+    # Resample clusters with replacement
+    samp_clusters <- sample(clusters, n_clusters, replace = TRUE)
     
-    brier_boot[b] <- (sum(counts_pos * (1 - df$pred)^2) +
-                        sum(counts_neg * (df$pred)^2)) / N_tot
+    # Combine resampled cluster data
+    df_b <- do.call(rbind, df_by_cluster[samp_clusters])
+    
+    N_b <- sum(df_b$deaths + df_b$survivors, na.rm = TRUE)
+    
+    brier_boot[b] <- (sum(df_b$deaths * (1 - df_b$pred)^2, na.rm = TRUE) +
+                        sum(df_b$survivors * df_b$pred^2,    na.rm = TRUE)) / N_b
   }
   
-  brier_ci <- as.numeric(stats::quantile(brier_boot, probs = c(0.025, 0.975), na.rm = TRUE))
-  list(value = brier_val, ci = brier_ci)
+  
+  # Output
+  
+  list(
+    value      = brier_val,
+    ci         = as.numeric(quantile(brier_boot, c(0.025, 0.975), na.rm = TRUE)),
+    n_clusters = n_clusters,
+    n_total    = N_tot
+  )
 }
+```
+
+
+```{r Function to Expand to One Row Per Patient with Predictions}
+expand_to_patients <- function(df) {
+  deaths_df <- df |>
+    dplyr::filter(deaths > 0) |>
+    dplyr::select(hospital_id, site, pred, value, n = deaths) |>
+    dplyr::mutate(label = 1L)
+  
+  survivors_df <- df |>
+    dplyr::filter(survivors > 0) |>
+    dplyr::select(hospital_id, site, pred, value, n = survivors) |>
+    dplyr::mutate(label = 0L)
+  
+  dplyr::bind_rows(deaths_df, survivors_df) |>
+    tidyr::uncount(weights = n) |>
+    dplyr::rename(score = pred)
+}
+
 ```
 
 
@@ -2997,23 +3047,27 @@ dat_sf <- aggregate_continuous_hospital %>%
 dat_sf <- dat_sf |>
   mutate(pred = predict(sf_glm_linear, newdata = dat_sf, type = "response", re.form = NA),
          deaths = n_deathhosp28,
-         survivors = n_in_group - deaths) |>
+         survivors = n_in_group - deaths,
+         model_n=sum(n_in_group, na.rm=T),
+         model_hospitals=length(unique(hospital_id))) |>
   filter(!is.na(pred), (deaths + survivors) > 0)
 
-roc_df_sf <- bind_rows(
-  transmute(dat_sf, label = 1, score = pred, w = deaths),
-  transmute(dat_sf, label = 0, score = pred, w = survivors)
-) %>%
-  filter(w > 0)
+roc_df_sf <-expand_to_patients(dat_sf)
 
-roc_sf <- roc(response = roc_df_sf$label, predictor = roc_df_sf$score, weights = roc_df_sf$w)
+roc_sf <- roc(response = roc_df_sf$label, predictor = roc_df_sf$score)
 auc_sf <- auc(roc_sf)
-ci_sf <- as.numeric(pROC::ci.auc(roc_sf, method = "bootstrap", boot.n = BOOT_NUM, stratified = TRUE))
+ci_sf <- as.numeric(pROC::ci.auc(roc_sf, method = "bootstrap", boot.n = BOOT_NUM, boot.stratified = TRUE))
 # Weighted Brier score + 95% CI via stratified multinomial bootstrap (aggregated df)
-brier_sf <- compute_weighted_brier(dat_sf, boot_n = BOOT_NUM)
+brier_sf <- compute_weighted_brier(
+  df=dat_sf,
+  cluster_col = "hospital_id",
+  boot_n      = BOOT_NUM,
+  seed        = 42)
 
 roc_table <- data.frame(
   model = "Overall_SF_Ratio_Linear",
+  model_n_patients = dat_sf$model_n[1],
+  model_n_hospitals = dat_sf$model_hospitals[1],
   auc = round(auc_sf, digits=3),
   ci_low = round(ci_sf[1], digits=3),
   ci_hi = round(ci_sf[3], digits=3),
@@ -3029,27 +3083,29 @@ dat_pf <- aggregate_continuous_hospital %>%
   filter(primary_metric=='pf',
          variable == 'measure_value_5') 
 dat_pf <- dat_pf |>
-  mutate(pred = predict(pf_glm_linear, newdata = dat_pf, type = "response", re.form = NULL),
+  mutate(pred = predict(pf_glm_linear, newdata = dat_pf, type = "response", re.form = NA),
          deaths = n_deathhosp28,
-         survivors = n_in_group - deaths) |>
+         survivors = n_in_group - deaths,
+         model_n=sum(n_in_group, na.rm=T),
+         model_hospitals=length(unique(hospital_id))) |>
   filter(!is.na(pred), (deaths + survivors) > 0)
 
-roc_df_pf <- bind_rows(
-  transmute(dat_pf, label = 1, score = pred, w = deaths),
-  transmute(dat_pf, label = 0, score = pred, w = survivors)
-) %>%
-  filter(w > 0)
+roc_df_pf <- expand_to_patients(dat_pf)
 
-roc_pf <- roc(response = roc_df_pf$label, predictor = roc_df_pf$score, weights = roc_df_pf$w)
+roc_pf <- roc(response = roc_df_pf$label, predictor = roc_df_pf$score)
 auc_pf <- auc(roc_pf)
-ci_pf <- as.numeric(pROC::ci.auc(roc_pf, method = "bootstrap", boot.n = BOOT_NUM, stratified = TRUE))
+ci_pf <- as.numeric(pROC::ci.auc(roc_pf, method = "bootstrap", boot.n = BOOT_NUM, boot.stratified = TRUE))
 # Weighted Brier score + 95% CI via stratified multinomial bootstrap (aggregated df)
-brier_pf <- compute_weighted_brier(dat_pf, boot_n = BOOT_NUM)
+brier_pf <- compute_weighted_brier(dat_pf, cluster_col = "hospital_id",
+  boot_n      = BOOT_NUM,
+  seed        = 42)
 test <- roc.test(roc_pf, roc_sf, method='bootstrap', boot.n=BOOT_NUM)
 roc_table <- bind_rows(
   roc_table,
   data.frame(
     model = "Overall_PF_Ratio_Linear",
+    model_n_patients = dat_pf$model_n[1],
+    model_n_hospitals = dat_pf$model_hospitals[1],
     auc = round(auc_pf, 3),
     ci_low = round(ci_pf[1], 3),
     ci_hi = round(ci_pf[3], 3),
@@ -3062,6 +3118,8 @@ roc_table <- bind_rows(
 ) |>
   arrange(model, comparison)
 ```
+
+
 ```{r  AUROC and ROC Curves - Continuous Medians}
 set.seed(3982)
 BOOT_NUM <- 2500 #Number of Bootstrap Replicates
@@ -3072,18 +3130,16 @@ dat_sf_median <- aggregate_continuous_hospital %>%
 dat_sf_median <- dat_sf_median |>
   mutate(pred = predict(sf_glm_median, newdata = dat_sf_median, type = "response", re.form = NA),
          deaths = n_deathhosp28,
-         survivors = n_in_group - deaths) |>
+         survivors = n_in_group - deaths,
+         model_n=sum(n_in_group, na.rm=T),
+         model_hospitals=length(unique(hospital_id))) |>
   filter(!is.na(pred), (deaths + survivors) > 0)
 
-roc_df_sf_median <- bind_rows(
-  transmute(dat_sf_median, label = 1, score = pred, w = deaths),
-  transmute(dat_sf_median, label = 0, score = pred, w = survivors)
-) %>%
-  filter(w > 0)
+roc_df_sf_median <- expand_to_patients(dat_sf_median)
 
-roc_sf_median <- roc(response = roc_df_sf_median$label, predictor = roc_df_sf_median$score, weights = roc_df_sf_median$w)
+roc_sf_median <- roc(response = roc_df_sf_median$label, predictor = roc_df_sf_median$score)
 auc_sf_median <- auc(roc_sf_median)
-ci_sf_median <- as.numeric(pROC::ci.auc(roc_sf_median, method = "bootstrap", boot.n = BOOT_NUM, stratified = TRUE))
+ci_sf_median <- as.numeric(pROC::ci.auc(roc_sf_median, method = "bootstrap", boot.n = BOOT_NUM, boot.stratified = TRUE))
 # Weighted Brier score + 95% CI via stratified multinomial bootstrap (aggregated df)
 brier_sf_median <- compute_weighted_brier(dat_sf_median, boot_n = BOOT_NUM)
 test <- roc.test(roc_sf, roc_sf_median, method='bootstrap', boot.n=BOOT_NUM)
@@ -3092,6 +3148,8 @@ roc_table <- bind_rows(
   roc_table,
   data.frame(
   model = "Overall_SF_Ratio_Median",
+  model_n_patients = dat_sf_median$model_n[1],
+  model_n_hospitals = dat_sf_median$model_hospitals[1],
   auc = round(auc_sf_median, digits=3),
   ci_low = round(ci_sf_median[1], digits=3),
   ci_hi = round(ci_sf_median[3], digits=3),
@@ -3109,18 +3167,16 @@ dat_pf_median <- aggregate_continuous_hospital %>%
 dat_pf_median <- dat_pf_median |>
   mutate(pred = predict(pf_glm_median, newdata = dat_pf_median, type = "response", re.form = NULL),
          deaths = n_deathhosp28,
-         survivors = n_in_group - deaths) |>
+         survivors = n_in_group - deaths,
+         model_n=sum(n_in_group, na.rm=T),
+         model_hospitals=length(unique(hospital_id))) |>
   filter(!is.na(pred), (deaths + survivors) > 0)
 
-roc_df_pf <- bind_rows(
-  transmute(dat_pf_median, label = 1, score = pred, w = deaths),
-  transmute(dat_pf_median, label = 0, score = pred, w = survivors)
-) %>%
-  filter(w > 0)
+roc_df_pf <- expand_to_patients(dat_pf_median)
 
-roc_pf <- roc(response = roc_df_pf$label, predictor = roc_df_pf$score, weights = roc_df_pf$w)
+roc_pf <- roc(response = roc_df_pf$label, predictor = roc_df_pf$score)
 auc_pf <- auc(roc_pf)
-ci_pf <- as.numeric(pROC::ci.auc(roc_pf, method = "bootstrap", boot.n = BOOT_NUM, stratified = TRUE))
+ci_pf <- as.numeric(pROC::ci.auc(roc_pf, method = "bootstrap", boot.n = BOOT_NUM, boot.stratified = TRUE))
 # Weighted Brier score + 95% CI via stratified multinomial bootstrap (aggregated df)
 brier_pf <- compute_weighted_brier(dat_pf_median, boot_n = BOOT_NUM)
 
@@ -3128,6 +3184,8 @@ roc_table <- bind_rows(
   roc_table,
   data.frame(
     model = "Overall_PF_Ratio_Median",
+    model_n_patients = dat_pf_median$model_n[1],
+    model_n_hospitals = dat_pf_median$model_hospitals[1],
     auc = round(auc_pf, 3),
     ci_low = round(ci_pf[1], 3),
     ci_hi = round(ci_pf[3], 3),
@@ -3169,159 +3227,101 @@ aggregate_mortality_hospital <- collate_tables('_aggregate_by_o2cat_hospital.csv
 ##PF RATIO MODELS 
 #Categorical
 pf_glm_o2_cat <- glmmTMB(
-prob_death28 ~ strata + (1 | hospital_id),
+  cbind(n_deathhosp28, n_in_group - n_deathhosp28) ~
+    strata + (1 | hospital_id),
 data   = aggregate_mortality_hospital |> 
   dplyr::filter(strata %in%  pf_o2_cat) |>
   mutate(strata = factor(strata, levels = pf_o2_cat, ordered = F)),
-family = binomial(link = "logit"),
-weights = n_in_group
+family = binomial(link = "logit")
 )
+tidy_models_list[['pf_o2_cat']] <- tidy_make(pf_glm_o2_cat, "PF - O2Cat")
 
-tidy_fix_pf <- broom.mixed::tidy(
-  pf_glm_o2_cat,
-  effects = "fixed",
-  component = "cond",
-  conf.int = TRUE,
-  exponentiate = TRUE
-) 
-tidy_fix_pf
 
 #SOFA
 pf_glm_sofa_cat <- glmmTMB(
-prob_death28 ~ strata + (1 | hospital_id),
+  cbind(n_deathhosp28, n_in_group - n_deathhosp28) ~ 
+    strata + (1 | hospital_id),
 data   = aggregate_mortality_hospital |> 
   dplyr::filter(strata %in%  pf_sofa) |>
   mutate(strata = factor(strata, levels = pf_sofa, ordered = F)),
-family = binomial(link = "logit"),
-weights = n_in_group
+family = binomial(link = "logit")
 )
 
-tidy_fix_pf <- broom.mixed::tidy(
-  pf_glm_sofa_cat,
-  effects = "fixed",
-  component = "cond",
-  conf.int = TRUE,
-  exponentiate = TRUE
-) 
-tidy_fix_pf
+tidy_models_list[['pf_sofa_cat']] <- tidy_make(pf_glm_sofa_cat, "PF - SOFA")
 
 #SF RATIO MODELS 
 #SF Categories
 sf_glm_o2_cat <- glmmTMB(
-prob_death28 ~ strata + (1 | hospital_id),
+  cbind(n_deathhosp28, n_in_group - n_deathhosp28) ~ 
+    strata + (1 | hospital_id),
 data   = aggregate_mortality_hospital |> 
   dplyr::filter(strata %in%  sf_o2_cat) |>
   mutate(strata = factor(strata, levels = sf_o2_cat, ordered = F)),
-family = binomial(link = "logit"),
-weights = n_in_group
+family = binomial(link = "logit")
 )
+tidy_models_list[['sf_o2_cat']] <- tidy_make(sf_glm_o2_cat, "SF - O2Cat")
 
-tidy_fix_sf <- broom.mixed::tidy(
-  sf_glm_o2_cat,
-  effects = "fixed",
-  component = "cond",
-  conf.int = TRUE,
-  exponentiate = TRUE
-) 
-tidy_fix_sf
 
 #SF SOFA
 #SOFA
 sf_glm_sofa_cat <- glmmTMB(
-prob_death28 ~ strata + (1 | hospital_id),
+  cbind(n_deathhosp28, n_in_group - n_deathhosp28) ~ 
+    strata + (1 | hospital_id),
 data   = aggregate_mortality_hospital |> 
   dplyr::filter(strata %in%  sf_sofa) |>
   mutate(strata = factor(strata, levels = sf_sofa, ordered = F)),
-family = binomial(link = "logit"),
-weights = n_in_group
+family = binomial(link = "logit")
 )
-
-tidy_fix_pf <- broom.mixed::tidy(
-  sf_glm_sofa_cat,
-  effects = "fixed",
-  component = "cond",
-  conf.int = TRUE,
-  exponentiate = TRUE
-) 
-tidy_fix_pf
+tidy_models_list[['sf_sofa']] <- tidy_make(sf_glm_sofa_cat, "SF - SOFA")
 
 #SF_and_PF O2 Cat
 sf_pf_glm_cat <- glmmTMB(
-prob_death28 ~ strata + (1 | hospital_id),
+  cbind(n_deathhosp28, n_in_group - n_deathhosp28) ~  strata + (1 | hospital_id),
 data   = aggregate_mortality_hospital |> 
   dplyr::filter(strata %in%  sf_pf_o2_cat) |>
   mutate(strata = factor(strata, levels = sf_pf_o2_cat, ordered = F)),
-family = binomial(link = "logit"),
-weights = n_in_group
+family = binomial(link = "logit")
 )
+tidy_models_list[['sf_pf_o2cat']] <- tidy_make(sf_pf_glm_cat, "SF_PF - O2Cat")
 
-tidy_fix_sf <- broom.mixed::tidy(
-  sf_pf_glm_cat,
-  effects = "fixed",
-  component = "cond",
-  conf.int = TRUE,
-  exponentiate = TRUE
-) 
-tidy_fix_sf
 
 #SF_PF_Categorical: Contemporaneously Measured
 sf_pf_glm_cat_contemp <- glmmTMB(
-prob_death28 ~ strata + (1 | hospital_id),
+  cbind(n_deathhosp28, n_in_group - n_deathhosp28) ~ strata + (1 | hospital_id),
 data   = aggregate_mortality_hospital |> 
   dplyr::filter(strata %in% sf_pf_o2_contemp_cat) |>
   mutate(strata = factor(strata, levels = sf_pf_o2_contemp_cat, ordered = F)),
-family = binomial(link = "logit"),
-weights = n_in_group
+family = binomial(link = "logit")
 )
-
-tidy_fix_sf <- broom.mixed::tidy(
-  sf_pf_glm_cat_contemp,
-  effects = "fixed",
-  component = "cond",
-  conf.int = TRUE,
-  exponentiate = TRUE
-) 
-tidy_fix_sf
+tidy_models_list[['sf_pf_o2cat_contemp']] <- 
+  tidy_make(sf_pf_glm_cat_contemp, "SF_PF_Contemp - O2Cat")
 
 #SF_PF_SOFA: Both Measured - Lowest of Each
 sf_pf_glm_sofa <- glmmTMB(
-prob_death28 ~ strata + (1 | hospital_id),
+  cbind(n_deathhosp28, n_in_group - n_deathhosp28) ~ strata + (1 | hospital_id),
 data   = aggregate_mortality_hospital |> 
   dplyr::filter(strata %in% sf_pf_sofa) |>
   mutate(strata = factor(strata, levels = sf_pf_sofa, ordered = F)),
-family = binomial(link = "logit"),
-weights = n_in_group
+family = binomial(link = "logit")
 )
 
-tidy_fix_sf <- broom.mixed::tidy(
-  sf_pf_glm_sofa,
-  effects = "fixed",
-  component = "cond",
-  conf.int = TRUE,
-  exponentiate = TRUE
-) 
-tidy_fix_sf
+tidy_models_list[['sf_pf_sofa']] <- 
+  tidy_make(sf_pf_glm_sofa, "SF_PF - SOFA")
 
 #SF_PF_SOFA: Contemporaneously Measured
 sf_pf_glm_sofa_contemp <- glmmTMB(
-prob_death28 ~ strata + (1 | hospital_id),
+  cbind(n_deathhosp28, n_in_group - n_deathhosp28) ~ strata + (1 | hospital_id),
 data   = aggregate_mortality_hospital |> 
   dplyr::filter(strata %in% sf_pf_sofa_contemp) |>
   mutate(strata = factor(strata, levels = sf_pf_sofa_contemp, ordered = F)),
-family = binomial(link = "logit"),
-weights = n_in_group
+family = binomial(link = "logit")
 )
-
-tidy_fix_sf <- broom.mixed::tidy(
-  sf_pf_glm_sofa_contemp,
-  effects = "fixed",
-  component = "cond",
-  conf.int = TRUE,
-  exponentiate = TRUE
-) 
-tidy_fix_sf
+tidy_models_list[['sf_pf_sofa_contemp']] <- 
+  tidy_make(sf_pf_glm_sofa_contemp, "SF_PF_Contemp - SOFA")
 ```
+
 ```{r ROC Analysis for the Categorical Exposure}
+---LEFT OFF HERE NEED TO FIX BASED ON ABOVE
 set.seed(3982)
 BOOT_NUM <- 2500 #Number of Bootstrap Replicates
 
