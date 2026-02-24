@@ -2952,15 +2952,14 @@ ggsave(
 ```{r Function for Computing Weighted Brier Score From Summary Data}
 #Samples Bootstrap by Hospital for Clustered Boostrap
 compute_weighted_brier <- function(df, 
-                                             cluster_col = "hospital_id",
-                                             boot_n = 2000, 
-                                             seed = NULL) {
+                                   cluster_col = "hospital_id",
+                                   boot_n = 2000, 
+                                   seed = NULL) {
   
   if (!is.null(seed)) set.seed(seed)
   
   
   # Validate inputs
-  
   df <- df[is.finite(df$pred) & df$pred >= 0 & df$pred <= 1, , drop = FALSE]
   df$deaths    <- as.integer(df$deaths)
   df$survivors <- as.integer(df$survivors)
@@ -2971,16 +2970,12 @@ compute_weighted_brier <- function(df,
   
   
   # Point estimate
-  
   N_tot <- sum(df$deaths + df$survivors, na.rm = TRUE)
   if (N_tot == 0) return(list(value = NA_real_, ci = c(NA_real_, NA_real_)))
-  
   brier_val <- (sum(df$deaths * (1 - df$pred)^2, na.rm = TRUE) +
                   sum(df$survivors * df$pred^2,    na.rm = TRUE)) / N_tot
   
-  
   # Cluster bootstrap
-  
   clusters <- unique(df[[cluster_col]])
   n_clusters <- length(clusters)
   
@@ -3093,6 +3088,7 @@ roc_table <- data.frame(
   comparison = NA_character_,
   p.value = NA_real_
 )
+rm(roc_sf_df)
 
 #PF Ratio
 dat_pf <- aggregate_continuous_hospital %>%
@@ -3133,6 +3129,7 @@ roc_table <- bind_rows(
   )
 ) |>
   arrange(model, comparison)
+rm(roc_df_pf)
 ```
 
 
@@ -3175,6 +3172,7 @@ roc_table <- bind_rows(
   comparison = "Overall_SF_Lowest_v_Median",
   p.value = round(test$p.value, 3)
 ))
+rm(roc_df_sf_median)
 
 #PF Ratio Median
 dat_pf_median <- aggregate_continuous_hospital %>%
@@ -3213,6 +3211,7 @@ roc_table <- bind_rows(
   )
 ) |>
   arrange(model, comparison)
+rm(roc_df_pf)
 ```
  
 
@@ -3246,7 +3245,8 @@ pf_glm_o2_cat <- glmmTMB(
   cbind(n_deathhosp28, n_in_group - n_deathhosp28) ~
     strata + (1 | hospital_id),
 data   = aggregate_mortality_hospital |> 
-  dplyr::filter(strata %in%  pf_o2_cat) |>
+  dplyr::filter(strata %in%  pf_o2_cat,
+                analysis=='overall') |>
   mutate(strata = factor(strata, levels = pf_o2_cat, ordered = F)),
 family = binomial(link = "logit")
 )
@@ -3272,7 +3272,8 @@ sf_glm_o2_cat <- glmmTMB(
   cbind(n_deathhosp28, n_in_group - n_deathhosp28) ~ 
     strata + (1 | hospital_id),
 data   = aggregate_mortality_hospital |> 
-  dplyr::filter(strata %in%  sf_o2_cat) |>
+  dplyr::filter(strata %in%  sf_o2_cat,
+                analysis == 'overall') |>
   mutate(strata = factor(strata, levels = sf_o2_cat, ordered = F)),
 family = binomial(link = "logit")
 )
@@ -3285,7 +3286,8 @@ sf_glm_sofa_cat <- glmmTMB(
   cbind(n_deathhosp28, n_in_group - n_deathhosp28) ~ 
     strata + (1 | hospital_id),
 data   = aggregate_mortality_hospital |> 
-  dplyr::filter(strata %in%  sf_sofa) |>
+  dplyr::filter(strata %in%  sf_sofa,
+                analysis=='overall') |>
   mutate(strata = factor(strata, levels = sf_sofa, ordered = F)),
 family = binomial(link = "logit")
 )
@@ -3295,7 +3297,8 @@ tidy_models_list[['sf_sofa']] <- tidy_make(sf_glm_sofa_cat, "SF - SOFA")
 sf_pf_glm_cat <- glmmTMB(
   cbind(n_deathhosp28, n_in_group - n_deathhosp28) ~  strata + (1 | hospital_id),
 data   = aggregate_mortality_hospital |> 
-  dplyr::filter(strata %in%  sf_pf_o2_cat) |>
+  dplyr::filter(strata %in%  sf_pf_o2_cat,
+                analysis=='sf_pf') |>
   mutate(strata = factor(strata, levels = sf_pf_o2_cat, ordered = F)),
 family = binomial(link = "logit")
 )
@@ -3306,7 +3309,8 @@ tidy_models_list[['sf_pf_o2cat']] <- tidy_make(sf_pf_glm_cat, "SF_PF - O2Cat")
 sf_pf_glm_cat_contemp <- glmmTMB(
   cbind(n_deathhosp28, n_in_group - n_deathhosp28) ~ strata + (1 | hospital_id),
 data   = aggregate_mortality_hospital |> 
-  dplyr::filter(strata %in% sf_pf_o2_contemp_cat) |>
+  dplyr::filter(strata %in% sf_pf_o2_contemp_cat,
+                analysis=='sf_pf') |>
   mutate(strata = factor(strata, levels = sf_pf_o2_contemp_cat, ordered = F)),
 family = binomial(link = "logit")
 )
@@ -3317,7 +3321,8 @@ tidy_models_list[['sf_pf_o2cat_contemp']] <-
 sf_pf_glm_sofa <- glmmTMB(
   cbind(n_deathhosp28, n_in_group - n_deathhosp28) ~ strata + (1 | hospital_id),
 data   = aggregate_mortality_hospital |> 
-  dplyr::filter(strata %in% sf_pf_sofa) |>
+  dplyr::filter(strata %in% sf_pf_sofa,
+                analysis=='sf_pf') |>
   mutate(strata = factor(strata, levels = sf_pf_sofa, ordered = F)),
 family = binomial(link = "logit")
 )
@@ -3329,7 +3334,8 @@ tidy_models_list[['sf_pf_sofa']] <-
 sf_pf_glm_sofa_contemp <- glmmTMB(
   cbind(n_deathhosp28, n_in_group - n_deathhosp28) ~ strata + (1 | hospital_id),
 data   = aggregate_mortality_hospital |> 
-  dplyr::filter(strata %in% sf_pf_sofa_contemp) |>
+  dplyr::filter(strata %in% sf_pf_sofa_contemp,
+                analysis=='sf_pf') |>
   mutate(strata = factor(strata, levels = sf_pf_sofa_contemp, ordered = F)),
 family = binomial(link = "logit")
 )
@@ -3338,13 +3344,13 @@ tidy_models_list[['sf_pf_sofa_contemp']] <-
 ```
 
 ```{r ROC Analysis for the Categorical Exposure}
----LEFT OFF HERE NEED TO FIX BASED ON ABOVE WHY IS THE SAMPLE SIZE WRONG
 set.seed(3982)
 BOOT_NUM <- 2500 #Number of Bootstrap Replicates
 
 #SF Ratio O2 Cat
 dat_sf_o2_cat <- aggregate_mortality_hospital %>%
-  filter(strata %in% sf_o2_cat) |>
+  filter(strata %in% sf_o2_cat,
+         analysis=='overall') |>
   distinct()
 dat_sf_o2_cat <- dat_sf_o2_cat |>
   mutate(pred = predict(sf_glm_o2_cat, newdata = dat_sf_o2_cat, type = "response", re.form = NA),
@@ -3378,7 +3384,7 @@ roc_table <- bind_rows(
   comparison = NA_character_,
   p.value = NA_real_
 ))
-
+rm(roc_df_sf_o2_cat)
 
 #PF O2 Cat
 dat_pf_o2_cat <- aggregate_mortality_hospital %>%
@@ -3416,6 +3422,7 @@ roc_table <- bind_rows(
   comparison = "PF vs SF: O2Cat Exposure",
   p.value = round(test$p.value, 3)
 ))
+rm(roc_df_pf_o2_cat)
 
 #SF SOFA Category
 dat_sf_sofa_cat <- aggregate_mortality_hospital %>%
@@ -3424,18 +3431,17 @@ dat_sf_sofa_cat <- aggregate_mortality_hospital %>%
 dat_sf_sofa_cat <- dat_sf_sofa_cat |>
   mutate(pred = predict(sf_glm_sofa_cat, newdata = dat_sf_sofa_cat, type = "response", re.form = NA),
          deaths = n_deathhosp28,
-         survivors = n_in_group - deaths) |>
+         survivors = n_in_group - deaths,
+         model_n=sum(n_in_group, na.rm=T),
+         model_hospitals=length(unique(hospital_id))) |>
   filter(!is.na(pred), (deaths + survivors) > 0)
 
-roc_df_sf_sofa_cat <- bind_rows(
-  transmute(dat_sf_sofa_cat, label = 1, score = pred, w = deaths),
-  transmute(dat_sf_sofa_cat, label = 0, score = pred, w = survivors)
-) %>%
-  filter(w > 0)
+roc_df_sf_sofa_cat <- expand_to_patients(dat_sf_sofa_cat)
 
-roc_sf_sofa_cat <- roc(response = roc_df_sf_sofa_cat$label, predictor = roc_df_sf_sofa_cat$score, weights = roc_df_sf_sofa_cat$w)
+roc_sf_sofa_cat <- roc(response = roc_df_sf_sofa_cat$label, 
+                       predictor = roc_df_sf_sofa_cat$score)
 auc_sf_sofa_cat <- auc(roc_sf_sofa_cat)
-ci_sf_sofa_cat <- as.numeric(pROC::ci.auc(roc_sf_sofa_cat, method = "bootstrap", boot.n = BOOT_NUM, stratified = TRUE))
+ci_sf_sofa_cat <- as.numeric(pROC::ci.auc(roc_sf_sofa_cat, method = "bootstrap", boot.n = BOOT_NUM, boot.stratified = TRUE))
 # Weighted Brier score + 95% CI via stratified multinomial bootstrap (aggregated df)
 brier_sf_sofa_cat <- compute_weighted_brier(dat_sf_sofa_cat, boot_n = BOOT_NUM)
 #test <- roc.test(roc_sf, roc_sf_median, method='bootstrap', boot.n=BOOT_NUM)
@@ -3444,6 +3450,8 @@ roc_table <- bind_rows(
   roc_table,
   data.frame(
   model = "Overall_SF_SOFA_Cat",
+  model_n_patients = dat_sf_sofa_cat$model_n[1],
+  model_n_hospitals = dat_sf_sofa_cat$model_hospitals[1],
   auc = round(auc_sf_sofa_cat, digits=3),
   ci_low = round(ci_sf_sofa_cat[1], digits=3),
   ci_hi = round(ci_sf_sofa_cat[3], digits=3),
@@ -3453,25 +3461,26 @@ roc_table <- bind_rows(
   comparison = NA_character_,
   p.value = NA_real_
 ))
+rm(roc_df_sf_sofa_cat)
 
 #PF SOFA Cat
 dat_pf_sofa_cat <- aggregate_mortality_hospital %>%
-  filter(strata %in% pf_sofa) 
+  filter(strata %in% pf_sofa,
+         analysis=='overall') 
 dat_pf_sofa_cat <- dat_pf_sofa_cat |>
   mutate(pred = predict(pf_glm_sofa_cat, newdata = dat_pf_sofa_cat, type = "response", re.form = NA),
          deaths = n_deathhosp28,
-         survivors = n_in_group - deaths) |>
+         survivors = n_in_group - deaths,
+           model_n=sum(n_in_group, na.rm=T),
+         model_hospitals=length(unique(hospital_id))) |>
   filter(!is.na(pred), (deaths + survivors) > 0)
 
-roc_df_pf_sofa_cat <- bind_rows(
-  transmute(dat_pf_sofa_cat, label = 1, score = pred, w = deaths),
-  transmute(dat_pf_sofa_cat, label = 0, score = pred, w = survivors)
-) %>%
-  filter(w > 0)
+roc_df_pf_sofa_cat <- expand_to_patients(dat_pf_sofa_cat)
 
-roc_pf_sofa_cat <- roc(response = roc_df_pf_sofa_cat$label, predictor = roc_df_pf_sofa_cat$score, weights = roc_df_pf_sofa_cat$w)
+roc_pf_sofa_cat <- roc(response = roc_df_pf_sofa_cat$label, 
+                       predictor = roc_df_pf_sofa_cat$score)
 auc_pf_sofa_cat <- auc(roc_pf_sofa_cat)
-ci_pf_sofa_cat <- as.numeric(pROC::ci.auc(roc_pf_sofa_cat, method = "bootstrap", boot.n = BOOT_NUM, stratified = TRUE))
+ci_pf_sofa_cat <- as.numeric(pROC::ci.auc(roc_pf_sofa_cat, method = "bootstrap", boot.n = BOOT_NUM, boot.stratified = TRUE))
 # Weighted Brier score + 95% CI via stratified multinomial bootstrap (aggregated df)
 brier_pf_sofa_cat <- compute_weighted_brier(dat_pf_sofa_cat, boot_n = BOOT_NUM)
 test <- roc.test(roc_pf_sofa_cat, roc_sf_sofa_cat, method='bootstrap', boot.n=BOOT_NUM)
@@ -3480,6 +3489,8 @@ roc_table <- bind_rows(
   roc_table,
   data.frame(
   model = "Overall_PF_SOFA_Cat",
+  model_n_patients = dat_pf_sofa_cat$model_n[1],
+  model_n_hospitals = dat_pf_sofa_cat$model_hospitals[1],
   auc = round(auc_pf_sofa_cat, digits=3),
   ci_low = round(ci_pf_sofa_cat[1], digits=3),
   ci_hi = round(ci_pf_sofa_cat[3], digits=3),
@@ -3489,27 +3500,28 @@ roc_table <- bind_rows(
   comparison = "PF_vs_SF SOFA Comparison",
   p.value = round(test$p.value, 3)
 ))
+rm(roc_df_pf_sofa_cat)
 
 #BOth SF and PF Available 
 #SF O2 Cat
 #SF Ratio O2 Cat
 dat_sf_pf_o2_cat <- aggregate_mortality_hospital %>%
-  filter(strata %in% sf_pf_o2_cat) 
+  filter(strata %in% sf_pf_o2_cat,
+         analysis=='sf_pf') 
 dat_sf_pf_o2_cat <- dat_sf_pf_o2_cat |>
   mutate(pred = predict(sf_pf_glm_cat, newdata = dat_sf_pf_o2_cat, type = "response", re.form = NA),
          deaths = n_deathhosp28,
-         survivors = n_in_group - deaths) |>
+         survivors = n_in_group - deaths,
+         model_n=sum(n_in_group, na.rm=T),
+         model_hospitals=length(unique(hospital_id))) |>
   filter(!is.na(pred), (deaths + survivors) > 0)
 
-roc_df_sf_pf_o2_cat <- bind_rows(
-  transmute(dat_sf_pf_o2_cat, label = 1, score = pred, w = deaths),
-  transmute(dat_sf_pf_o2_cat, label = 0, score = pred, w = survivors)
-) %>%
-  filter(w > 0)
+roc_df_sf_pf_o2_cat <- expand_to_patients(dat_sf_pf_o2_cat)
 
-roc_sf_pf_o2_cat <- roc(response = roc_df_sf_pf_o2_cat$label, predictor = roc_df_sf_pf_o2_cat$score, weights = roc_df_sf_pf_o2_cat$w)
+roc_sf_pf_o2_cat <- roc(response = roc_df_sf_pf_o2_cat$label, 
+                        predictor = roc_df_sf_pf_o2_cat$score)
 auc_sf_pf_o2_cat <- auc(roc_sf_pf_o2_cat)
-ci_sf_pf_o2_cat <- as.numeric(pROC::ci.auc(roc_sf_pf_o2_cat, method = "bootstrap", boot.n = BOOT_NUM, stratified = TRUE))
+ci_sf_pf_o2_cat <- as.numeric(pROC::ci.auc(roc_sf_pf_o2_cat, method = "bootstrap", boot.n = BOOT_NUM, boot.stratified = TRUE))
 # Weighted Brier score + 95% CI via stratified multinomial bootstrap (aggregated df)
 brier_sf_pf_o2_cat <- compute_weighted_brier(dat_sf_pf_o2_cat, boot_n = BOOT_NUM)
 test <- roc.test(roc_sf_pf_o2_cat, roc_sf_o2_cat, method='bootstrap', boot.n=BOOT_NUM)
@@ -3518,6 +3530,8 @@ roc_table <- bind_rows(
   roc_table,
   data.frame(
   model = "SF_PF_O2_Cat",
+  model_n_patients = dat_sf_pf_o2_cat$model_n[1],
+  model_n_hospitals = dat_sf_pf_o2_cat$model_hospitals[1],
   auc = round(auc_sf_pf_o2_cat, digits=3),
   ci_low = round(ci_sf_pf_o2_cat[1], digits=3),
   ci_hi = round(ci_sf_pf_o2_cat[3], digits=3),
@@ -3527,28 +3541,27 @@ roc_table <- bind_rows(
   comparison = "SF_PF vs SF: O2 Cat",
   p.value = round(test$p.value, 3)
 ))
+rm(roc_df_sf_pf_o2_cat)
 
 #BOth SF and PF Measured Contemporaneously
 #SF O2 Cat
 dat_sf_pf_o2_contemp_cat <- aggregate_mortality_hospital %>%
-  filter(strata %in% sf_pf_o2_contemp_cat) 
+  filter(strata %in% sf_pf_o2_contemp_cat,
+         analysis=='sf_pf') 
 dat_sf_pf_o2_contemp_cat <- dat_sf_pf_o2_contemp_cat |>
   mutate(pred = predict(sf_pf_glm_cat_contemp, newdata = dat_sf_pf_o2_contemp_cat, type = "response", re.form = NA),
          deaths = n_deathhosp28,
-         survivors = n_in_group - deaths) |>
+         survivors = n_in_group - deaths,
+         model_n=sum(n_in_group, na.rm=T),
+         model_hospitals=length(unique(hospital_id))) |>
   filter(!is.na(pred), (deaths + survivors) > 0)
 
-roc_df_sf_pf_o2_contemp_cat <- bind_rows(
-  transmute(dat_sf_pf_o2_contemp_cat, label = 1, score = pred, w = deaths),
-  transmute(dat_sf_pf_o2_contemp_cat, label = 0, score = pred, w = survivors)
-) %>%
-  filter(w > 0)
+roc_df_sf_pf_o2_contemp_cat <- expand_to_patients(dat_sf_pf_o2_contemp_cat)
 
 roc_sf_pf_o2_contemp_cat <- roc(response = roc_df_sf_pf_o2_contemp_cat$label, 
-                                predictor = roc_df_sf_pf_o2_contemp_cat$score, 
-                                weights = roc_df_sf_pf_o2_contemp_cat$w)
+                                predictor = roc_df_sf_pf_o2_contemp_cat$score)
 auc_sf_pf_o2_contemp_cat <- auc(roc_sf_pf_o2_contemp_cat)
-ci_sf_pf_o2_contemp_cat <- as.numeric(pROC::ci.auc(roc_sf_pf_o2_contemp_cat, method = "bootstrap", boot.n = BOOT_NUM, stratified = TRUE))
+ci_sf_pf_o2_contemp_cat <- as.numeric(pROC::ci.auc(roc_sf_pf_o2_contemp_cat, method = "bootstrap", boot.n = BOOT_NUM, boot.stratified = TRUE))
 # Weighted Brier score + 95% CI via stratified multinomial bootstrap (aggregated df)
 brier_sf_pf_o2_contemp_cat <- compute_weighted_brier(dat_sf_pf_o2_contemp_cat, boot_n = BOOT_NUM)
 test <- roc.test(roc_sf_pf_o2_contemp_cat, roc_sf_o2_cat, method='bootstrap', boot.n=BOOT_NUM)
@@ -3557,6 +3570,8 @@ roc_table <- bind_rows(
   roc_table,
   data.frame(
   model = "SF_PF_Contemp_O2_Cat",
+  model_n_patients = dat_sf_pf_o2_contemp_cat$model_n[1],
+  model_n_hospitals = dat_sf_pf_o2_contemp_cat$model_hospitals[1],
   auc = round(auc_sf_pf_o2_contemp_cat, digits=3),
   ci_low = round(ci_sf_pf_o2_contemp_cat[1], digits=3),
   ci_hi = round(ci_sf_pf_o2_contemp_cat[3], digits=3),
@@ -3566,24 +3581,25 @@ roc_table <- bind_rows(
   comparison = "SF_PF Contemporaneously Measured vs SF: O2 Cat",
   p.value = round(test$p.value, 3)
 ))
+rm(roc_df_sf_pf_o2_contemp_cat)
 
 #BOth SF and PF Available 
 #SOFA
 dat_sf_pf_sofa <- aggregate_mortality_hospital %>%
-  filter(strata %in% sf_pf_sofa) 
+  filter(strata %in% sf_pf_sofa,
+         analysis=='sf_pf') 
 dat_sf_pf_sofa <- dat_sf_pf_sofa |>
   mutate(pred = predict(sf_pf_glm_sofa, newdata = dat_sf_pf_sofa, type = "response", re.form = NA),
          deaths = n_deathhosp28,
-         survivors = n_in_group - deaths) |>
+         survivors = n_in_group - deaths,
+         model_n=sum(n_in_group, na.rm=T),
+         model_hospitals=length(unique(hospital_id))) |>
   filter(!is.na(pred), (deaths + survivors) > 0)
 
-roc_df_sf_pf_sofa <- bind_rows(
-  transmute(dat_sf_pf_sofa, label = 1, score = pred, w = deaths),
-  transmute(dat_sf_pf_sofa, label = 0, score = pred, w = survivors)
-) %>%
-  filter(w > 0)
+roc_df_sf_pf_sofa <- expand_to_patients(dat_sf_pf_sofa)
 
-roc_sf_pf_sofa <- roc(response = roc_df_sf_pf_sofa$label, predictor = roc_df_sf_pf_sofa$score, weights = roc_df_sf_pf_sofa$w)
+roc_sf_pf_sofa <- roc(response = roc_df_sf_pf_sofa$label, 
+                      predictor = roc_df_sf_pf_sofa$score)
 auc_sf_pf_sofa <- auc(roc_sf_pf_sofa)
 ci_sf_pf_sofa <- as.numeric(pROC::ci.auc(roc_sf_pf_sofa, method = "bootstrap", boot.n = BOOT_NUM, stratified = TRUE))
 # Weighted Brier score + 95% CI via stratified multinomial bootstrap (aggregated df)
@@ -3594,6 +3610,8 @@ roc_table <- bind_rows(
   roc_table,
   data.frame(
   model = "SF_PF_SOFA",
+  model_n_patients = dat_sf_pf_sofa$model_n[1],
+  model_n_hospitals = dat_sf_pf_sofa$model_hospitals[1],
   auc = round(auc_sf_pf_sofa, digits=3),
   ci_low = round(ci_sf_pf_sofa[1], digits=3),
   ci_hi = round(ci_sf_pf_sofa[3], digits=3),
@@ -3603,34 +3621,37 @@ roc_table <- bind_rows(
   comparison = "SF_PF vs SF: SOFA Cat",
   p.value = round(test$p.value, 3)
 ))
+rm(roc_df_sf_pf_sofa)
 
 #SF and PF COntemporaneously Measured
 #SOFA
 dat_sf_pf_sofa_contemp <- aggregate_mortality_hospital %>%
-  filter(strata %in% sf_pf_sofa_contemp) 
+  filter(strata %in% sf_pf_sofa_contemp,
+         analysis=='sf_pf') 
 dat_sf_pf_sofa_contemp <- dat_sf_pf_sofa_contemp |>
   mutate(pred = predict(sf_pf_glm_sofa_contemp, newdata = dat_sf_pf_sofa_contemp, type = "response", re.form = NA),
          deaths = n_deathhosp28,
-         survivors = n_in_group - deaths) |>
+         survivors = n_in_group - deaths,
+         model_n=sum(n_in_group, na.rm=T),
+         model_hospitals=length(unique(hospital_id))) |>
   filter(!is.na(pred), (deaths + survivors) > 0)
 
-roc_df_sf_pf_sofa_contemp <- bind_rows(
-  transmute(dat_sf_pf_sofa_contemp, label = 1, score = pred, w = deaths),
-  transmute(dat_sf_pf_sofa_contemp, label = 0, score = pred, w = survivors)
-) %>%
-  filter(w > 0)
+roc_df_sf_pf_sofa_contemp <- expand_to_patients(dat_sf_pf_sofa_contemp)
 
-roc_sf_pf_sofa_contemp <- roc(response = roc_df_sf_pf_sofa_contemp$label, predictor = roc_df_sf_pf_sofa_contemp$score, weights = roc_df_sf_pf_sofa_contemp$w)
+roc_sf_pf_sofa_contemp <- roc(response = roc_df_sf_pf_sofa_contemp$label, 
+                              predictor = roc_df_sf_pf_sofa_contemp$score)
 auc_sf_pf_sofa_contemp <- auc(roc_sf_pf_sofa_contemp)
-ci_sf_pf_sofa_contemp <- as.numeric(pROC::ci.auc(roc_sf_pf_sofa_contemp, method = "bootstrap", boot.n = BOOT_NUM, stratified = TRUE))
+ci_sf_pf_sofa_contemp <- as.numeric(pROC::ci.auc(roc_sf_pf_sofa_contemp, method = "bootstrap", boot.n = BOOT_NUM, boot.stratified = TRUE))
 # Weighted Brier score + 95% CI via stratified multinomial bootstrap (aggregated df)
 brier_sf_pf_sofa_contemp <- compute_weighted_brier(dat_sf_pf_sofa_contemp, boot_n = BOOT_NUM)
-test <- roc.test(roc_sf_pf_sofa_contemp, roc_sf_sofa_cat, method='bootstrap', boot.n=BOOT_NUM)
+test <- roc.test(roc_sf_pf_sofa_contemp, roc_sf_pf_sofa, method='bootstrap', boot.n=BOOT_NUM)
 
 roc_table <- bind_rows(
   roc_table,
   data.frame(
   model = "SF_PF_Contemp_SOFA",
+  model_n_patients = dat_sf_pf_sofa_contemp$model_n[1],
+  model_n_hospitals = dat_sf_pf_sofa_contemp$model_hospitals[1],
   auc = round(auc_sf_pf_sofa_contemp, digits=3),
   ci_low = round(ci_sf_pf_sofa_contemp[1], digits=3),
   ci_hi = round(ci_sf_pf_sofa_contemp[3], digits=3),
@@ -3640,6 +3661,11 @@ roc_table <- bind_rows(
   comparison = "SF_PF Contemp Meausure vs SF: SOFA Cat",
   p.value = round(test$p.value, 3)
 ))
+```
+
+```{r Assess Risk Difference When PF Obtained}
+both_o2cat_glm <- 
+
 ```
 
 
