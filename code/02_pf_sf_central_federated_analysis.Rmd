@@ -3669,6 +3669,7 @@ combined_model_df <- aggregate_mortality_hospital |>
   mutate(
     new_strata=fcase(
       grepl('undefined', strata, ignore.case=T), 'undefined',
+      grepl('not', strata, ignore.case=T), 'not_hypoxemic',
       grepl('mild', strata, ignore.case=T), 'mild_hypoxemia',
       grepl('moderate', strata, ignore.case=T), 'moderate_hypoxemia',
       grepl('severe', strata, ignore.case=T), 'severe_hypoxemia',
@@ -3686,7 +3687,21 @@ combined_model_df <- aggregate_mortality_hospital |>
     )
   ) |>
   filter(!is.na(new_strata),
-         !is.na(measure_type))
+         !is.na(measure_type)) 
+new_strata_sofa <- c(
+  'sofa0',
+  'sofa1',
+  'sofa2',
+  'sofa3',
+  'sofa4',
+  'sofa5'
+)
+new_strata_o2 <- c(
+  'not_hypoxemic',
+  'mild_hypoxemia',
+  'moderate_hypoxemia',
+  'severe_hypoxemia'
+)
 
 #Model with Both SF and PF Defined O2 Cat
 both_o2cat_glm <- glmmTMB(
@@ -3694,7 +3709,8 @@ both_o2cat_glm <- glmmTMB(
     new_strata + (1 | hospital_id),
   data = dplyr::filter(combined_model_df,
                       analysis=='overall',
-                      strata_type=='o2_strata'),
+                      strata_type=='o2_strata') |>
+         mutate(new_strata=factor(new_strata, levels = new_strata_o2, ordered=F)),
   family = binomial(link="logit")
 )
 tidy_models_list$'both_o2_cat' <- tidy_make(both_o2cat_glm, 'Both_O2Cat')
@@ -3749,7 +3765,8 @@ both_o2cat_type_glm <- glmmTMB(
     new_strata + measure_type + (1 | hospital_id),
   data = dplyr::filter(combined_model_df,
                       analysis=='overall',
-                      strata_type=='o2_strata'),
+                      strata_type=='o2_strata') |>
+    mutate(new_strata=factor(new_strata, levels=new_strata_o2, ordered=F)),
   family = binomial(link="logit")
 )
 tidy_models_list$'both_o2_cat_type' <- tidy_make(both_o2cat_type_glm, 'Both_O2Cat_MeasureType')
@@ -3805,7 +3822,8 @@ both_sofa_glm <- glmmTMB(
     new_strata + (1 | hospital_id),
   data = dplyr::filter(combined_model_df,
                       analysis=='overall',
-                      strata_type=='sofa_strata'),
+                      strata_type=='sofa_strata') |>
+    mutate(new_strata=factor(new_strata, levels=new_strata_sofa, ordered=F)),
   family = binomial(link="logit")
 )
 tidy_models_list$'both_sofa_cat' <- tidy_make(both_sofa_glm, 'Both_SOFACat')
@@ -3860,7 +3878,8 @@ both_sofa_type_glm <- glmmTMB(
     new_strata + measure_type + (1 | hospital_id),
   data = dplyr::filter(combined_model_df,
                       analysis=='overall',
-                      strata_type=='sofa_strata'),
+                      strata_type %in% c('sofa_strata')) |>
+      mutate(new_strata=factor(new_strata, level=new_strata_sofa, ordered=F)),
   family = binomial(link="logit")
 )
 tidy_models_list$'both_sofa_type' <- tidy_make(both_sofa_type_glm, 'Both_SOFA_MeasureType')
@@ -3921,25 +3940,28 @@ aggregate_categories_race <- collate_tables('_aggregate_by_o2cat_race.csv') |>
  group_by(site, black, strata_type, strata) |>
  summarise(
    n_in_group=sum(n, na.rm=T), 
-   n_deathhosp28=sum(n_deathhosp28, na.rm=T),
-   n_deathhosp60=sum(n_deathhosp60, na.rm=T)
+   n_deathhosp28=sum(freq, na.rm=T)
  ) |>
-  mutate(
-    prob_death28=n_deathhosp28/n_in_group,
-    prob_death60=n_deathhosp60/n_in_group) |>
   ungroup()
 
-strata  <- c("black", "not_black")
-metrics <- c("sf", "pf")
+race_strata  <- c("black", "not_black")
+names <- c('pf_o2_cat', 'pf_sofa', 'sf_o2_cat', 'sf_sofa', 
+                'sf_pf_o2_cat', 'sf_pf_o2_contemp_cat')
+metrics <- list(pf_o2_cat, pf_sofa, sf_o2_cat, sf_sofa, 
+                sf_pf_o2_cat, sf_pf_o2_contemp_cat)
+metrics <- setNames(metrics, names)
+glm_models <- setNames(vector("list", length(names)), names)
 
-glm_models <- setNames(vector("list", length(metrics)), metrics)
-
-for (m in metrics) {
-  glm_models[[m]] <- setNames(vector("list", length(strata)), strata)
-  for (z in strata) {
-    dat <- aggregate_continuous_race |>
-      filter(primary_metric == m, black == z,
-             n_in_group>0)
+#First Do for Just 'Overall'
+for (m in names) {
+glm_models[[m]] <- setNames(vector("list", length(race_strata)), race_strata)  
+strata_levels <- metrics[[m]] 
+for (z in race_strata) {
+    dat <- aggregate_categories_race |>
+      filter(strata %in% metrics[[m]], 
+             black == z,
+             n_in_group>0) |>
+      mutate(strata=factor(strata, levels = strata_levels, ordered=F))
 
     if (nrow(dat) == 0) {
       warning(sprintf("No rows for metric '%s' and stratum '%s'; skipping.", m, z))
@@ -3947,20 +3969,84 @@ for (m in metrics) {
     }
 
     fit <- glmmTMB(
-      prob_death28 ~ rcs(measure_value_5, 4),
+      cbind(n_deathhosp28,  n_in_group - n_deathhosp28) ~ strata + (1 | site),
       data   = dat,
-      family = binomial(),
-      weights = n_in_group
+      family = binomial()
     )
 
     glm_models[[m]][[z]] <- fit
   }
 }
 
-set.seed(3982)
-roc_models <- setNames(vector("list", length(metrics)), metrics)
+#Put into Tidy Tables
+for (m in names(glm_models)) {
+  for (z in names(glm_models[[m]])) {
+      fit <- glm_models[[m]][[z]]
+        if (is.null(fit)) next
+          lbl <- paste(m, z, sep = "_") 
+out <- tryCatch({
+tidy_make(fit, lbl)
+}, error = function(e) {
+warning(sprintf("tidy_make failed for %s / %s: %s", m, z, e$message))
+return(NULL)
+})
+if (!is.null(out)) {
+# if tidy_make returns a data.frame, add identifying columns
+if (is.data.frame(out)) {
+out$metric <- m
+out$race   <- z
+tidy_models_list[[lbl]] <- out
+} else {
+# if tidy_make returns something else, store it named
+all_tidy[[lbl]] <- out
+}
+}
+}
+}
 
-for (m in metrics) {
+#Repeat Looping for ROC Analysis
+set.seed(3982)
+roc_models <- setNames(vector("list", length(names)), names)
+for (m in names(glm_models)) {
+  strata_levels <- metrics[[m]] 
+  for (z in names(glm_models[[m]])) {
+      fit <- glm_models[[m]][[z]]
+        if (is.null(fit)) next
+          lbl <- paste(m, z, sep = "_") 
+out <- tryCatch({
+   # Use the same data that was used to fit
+    df <- aggregate_categories_race %>%
+      filter(strata %in% strata_levels, 
+             black == z,
+             n_in_group>0) |>
+      mutate(
+        deaths = n_deathhosp28,
+        survivors = n_in_group - deaths,
+        model_n=sum(n_in_group, na.rm=T)
+      )
+    df$pred <-  predict(this_glm, newdata=df, type='response', re.form = NULL)
+
+    # Drop rows with missing predictions or zero total counts
+    df <- df %>% filter(!is.na(pred), (deaths + survivors) > 0)
+
+    # Expand aggregated counts: one row per individual
+    pos <- df %>%
+      transmute(label = 1, score = pred, w = deaths) %>%
+      tidyr::uncount(w)
+    neg <- df %>%
+      transmute(label = 0, score = pred, w = survivors) %>%
+      tidyr::uncount(w)
+    roc_df <- bind_rows(pos, neg)
+  
+  
+}, error = function(e) {
+warning(sprintf("ROC Analysis failed for %s / %s: %s", m, z, e$message))
+return(NULL)
+})
+
+
+
+for (m in names) {
   roc_models[[m]] <- setNames(vector("list", length(strata)), strata)
   for (z in strata) {
     this_glm <- glm_models[[m]][[z]]
@@ -3973,7 +4059,8 @@ for (m in metrics) {
     df <- aggregate_continuous_race %>%
       filter(primary_metric == m, 
              black == z,
-             n_in_group>0) |>
+             n_in_group>0,
+             strata_type %in% c('o2_strata', 'sofa_strata') |>
       mutate(
         deaths = n_deathhosp28,
         survivors = n_in_group - deaths
