@@ -4009,7 +4009,7 @@ set.seed(3982)
 roc_models <- setNames(vector("list", length(names)), names)
 for (m in names(glm_models)) {
   strata_levels <- metrics[[m]] 
-  for (z in names(glm_models[[m]])) {
+  for (z in race_strata) {
       fit <- glm_models[[m]][[z]]
         if (is.null(fit)) next
           lbl <- paste(m, z, sep = "_") 
@@ -4024,25 +4024,19 @@ out <- tryCatch({
         survivors = n_in_group - deaths,
         model_n=sum(n_in_group, na.rm=T)
       )
-    df$pred <-  predict(this_glm, newdata=df, type='response', re.form = NULL)
+    df$pred <-  predict(fit, newdata=df, type='response', re.form = NA)
 
     # Drop rows with missing predictions or zero total counts
     df <- df %>% filter(!is.na(pred), (deaths + survivors) > 0)
 
     # Expand aggregated counts: one row per individual
-    pos <- df %>%
-      transmute(label = 1, score = pred, w = deaths) %>%
-      tidyr::uncount(w)
-    neg <- df %>%
-      transmute(label = 0, score = pred, w = survivors) %>%
-      tidyr::uncount(w)
-    roc_df <- bind_rows(pos, neg)
-  
-  
+    roc_df <- expand_to_patients(df)
+
 }, error = function(e) {
 warning(sprintf("ROC Analysis failed for %s / %s: %s", m, z, e$message))
 return(NULL)
 })
+}}
 
 
 
