@@ -3045,6 +3045,20 @@ expand_to_patients <- function(df) {
 }
 ```
 
+```{r Function for Calculating Logistic Mixed ICC}
+icc_manual <- function(model, cluster_col = "hospital_id") {
+vc <- VarCorr(model)
+if (is.null(vc$cond)) stop("No conditional VarCorr found in model")
+vc_cond <- vc$cond
+if (!cluster_col %in% names(vc_cond)) {
+stop("Cluster column '", cluster_col, "' not found in VarCorr(model)$cond. Available: ",
+paste(names(vc_cond), collapse = ", "))
+}
+sigma2_u <- as.numeric(vc_cond[[cluster_col]][1])
+icc <- sigma2_u / (sigma2_u + (pi^2 / 3))
+round(icc, 4)
+}
+```
 
 ```{r AUROC and ROC Curves - Continuous Measures}
 roc_table <- data.frame()
@@ -3125,7 +3139,7 @@ roc_table <- bind_rows(
     brier_low   = round(brier_pf$ci[1], 3),
     brier_hi    = round(brier_pf$ci[2], 3),
     comparison = "Overall_PFvSF_Linear",
-    p.value = round(test$p.value, 3)
+    p.value = test$p.value
   )
 ) |>
   arrange(model, comparison)
@@ -3170,7 +3184,7 @@ roc_table <- bind_rows(
   brier_low   = round(brier_sf_median$ci[1], 3),
   brier_hi    = round(brier_sf_median$ci[2], 3),
   comparison = "Overall_SF_Lowest_v_Median",
-  p.value = round(test$p.value, 3)
+  p.value = test$p.value
 ))
 rm(roc_df_sf_median)
 
@@ -3420,7 +3434,7 @@ roc_table <- bind_rows(
   brier_low   = round(brier_pf_o2_cat$ci[1], 3),
   brier_hi    = round(brier_pf_o2_cat$ci[2], 3),
   comparison = "PF vs SF: O2Cat Exposure",
-  p.value = round(test$p.value, 3)
+  p.value = test$p.value
 ))
 rm(roc_df_pf_o2_cat)
 
@@ -3498,7 +3512,7 @@ roc_table <- bind_rows(
   brier_low   = round(brier_pf_sofa_cat$ci[1], 3),
   brier_hi    = round(brier_pf_sofa_cat$ci[2], 3),
   comparison = "PF_vs_SF SOFA Comparison",
-  p.value = round(test$p.value, 3)
+  p.value = test$p.value
 ))
 rm(roc_df_pf_sofa_cat)
 
@@ -3539,7 +3553,7 @@ roc_table <- bind_rows(
   brier_low   = round(brier_sf_pf_o2_cat$ci[1], 3),
   brier_hi    = round(brier_sf_pf_o2_cat$ci[2], 3),
   comparison = "SF_PF vs SF: O2 Cat",
-  p.value = round(test$p.value, 3)
+  p.value = test$p.value
 ))
 rm(roc_df_sf_pf_o2_cat)
 
@@ -3579,7 +3593,7 @@ roc_table <- bind_rows(
   brier_low   = round(brier_sf_pf_o2_contemp_cat$ci[1], 3),
   brier_hi    = round(brier_sf_pf_o2_contemp_cat$ci[2], 3),
   comparison = "SF_PF Contemporaneously Measured vs SF: O2 Cat",
-  p.value = round(test$p.value, 3)
+  p.value = test$p.value
 ))
 rm(roc_df_sf_pf_o2_contemp_cat)
 
@@ -3619,7 +3633,7 @@ roc_table <- bind_rows(
   brier_low   = round(brier_sf_pf_sofa$ci[1], 3),
   brier_hi    = round(brier_sf_pf_sofa$ci[2], 3),
   comparison = "SF_PF vs SF: SOFA Cat",
-  p.value = round(test$p.value, 3)
+  p.value = test$p.value
 ))
 rm(roc_df_sf_pf_sofa)
 
@@ -3659,7 +3673,7 @@ roc_table <- bind_rows(
   brier_low   = round(brier_sf_pf_sofa_contemp$ci[1], 3),
   brier_hi    = round(brier_sf_pf_sofa_contemp$ci[2], 3),
   comparison = "SF_PF Contemp Meausure vs SF: SOFA Cat",
-  p.value = round(test$p.value, 3)
+  p.value = test$p.value
 ))
 ```
 
@@ -3754,7 +3768,7 @@ roc_table <- bind_rows(
   brier_low   = round(brier_both_cat$ci[1], 3),
   brier_hi    = round(brier_both_cat$ci[2], 3),
   comparison = "SF and PF O2 Cat vs SF O2 Cat",
-  p.value = round(test$p.value, 3)
+  p.value = test$p.value
 ))
 rm(roc_both_df_o2_cat)
 
@@ -3810,7 +3824,7 @@ roc_table <- bind_rows(
   brier_low   = round(brier_both_cat$ci[1], 3),
   brier_hi    = round(brier_both_cat$ci[2], 3),
   comparison = "SF and PF O2 Cat vs Adding Measure Type",
-  p.value = round(test$p.value, 3)
+  p.value = test$p.value
 ))
 rm(roc_both_df_o2_cat)
 
@@ -3867,7 +3881,7 @@ roc_table <- bind_rows(
   brier_low   = round(brier_both_cat$ci[1], 3),
   brier_hi    = round(brier_both_cat$ci[2], 3),
   comparison = "SF and PF SOFA vs SF SOFA",
-  p.value = round(test$p.value, 3)
+  p.value = test$p.value
 ))
 rm(roc_both_df_sofa_cat)
 
@@ -3923,7 +3937,7 @@ roc_table <- bind_rows(
   brier_low   = round(brier_both_cat$ci[1], 3),
   brier_hi    = round(brier_both_cat$ci[2], 3),
   comparison = "SF and PF O2 Cat vs Adding Measure Type",
-  p.value = round(test$p.value, 3)
+  p.value = test$p.value
 ))
 rm(roc_both_df_sofa_cat_type)
 ```
@@ -4059,7 +4073,8 @@ if (nrow(roc_df) == 0) {
     roc_obj <- pROC::roc(response = roc_df$label, predictor = roc_df$score, quiet = TRUE)
     auc_val <- pROC::auc(roc_obj)
     ci_val  <- as.numeric(pROC::ci.auc(roc_obj, method = "bootstrap", boot.n = BOOT_NUM, boot.stratified = TRUE))
-    #brier <- compute_weighted_brier(df, boot_n = BOOT_NUM)
+    brier <- compute_weighted_brier(roc_df, cluster_col='site',
+                                    boot_n = BOOT_NUM)
     # Store both the ROC object and a small summary
     roc_models[[m]][[z]] <- list(
       roc = roc_obj,
@@ -4074,103 +4089,61 @@ if (nrow(roc_df) == 0) {
         auc   = round(as.numeric(auc_val), 3),
         ci_low = round(ci_val[1], 3),
         ci_hi  = round(ci_val[3], 3),
-        brier       = NA_real_,
-        brier_low   = NA_real_,
-        brier_hi    = NA_real_,
+        brier       = round(brier$value, 2),
+        brier_low   = round(brier$ci[1], 2),
+        brier_hi    = round(brier$ci[2], 2),
         comparison = NA_character_,
         p.value    = NA_real_
       ), fill=T
     )
   }
 }
+rm(roc_df)
 
-
-
+#Test and Then Add Comparisons to Table
+get_roc_obj <- function(x) {
+  if (is.null(x)) return(NULL)
+  if (inherits(x, "roc")) return(x)
+  if (is.list(x) && inherits(x$roc, "roc")) return(x$roc)
+  return(NULL)
+}
+test_table <- setNames(vector("list", length(names)), names)
 for (m in names) {
-  roc_models[[m]] <- setNames(vector("list", length(strata)), strata)
-  for (z in strata) {
-    this_glm <- glm_models[[m]][[z]]
-    if (is.null(this_glm)) {
-      warning(sprintf("No fitted model for metric '%s' and stratum '%s'; skipping.", m, z))
-      next
-    }
-
-    # Use the same data that was used to fit
-    df <- aggregate_continuous_race %>%
-      filter(primary_metric == m, 
-             black == z,
-             n_in_group>0,
-             strata_type %in% c('o2_strata', 'sofa_strata') |>
-      mutate(
-        deaths = n_deathhosp28,
-        survivors = n_in_group - deaths
-      )
-    df$pred <-  predict(this_glm, newdata=df, type='response', re.form = NULL)
-
-    # Drop rows with missing predictions or zero total counts
-    df <- df %>% filter(!is.na(pred), (deaths + survivors) > 0)
-
-    # Expand aggregated counts: one row per individual
-    pos <- df %>%
-      transmute(label = 1, score = pred, w = deaths) %>%
-      tidyr::uncount(w)
-    neg <- df %>%
-      transmute(label = 0, score = pred, w = survivors) %>%
-      tidyr::uncount(w)
-    roc_df <- bind_rows(pos, neg)
-
-    if (nrow(roc_df) == 0) {
-      warning(sprintf("No data to compute ROC for metric '%s' and stratum '%s'; skipping.", m, z))
-      next
-    }
-
-    roc_obj <- pROC::roc(response = roc_df$label, predictor = roc_df$score, quiet = TRUE)
-    auc_val <- pROC::auc(roc_obj)
-    ci_val  <- as.numeric(pROC::ci.auc(roc_obj, method = "bootstrap", boot.n = BOOT_NUM, stratified = TRUE))
-    brier <- compute_weighted_brier(df, boot_n = BOOT_NUM)
-    # Store both the ROC object and a small summary
-    roc_models[[m]][[z]] <- list(
-      roc = roc_obj,
-      auc = as.numeric(auc_val),
-      ci  = ci_val)
-    
-    roc_table <- roc_table |>
-      rowbind(data.frame(
-        model = paste0(m, "_", z, "_subgroup"),
-        auc   = round(as.numeric(auc_val), 3),
-        ci_low = round(ci_val[1], 3),
-        ci_hi  = round(ci_val[3], 3),
-        brier       = round(brier$value, 3),
-        brier_low   = round(brier$ci[1], 3),
-        brier_hi    = round(brier$ci[2], 3),
-        comparison = NA_character_,
-        p.value    = NA_real_
-      ), fill=T
-    )
+  roc_black <- get_roc_obj(roc_models[[m]][['black']])
+  roc_not_black <- get_roc_obj(roc_models[[m]][['not_black']])
+  if (is.null(roc_black) || is.null(roc_not_black)) {
+    warning(sprintf("Skipping %s: missing or invalid ROC object for black or not_black", m))
+    test_table[[m]] <- NULL
+    next
   }
+  test_table[[m]] <- tryCatch({
+    # set a seed here if you want reproducible bootstrap tests
+    # set.seed(3982)
+    pROC::roc.test(roc_black, roc_not_black, method = 'bootstrap', boot.n = BOOT_NUM)
+  }, error = function(e) {
+    warning(sprintf("roc.test failed for %s: %s", m, e$message))
+    list(error = e$message)
+  })
 }
 
-#Test and Then Add Comparisons to Table
-test <- roc.test(roc_models$sf$black$roc, 
-                 roc_models$sf$not_black$roc,
-                 method='bootstrap', boot.n=BOOT_NUM)
-#Add Data to Table
-roc_table <- roc_table |>
+summary_df <- do.call(rbind, lapply(names, function(m) {
+  t <- test_table[[m]]
+  if (is.null(t) || is.list(t) && !inherits(t, "htest")) {
+    return(data.frame(metric = m, p.value = NA_real_))
+  }
+  data.frame(metric = m, p.value = as.numeric(t$p.value))
+}))
+summary_df <- summary_df |>
   mutate(
-    comparison=fifelse(model=='sf_black_subgroup', 'sf_black_vs_not_black', comparison),
-    p.value=fifelse(model=='sf_black_subgroup', test$p.value, p.value)
-    )
+    model=paste0(metric,'_black_subgroup')) |>
+  select(-metric)
+rm(test_table)
 
-#Test and Then Add Comparisons to Table
-test <- roc.test(roc_models$pf$black$roc, 
-                 roc_models$pf$not_black$roc,
-                 method='bootstrap', boot.n=BOOT_NUM)
 #Add Data to Table
 roc_table <- roc_table |>
-  mutate(
-    comparison=fifelse(model=='pf_black_subgroup', 'pf_black_vs_not_black', comparison),
-    p.value=fifelse(model=='pf_black_subgroup', test$p.value, p.value)
-    )
+  left_join(summary_df %>% select(model, new_p=p.value), by='model') |>
+  mutate(p.value=ifelse(is.na(p.value), new_p, p.value)) |>
+  select(-new_p)
 ```
 
 ```{r Repeat ROC With Respiratory Support}
