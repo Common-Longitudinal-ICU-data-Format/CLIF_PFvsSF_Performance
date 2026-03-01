@@ -4146,32 +4146,37 @@ roc_table <- roc_table |>
   select(-new_p)
 ```
 
-```{r Repeat ROC With Respiratory Support}
---LEFT OFF HERE
-aggregate_continuous_resp <- collate_tables('_aggregate_outcomes.csv') |>
-  filter(!is.na(resp_support_category)) |>
- group_by(primary_metric, site, resp_support_category, measure_value_5) |>
+
+```{r ROC Analysis Stratified by Respiratory Support}
+aggregate_categories_resp <- collate_tables('_aggregate_by_o2cat_resp_support.csv') |>
+  filter(!is.na(resp_support_category),
+         level==1,
+         variable=='death_hospice28') |> #only need One Row per Outcome) 
+ group_by(site, resp_support_category, strata_type, strata) |>
  summarise(
-   n_in_group=sum(n_in_group, na.rm=T), 
-   n_deathhosp28=sum(n_deathhosp28, na.rm=T),
-   n_deathhosp60=sum(n_deathhosp60, na.rm=T)
+   n_in_group=sum(n, na.rm=T), 
+   n_deathhosp28=sum(freq, na.rm=T)
  ) |>
-  mutate(
-    prob_death28=n_deathhosp28/n_in_group,
-    prob_death60=n_deathhosp60/n_in_group) |>
   ungroup()
 
-strata  <- c("nippv", "high_flow_nc", "imv")
-metrics <- c("sf", "pf")
+resp_strata  <- c("imv", "high_flow_nc", "nippv")
+names <- c('pf_o2_cat', 'pf_sofa', 'sf_o2_cat', 'sf_sofa', 
+                'sf_pf_o2_cat', 'sf_pf_o2_contemp_cat')
+metrics <- list(pf_o2_cat, pf_sofa, sf_o2_cat, sf_sofa, 
+                sf_pf_o2_cat, sf_pf_o2_contemp_cat)
+metrics <- setNames(metrics, names)
+glm_models <- setNames(vector("list", length(names)), names)
 
-glm_models <- setNames(vector("list", length(metrics)), metrics)
-
-for (m in metrics) {
-  glm_models[[m]] <- setNames(vector("list", length(strata)), strata)
-  for (z in strata) {
-    dat <- aggregate_continuous_resp %>%
-      filter(primary_metric == m, resp_support_category == z,
-             n_in_group>0)
+#First Do for Just 'Overall'
+for (m in names) {
+glm_models[[m]] <- setNames(vector("list", length(resp_strata)), resp_strata)  
+strata_levels <- metrics[[m]] 
+for (z in resp_strata) {
+    dat <- aggregate_categories_resp |>
+      filter(strata %in% metrics[[m]], 
+             resp_support_category == z,
+             n_in_group>0) |>
+      mutate(strata=factor(strata, levels = strata_levels, ordered=F))
 
     if (nrow(dat) == 0) {
       warning(sprintf("No rows for metric '%s' and stratum '%s'; skipping.", m, z))
@@ -4179,59 +4184,98 @@ for (m in metrics) {
     }
 
     fit <- glmmTMB(
-      prob_death28 ~ rcs(measure_value_5, 4) + (1 | site),
+      cbind(n_deathhosp28,  n_in_group - n_deathhosp28) ~ strata + (1 | site),
       data   = dat,
-      family = binomial(),
-      weights = n_in_group
+      family = binomial()
     )
 
     glm_models[[m]][[z]] <- fit
   }
 }
 
-set.seed(3982)
-if (!exists("roc_models") || is.null(roc_models)) roc_models <- list()
+#Put into Tidy Tables
+for (m in names(glm_models)) {
+  for (z in names(glm_models[[m]])) {
+      fit <- glm_models[[m]][[z]]
+        if (is.null(fit)) next
+          lbl <- paste(m, z, sep = "_") 
+out <- tryCatch({
+tidy_make(fit, lbl)
+}, error = function(e) {
+warning(sprintf("tidy_make failed for %s / %s: %s", m, z, e$message))
+return(NULL)
+})
+if (!is.null(out)) {
+# if tidy_make returns a data.frame, add identifying columns
+if (is.data.frame(out)) {
+out$metric <- m
+out$resp   <- z
+tidy_models_list[[lbl]] <- out
+} else {
+# if tidy_make returns something else, store it named
+all_tidy[[lbl]] <- out
+}
+}
+}
+}
 
-for (m in metrics) {
-  if (is.null(roc_models[[m]])) roc_models[[m]] <- list()
-  for (z in strata) {
-    this_glm <- glm_models[[m]][[z]]
-    if (is.null(this_glm)) {
+#Repeat Looping for ROC Analysis
+set.seed(3982)
+roc_models <- setNames(vector("list", length(names)), names)
+for (m in names(glm_models)) {
+  strata_levels <- metrics[[m]] 
+  for (z in resp_strata) {
+      fit <- glm_models[[m]][[z]]
+  if (is.null(fit)) {
       warning(sprintf("No fitted model for metric '%s' and stratum '%s'; skipping.", m, z))
       next
     }
 
-    # Use the same data that was used to fit
-    df <- aggregate_continuous_resp %>%
-      filter(primary_metric == m, resp_support_category == z,
-             n_in_group>0) %>%
+   lbl <- paste(m, z, sep = "_") 
+   # Use the same data that was used to fit
+    df <- aggregate_categories_resp %>%
+      filter(strata %in% c(strata_levels), 
+             resp_support_category == z,
+             n_in_group>0) |>
       mutate(
         deaths = n_deathhosp28,
-        survivors = n_in_group - deaths
+        survivors = n_in_group - deaths,
+        model_n=sum(n_in_group, na.rm=T)
       )
-    df$pred <- predict(this_glm, newdata = df, type = "response", re.form=NULL)
+    df$pred <-  predict(fit, newdata=df, type='response', re.form = NA)
 
     # Drop rows with missing predictions or zero total counts
     df <- df %>% filter(!is.na(pred), (deaths + survivors) > 0)
 
     # Expand aggregated counts: one row per individual
-    pos <- df %>%
-      transmute(label = 1, score = pred, w = deaths) %>%
-      tidyr::uncount(w)
-    neg <- df %>%
-      transmute(label = 0, score = pred, w = survivors) %>%
-      tidyr::uncount(w)
-    roc_df <- bind_rows(pos, neg)
+    deaths_df <- df |>
+      filter(deaths>0) |>
+      mutate(
+        n=deaths,
+        label=1L) |>
+      uncount(n) 
+    
+    survivors_df <- df |>
+      filter(survivors>0) |>
+      mutate(
+        n=survivors,
+        label=0L
+      ) |>
+      uncount(n)
+    
+    roc_df <- rowbind(deaths_df, survivors_df) |>
+      mutate(score=pred)
 
-    if (nrow(roc_df) == 0) {
+if (nrow(roc_df) == 0) {
       warning(sprintf("No data to compute ROC for metric '%s' and stratum '%s'; skipping.", m, z))
       next
     }
 
     roc_obj <- pROC::roc(response = roc_df$label, predictor = roc_df$score, quiet = TRUE)
     auc_val <- pROC::auc(roc_obj)
-    ci_val  <- as.numeric(pROC::ci.auc(roc_obj, method = "bootstrap", boot.n = BOOT_NUM, stratified = TRUE))
-    brier <- compute_weighted_brier(df, boot_n = BOOT_NUM)
+    ci_val  <- as.numeric(pROC::ci.auc(roc_obj, method = "bootstrap", boot.n = BOOT_NUM, boot.stratified = TRUE))
+    brier <- compute_weighted_brier(roc_df, cluster_col='site',
+                                    boot_n = BOOT_NUM)
     # Store both the ROC object and a small summary
     roc_models[[m]][[z]] <- list(
       roc = roc_obj,
@@ -4241,72 +4285,99 @@ for (m in metrics) {
     roc_table <- roc_table |>
       rowbind(data.frame(
         model = paste0(m, "_", z, "_subgroup"),
+        model_n_patients = df$model_n[1],
+        model_n_hospitals = NA_real_,
         auc   = round(as.numeric(auc_val), 3),
         ci_low = round(ci_val[1], 3),
         ci_hi  = round(ci_val[3], 3),
-        brier       = round(brier$value, 3),
-        brier_low   = round(brier$ci[1], 3),
-        brier_hi    = round(brier$ci[2], 3),
+        brier       = round(brier$value, 2),
+        brier_low   = round(brier$ci[1], 2),
+        brier_hi    = round(brier$ci[2], 2),
         comparison = NA_character_,
         p.value    = NA_real_
       ), fill=T
     )
   }
 }
+rm(roc_df)
 
-#Test and Then Add Comparisons to Table - Use IMV as Reference
-#First for SF
-test <- roc.test(roc_models$sf$imv$roc, 
-                 roc_models$sf$nippv$roc,
-                 method='bootstrap', boot.n=BOOT_NUM)
+#Test and Then Add Comparisons to Table
+get_roc_obj <- function(x) {
+  if (is.null(x)) return(NULL)
+  if (inherits(x, "roc")) return(x)
+  if (is.list(x) && inherits(x$roc, "roc")) return(x$roc)
+  return(NULL)
+}
+
+#Comparisons for Resp Support ROC Objects
+comparisons <- list(
+imv_vs_nippv = c("imv", "nippv"),
+imv_vs_hfnc  = c("imv", "high_flow_nc")
+)
+
+test_table <- setNames(vector("list", length(names)), names)
+for (m in names) {
+roc_entries <- roc_models[[m]]
+if (is.null(roc_entries) || !is.list(roc_entries)) {
+warning("Missing or invalid roc_models entry for metric: ", m)
+next
+}
+tests_for_metric <- list()
+for (cmp_name in names(comparisons)) {
+pair <- comparisons[[cmp_name]]
+roc_ref  <- get_roc_obj(roc_entries[[ pair[1] ]])  # "imv"
+roc_comp <- get_roc_obj(roc_entries[[ pair[2] ]])  # comparator
+
+if (is.null(roc_ref) || is.null(roc_comp)) {
+  warning(sprintf("Skipping %s %s: missing roc for %s or %s", m, cmp_name, pair[1], pair[2]))
+  tests_for_metric[[cmp_name]] <- NULL
+  next
+}
+
+tests_for_metric[[cmp_name]] <- tryCatch({
+  pROC::roc.test(roc_ref, roc_comp, method = "bootstrap", boot.n = BOOT_NUM)
+}, error = function(e) {
+  warning(sprintf("roc.test failed for %s %s: %s", m, cmp_name, e$message))
+  list(error = e$message)
+})
+}
+test_table[[m]] <- tests_for_metric
+}
+summary_rows <- do.call(rbind, lapply(names(test_table), function(m) {
+tests <- test_table[[m]]
+if (is.null(tests)) return(NULL)
+do.call(rbind, lapply(names(tests), function(cmp_name) {
+t <- tests[[cmp_name]]
+pval <- NA_real_
+if (!is.null(t) && inherits(t, "htest") && !is.null(t$p.value)) pval <- as.numeric(t$p.value)
+data.frame(metric = m, comparison = cmp_name, p.value = pval, stringsAsFactors = FALSE)
+}))
+}))
+rownames(summary_rows) <- NULL
+
+#Prepare for Merging
+summary_rows <- summary_rows |>
+  mutate(
+    model=fcase(
+      grepl('hifnc', comparison), paste0(metric, "_high_flow_nc_subgroup"),
+      grepl('imv', comparison), paste0(metric, "_nippv_subgroup")
+    )) |>
+  select(-metric)
+rm(test_table)
+
 #Add Data to Table
 roc_table <- roc_table |>
-  mutate(
-    comparison=fifelse(model=='sf_imv_subgroup', 'sf_imv_vs_nippv_hifnc', comparison),
-    p.value=fifelse(model=='sf_imv_subgroup', NA_real_, p.value),
-    comparison=fifelse(model=='sf_nippv_subgroup', 'sf_imv_vs_nippv_hifnc', comparison),
-    p.value=fifelse(model=='sf_nippv_subgroup', test$p.value, p.value)
-    )
+  left_join(summary_rows %>% select(model, new_p=p.value), by='model') |>
+  mutate(p.value=ifelse(is.na(p.value), new_p, p.value)) |>
+  select(-new_p)
 
-test <- roc.test(roc_models$sf$imv$roc, 
-                 roc_models$sf$high_flow_nc$roc,
-                 method='bootstrap', boot.n=BOOT_NUM)
-
-#Add Data to Table
-roc_table <- roc_table |>
-  mutate(
-    comparison=fifelse(model=='sf_high_flow_nc_subgroup', 'sf_imv_vs_nippv_hifnc', comparison),
-    p.value=fifelse(model=='sf_high_flow_nc_subgroup', test$p.value, p.value)
-    )
-
-#NOw for PF
-#Test and Then Add Comparisons to Table - Use IMV as Reference
-#First for SF
-test <- roc.test(roc_models$pf$imv$roc, 
-                 roc_models$pf$nippv$roc,
-                 method='bootstrap', boot.n=BOOT_NUM)
-#Add Data to Table
-roc_table <- roc_table |>
-  mutate(
-    comparison=fifelse(model=='pf_imv_subgroup', 'pf_imv_vs_nippv_hifnc', comparison),
-    p.value=fifelse(model=='pf_imv_subgroup', NA_real_, p.value),
-    comparison=fifelse(model=='pf_nippv_subgroup', 'pf_imv_vs_nippv_hifnc', comparison),
-    p.value=fifelse(model=='pf_nippv_subgroup', test$p.value, p.value)
-    )
-
-test <- roc.test(roc_models$pf$imv$roc, 
-                 roc_models$pf$high_flow_nc$roc,
-                 method='bootstrap', boot.n=BOOT_NUM)
-
-#Add Data to Table
-roc_table <- roc_table |>
-  mutate(
-    comparison=fifelse(model=='pf_high_flow_nc_subgroup', 'pf_imv_vs_nippv_hifnc', comparison),
-    p.value=fifelse(model=='pf_high_flow_nc_subgroup', test$p.value, p.value)
-    )
-
-write_csv(roc_table, file=paste0(project_location, '/tables/roc_table_summary.csv'))
 ```
+
+
+```{r Modesls with SF and PF Categories AND Measure Type And Support}
+
+```
+
 
 
 ```{r Plot Curves}
