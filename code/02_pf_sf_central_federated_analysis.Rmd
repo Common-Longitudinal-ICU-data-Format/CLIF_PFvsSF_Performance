@@ -11,7 +11,7 @@ project_location <- '~/Library/CloudStorage/OneDrive-JohnsHopkins/Research Proje
 #Which Sites Participated
 sites <- c("hopkins", "nu", "umn", "rush", 
            "ohsu", "ucmc", "emory", "penn",
-           "michigan")
+           "michigan", "mgb")
 
 if (!dir.exists(paste0(project_location, "/tables"))) {
   dir.create(paste0(project_location, "/tables"))
@@ -278,9 +278,10 @@ consort_table <- collate_tables('_consort_data.csv') |>
 write_csv(consort_table, paste0(project_location, '/tables/consort_by_site.csv'))
 
 consort_table <- consort_table |>
-  group_by(site) |>
   mutate(rn=dplyr::row_number()) |>
-  group_by(step) |>
+  dplyr::group_by(step, site) |>
+  dplyr::filter(dplyr::row_number()==1) |>
+  dplyr::group_by(step) |>
   summarise(
     included=sum(included, na.rm=T),
     excluded=sum(excluded, na.rm=T),
@@ -2660,8 +2661,25 @@ ggsave(
   path = paste0(project_location, '/graphs/'))
 ```
 
+
+```{r Function for Calculating Logistic Mixed ICC}
+icc_manual <- function(model, cluster_col = "site") {
+vc <- VarCorr(model)
+if (is.null(vc$cond)) stop("No conditional VarCorr found in model")
+vc_cond <- vc$cond
+if (!cluster_col %in% names(vc_cond)) {
+stop("Cluster column '", cluster_col, "' not found in VarCorr(model)$cond. Available: ",
+paste(names(vc_cond), collapse = ", "))
+}
+sigma2_u <- as.numeric(vc_cond[[cluster_col]][1])
+icc <- sigma2_u / (sigma2_u + (pi^2 / 3))
+round(icc, 4)
+}
+```
+
+
 ```{r Function for glmmTMB Tidyier}
-tidy_make <- function(mod, name) {
+tidy_make <- function(mod, name, cluster_col='site') {
   fixed <- broom.mixed::tidy(
     mod,
     effects = c("fixed"),
@@ -2680,7 +2698,10 @@ tidy_make <- function(mod, name) {
 
   dplyr::bind_rows(fixed, ranpars) |>
     dplyr::mutate(model = name) |>
-    dplyr::relocate(model, .before = effect)
+    dplyr::relocate(model, .before = effect) |>
+    dplyr::mutate(
+      icc=fifelse(effect=='ran_pars', icc_manual(mod, cluster_col), NA_real_)
+    )
 }
 
 ```
@@ -2733,7 +2754,7 @@ ggsave(
 #Start with Univariable and Hospital Random Effect
 pf_glm_linear <- glmmTMB(
   cbind(n_deathhosp28, n_in_group - n_deathhosp28) ~ 
-    rms::rcs(value, 4) + (1 | hospital_id),
+    rms::rcs(value, 4) + (1 | site),
   data = dplyr::filter(aggregate_continuous_hospital,
                        primary_metric == "pf",
                        variable == "measure_value_5"),
@@ -2744,7 +2765,7 @@ tidy_models_list[['pf_only']] <- tidy_make(pf_glm_linear, "PF Ratio - Continuous
 
 pf_glm_median <- glmmTMB(
  cbind(n_deathhosp28, n_in_group - n_deathhosp28) ~ 
-    rms::rcs(value, 4) + (1 | hospital_id),
+    rms::rcs(value, 4) + (1 | site),
 data   = dplyr::filter(aggregate_continuous_hospital, 
                        primary_metric == "pf" & 
                        variable=='median_measure_5'),
@@ -2854,7 +2875,7 @@ ggsave(
 #Run Random Effects Aggregate Logistic Regression for Death/Hospice by Day 28
 sf_glm_linear <- glmmTMB(
   cbind(n_deathhosp28, n_in_group - n_deathhosp28) ~ 
-    rms::rcs(value, 4) + (1 | hospital_id),
+    rms::rcs(value, 4) + (1 | site),
 data   = dplyr::filter(aggregate_continuous_hospital, 
                        primary_metric == "sf" &
                        variable=='measure_value_5'),
@@ -2866,7 +2887,7 @@ tidy_models_list$sf_only <- tidy_make(sf_glm_linear, 'SF-Continuous')
 #Now Median
 sf_glm_median <- glmmTMB(
   cbind(n_deathhosp28, n_in_group - n_deathhosp28) ~ 
-    rms::rcs(value, 4) + (1 | hospital_id),
+    rms::rcs(value, 4) + (1 | site),
 data   = dplyr::filter(aggregate_continuous_hospital, 
                        primary_metric == "sf" &
                        variable=='median_measure_5'),
@@ -3022,7 +3043,7 @@ expand_to_patients <- function(df) {
   }
  
   # Build list of columns to select
-  base_cols <- c("hospital_id", "site", "pred")
+  base_cols <- c("site", "pred")
   if (!is.null(group_col)) {
     select_cols <- c(base_cols, group_col)
   } else {
@@ -3045,20 +3066,7 @@ expand_to_patients <- function(df) {
 }
 ```
 
-```{r Function for Calculating Logistic Mixed ICC}
-icc_manual <- function(model, cluster_col = "hospital_id") {
-vc <- VarCorr(model)
-if (is.null(vc$cond)) stop("No conditional VarCorr found in model")
-vc_cond <- vc$cond
-if (!cluster_col %in% names(vc_cond)) {
-stop("Cluster column '", cluster_col, "' not found in VarCorr(model)$cond. Available: ",
-paste(names(vc_cond), collapse = ", "))
-}
-sigma2_u <- as.numeric(vc_cond[[cluster_col]][1])
-icc <- sigma2_u / (sigma2_u + (pi^2 / 3))
-round(icc, 4)
-}
-```
+
 
 ```{r AUROC and ROC Curves - Continuous Measures}
 roc_table <- data.frame()
@@ -3257,7 +3265,7 @@ aggregate_mortality_hospital <- collate_tables('_aggregate_by_o2cat_hospital.csv
 #Categorical
 pf_glm_o2_cat <- glmmTMB(
   cbind(n_deathhosp28, n_in_group - n_deathhosp28) ~
-    strata + (1 | hospital_id),
+    strata + (1 | site),
 data   = aggregate_mortality_hospital |> 
   dplyr::filter(strata %in%  pf_o2_cat,
                 analysis=='overall') |>
@@ -3270,7 +3278,7 @@ tidy_models_list[['pf_o2_cat']] <- tidy_make(pf_glm_o2_cat, "PF - O2Cat")
 #SOFA
 pf_glm_sofa_cat <- glmmTMB(
   cbind(n_deathhosp28, n_in_group - n_deathhosp28) ~ 
-    strata + (1 | hospital_id),
+    strata + (1 | site),
 data   = aggregate_mortality_hospital |> 
   dplyr::filter(strata %in%  pf_sofa,
                 analysis=='overall') |>
@@ -3284,7 +3292,7 @@ tidy_models_list[['pf_sofa_cat']] <- tidy_make(pf_glm_sofa_cat, "PF - SOFA")
 #SF Categories
 sf_glm_o2_cat <- glmmTMB(
   cbind(n_deathhosp28, n_in_group - n_deathhosp28) ~ 
-    strata + (1 | hospital_id),
+    strata + (1 | site),
 data   = aggregate_mortality_hospital |> 
   dplyr::filter(strata %in%  sf_o2_cat,
                 analysis == 'overall') |>
@@ -3298,7 +3306,7 @@ tidy_models_list[['sf_o2_cat']] <- tidy_make(sf_glm_o2_cat, "SF - O2Cat")
 #SOFA
 sf_glm_sofa_cat <- glmmTMB(
   cbind(n_deathhosp28, n_in_group - n_deathhosp28) ~ 
-    strata + (1 | hospital_id),
+    strata + (1 | site),
 data   = aggregate_mortality_hospital |> 
   dplyr::filter(strata %in%  sf_sofa,
                 analysis=='overall') |>
@@ -3309,7 +3317,7 @@ tidy_models_list[['sf_sofa']] <- tidy_make(sf_glm_sofa_cat, "SF - SOFA")
 
 #SF_and_PF O2 Cat
 sf_pf_glm_cat <- glmmTMB(
-  cbind(n_deathhosp28, n_in_group - n_deathhosp28) ~  strata + (1 | hospital_id),
+  cbind(n_deathhosp28, n_in_group - n_deathhosp28) ~  strata + (1 | site),
 data   = aggregate_mortality_hospital |> 
   dplyr::filter(strata %in%  sf_pf_o2_cat,
                 analysis=='sf_pf') |>
@@ -3321,7 +3329,7 @@ tidy_models_list[['sf_pf_o2cat']] <- tidy_make(sf_pf_glm_cat, "SF_PF - O2Cat")
 
 #SF_PF_Categorical: Contemporaneously Measured
 sf_pf_glm_cat_contemp <- glmmTMB(
-  cbind(n_deathhosp28, n_in_group - n_deathhosp28) ~ strata + (1 | hospital_id),
+  cbind(n_deathhosp28, n_in_group - n_deathhosp28) ~ strata + (1 | site),
 data   = aggregate_mortality_hospital |> 
   dplyr::filter(strata %in% sf_pf_o2_contemp_cat,
                 analysis=='sf_pf') |>
@@ -3333,7 +3341,7 @@ tidy_models_list[['sf_pf_o2cat_contemp']] <-
 
 #SF_PF_SOFA: Both Measured - Lowest of Each
 sf_pf_glm_sofa <- glmmTMB(
-  cbind(n_deathhosp28, n_in_group - n_deathhosp28) ~ strata + (1 | hospital_id),
+  cbind(n_deathhosp28, n_in_group - n_deathhosp28) ~ strata + (1 | site),
 data   = aggregate_mortality_hospital |> 
   dplyr::filter(strata %in% sf_pf_sofa,
                 analysis=='sf_pf') |>
@@ -3346,7 +3354,7 @@ tidy_models_list[['sf_pf_sofa']] <-
 
 #SF_PF_SOFA: Contemporaneously Measured
 sf_pf_glm_sofa_contemp <- glmmTMB(
-  cbind(n_deathhosp28, n_in_group - n_deathhosp28) ~ strata + (1 | hospital_id),
+  cbind(n_deathhosp28, n_in_group - n_deathhosp28) ~ strata + (1 | site),
 data   = aggregate_mortality_hospital |> 
   dplyr::filter(strata %in% sf_pf_sofa_contemp,
                 analysis=='sf_pf') |>
@@ -3720,7 +3728,7 @@ new_strata_o2 <- c(
 #Model with Both SF and PF Defined O2 Cat
 both_o2cat_glm <- glmmTMB(
   cbind(n_deathhosp28, n_in_group - n_deathhosp28) ~ 
-    new_strata + (1 | hospital_id),
+    new_strata + (1 | site),
   data = dplyr::filter(combined_model_df,
                       analysis=='overall',
                       strata_type=='o2_strata') |>
@@ -3776,7 +3784,7 @@ rm(roc_both_df_o2_cat)
 #Model with Both SF and PF Defined O2 Cat
 both_o2cat_type_glm <- glmmTMB(
   cbind(n_deathhosp28, n_in_group - n_deathhosp28) ~ 
-    new_strata + measure_type + (1 | hospital_id),
+    new_strata + measure_type + (1 | site),
   data = dplyr::filter(combined_model_df,
                       analysis=='overall',
                       strata_type=='o2_strata') |>
@@ -3833,7 +3841,7 @@ rm(roc_both_df_o2_cat)
 #######################
 both_sofa_glm <- glmmTMB(
   cbind(n_deathhosp28, n_in_group - n_deathhosp28) ~ 
-    new_strata + (1 | hospital_id),
+    new_strata + (1 | site),
   data = dplyr::filter(combined_model_df,
                       analysis=='overall',
                       strata_type=='sofa_strata') |>
@@ -3889,7 +3897,7 @@ rm(roc_both_df_sofa_cat)
 #Model with Both SF and PF Defined O2 Cat
 both_sofa_type_glm <- glmmTMB(
   cbind(n_deathhosp28, n_in_group - n_deathhosp28) ~ 
-    new_strata + measure_type + (1 | hospital_id),
+    new_strata + measure_type + (1 | site),
   data = dplyr::filter(combined_model_df,
                       analysis=='overall',
                       strata_type %in% c('sofa_strata')) |>
@@ -4144,6 +4152,9 @@ roc_table <- roc_table |>
   left_join(summary_df %>% select(model, new_p=p.value), by='model') |>
   mutate(p.value=ifelse(is.na(p.value), new_p, p.value)) |>
   select(-new_p)
+
+#Save ROC Models by Race
+roc_models_by_race <- roc_models
 ```
 
 
@@ -4371,14 +4382,15 @@ roc_table <- roc_table |>
   mutate(p.value=ifelse(is.na(p.value), new_p, p.value)) |>
   select(-new_p)
 
+#Save Roc Models by Resp
+roc_models_by_resp <- roc_models
+rm(roc_models)
 ```
 
 
 ```{r Modesls with SF and PF Categories AND Measure Type And Support}
---LEFT OFF HERE
-
 set.seed(3982)
-combined_model_df <- aggregate_categories_resp |>
+combined_model_df <- collate_tables('_aggregate_by_o2cat_resp_support.csv') |>
   mutate(
     new_strata=fcase(
       grepl('undefined', strata, ignore.case=T), 'undefined',
@@ -4400,7 +4412,13 @@ combined_model_df <- aggregate_categories_resp |>
     )
   ) |>
   filter(!is.na(new_strata),
-         !is.na(measure_type)) 
+         !is.na(measure_type),
+         variable=='death_hospice28',
+         level==1) |>
+  mutate(
+    n_in_group=n,
+    n_deathhosp28=freq
+  )
 new_strata_sofa <- c(
   'sofa0',
   'sofa1',
@@ -4422,14 +4440,16 @@ both_o2cat_resp <- glmmTMB(
     new_strata + factor(measure_type) + 
     factor(resp_support_category) + (1 | site),
   data = dplyr::filter(combined_model_df,
-                      strata_type=='o2_strata') |>
+                     strata %in% c(pf_o2_cat, sf_o2_cat),
+                     analysis=='overall') |>
          mutate(new_strata=factor(new_strata, levels = new_strata_o2, ordered=F)),
   family = binomial(link="logit")
 )
 tidy_models_list$'both_o2_cat_resp' <- tidy_make(both_o2cat_resp, 'Both_O2Cat_Resp_SF_PF')
 
 both_o2_cat <- combined_model_df %>%
- filter(strata_type=='o2_strata') |>
+ filter(strata %in% c(pf_o2_cat, sf_o2_cat),
+        analysis=='overall') |>
   distinct()
 both_o2_cat <- both_o2_cat |>
   mutate(pred = predict(both_o2cat_resp, newdata = both_o2_cat, type = "response", re.form = NA),
@@ -4439,24 +4459,33 @@ both_o2_cat <- both_o2_cat |>
          model_hospitals=length(unique(site))) |>
   filter(!is.na(pred), (deaths + survivors) > 0) 
 
-roc_both_df_o2_cat <- expand_to_patients(both_o2_cat) |>
-  left_join(both_o2_cat %>% select(strata, new_strata, measure_type, resp_support_category) %>% distinct(), by='strata') |>
-  select(-strata) |>
-  rename(strata=measure_type)
+roc_both_df_o2_cat <- both_o2_cat |>
+  mutate(
+    died=1
+  ) |>
+  uncount(weights=n_deathhosp28)
+alive <- both_o2_cat |>
+  mutate(
+    died=0) |>
+  uncount(weights=survivors) 
+roc_both_df_o2_cat <- roc_both_df_o2_cat |>
+  rowbind(alive, fill=T)
+rm(alive)
 
-roc_both_o2_cat <- roc(response = roc_both_df_o2_cat$label, 
-                       predictor = roc_both_df_o2_cat$score)
+roc_both_o2_cat <- roc(response = roc_both_df_o2_cat$died, 
+                       predictor = roc_both_df_o2_cat$pred)
+rm(roc_both_df_o2_cat)
 auc_both_cat <- auc(roc_both_o2_cat)
 ci_both_cat <- as.numeric(pROC::ci.auc(roc_both_o2_cat, method = "bootstrap", boot.n = BOOT_NUM, boot.stratified = TRUE))
 # Weighted Brier score + 95% CI via stratified multinomial bootstrap (aggregated df)
-brier_both_cat <- compute_weighted_brier(both_o2_cat, boot_n = BOOT_NUM)
+brier_both_cat <- compute_weighted_brier(both_o2_cat, boot_n = BOOT_NUM, cluster_col = 'site')
 #For Now Compare to the Best Performing Individual Categorical Model
-test <- roc.test(roc_sf_o2_cat, roc_both_o2_cat, method='bootstrap', boot.n=BOOT_NUM)
+#test <- roc.test(roc_sf_o2_cat, roc_both_o2_cat, method='bootstrap', boot.n=BOOT_NUM)
 
 roc_table <- bind_rows(
   roc_table,
   data.frame(
-  model = "SF and PF AND Resp Support and Type",
+  model = "SF and PF AND Resp Support and Type_O2 Cat",
   model_n_patients = both_o2_cat$model_n[1],
   model_n_hospitals = both_o2_cat$model_hospitals[1],
   auc = round(auc_both_cat, digits=3),
@@ -4465,186 +4494,83 @@ roc_table <- bind_rows(
   brier       = round(brier_both_cat$value, 3),
   brier_low   = round(brier_both_cat$ci[1], 3),
   brier_hi    = round(brier_both_cat$ci[2], 3),
-  comparison = "SF and PF O2 Cat vs SF O2 Cat",
-  p.value = test$p.value
+  comparison = NA_character_,
+  p.value = NA_real_
 ))
-rm(roc_both_df_o2_cat)
 
-#Now Model with BOth SF and PF Cat PLUS indicator of whether an SF or PF
-#Model with Both SF and PF Defined O2 Cat
-both_o2cat_type_glm <- glmmTMB(
-  cbind(n_deathhosp28, n_in_group - n_deathhosp28) ~ 
-    new_strata + measure_type + (1 | hospital_id),
-  data = dplyr::filter(combined_model_df,
-                      analysis=='overall',
-                      strata_type=='o2_strata') |>
-    mutate(new_strata=factor(new_strata, levels=new_strata_o2, ordered=F)),
-  family = binomial(link="logit")
-)
-tidy_models_list$'both_o2_cat_type' <- tidy_make(both_o2cat_type_glm, 'Both_O2Cat_MeasureType')
-
-both_o2_cat <- combined_model_df %>%
- filter(analysis=='overall',
-        strata_type=='o2_strata') |>
-  distinct()
-both_o2_cat <- both_o2_cat |>
-  mutate(pred = predict(both_o2cat_type_glm, newdata = both_o2_cat, type = "response", re.form = NA),
-         deaths = n_deathhosp28,
-         survivors = n_in_group - deaths,
-         model_n=sum(n_in_group, na.rm=T),
-         model_hospitals=length(unique(hospital_id))) |>
-  filter(!is.na(pred), (deaths + survivors) > 0) 
-
-roc_both_df_o2_cat <- expand_to_patients(both_o2_cat) |>
-  left_join(both_o2_cat %>% select(strata, new_strata, measure_type) %>% distinct(), by='strata') |>
-  select(-strata) |>
-  rename(strata=measure_type)
-
-roc_both_o2_cat_type <- roc(response = roc_both_df_o2_cat$label, 
-                       predictor = roc_both_df_o2_cat$score)
-auc_both_cat <- auc(roc_both_o2_cat_type)
-ci_both_cat <- as.numeric(pROC::ci.auc(roc_both_o2_cat_type, method = "bootstrap", boot.n = BOOT_NUM, boot.stratified = TRUE))
-# Weighted Brier score + 95% CI via stratified multinomial bootstrap (aggregated df)
-brier_both_cat <- compute_weighted_brier(both_o2_cat, boot_n = BOOT_NUM)
-#For Now Compare to the Best Performing Individual Categorical Model
-test <- roc.test(roc_both_o2_cat_type, roc_both_o2_cat, method='bootstrap', boot.n=BOOT_NUM)
-
-roc_table <- bind_rows(
-  roc_table,
-  data.frame(
-  model = "Overall_O2_Cat_Includes SF and PF_AND_MeasureType",
-  model_n_patients = both_o2_cat$model_n[1],
-  model_n_hospitals = both_o2_cat$model_hospitals[1],
-  auc = round(auc_both_cat, digits=3),
-  ci_low = round(ci_both_cat[1], digits=3),
-  ci_hi = round(ci_both_cat[3], digits=3),
-  brier       = round(brier_both_cat$value, 3),
-  brier_low   = round(brier_both_cat$ci[1], 3),
-  brier_hi    = round(brier_both_cat$ci[2], 3),
-  comparison = "SF and PF O2 Cat vs Adding Measure Type",
-  p.value = test$p.value
-))
-rm(roc_both_df_o2_cat)
 
 #######################
 ### Now Repeat for SOFA
 #######################
 both_sofa_glm <- glmmTMB(
   cbind(n_deathhosp28, n_in_group - n_deathhosp28) ~ 
-    new_strata + (1 | hospital_id),
+    new_strata + factor(measure_type) + 
+    factor(resp_support_category) + (1 | site),
   data = dplyr::filter(combined_model_df,
-                      analysis=='overall',
-                      strata_type=='sofa_strata') |>
-    mutate(new_strata=factor(new_strata, levels=new_strata_sofa, ordered=F)),
+                     strata %in% c(pf_sofa, sf_sofa),
+                     analysis=='overall') |>
+         mutate(new_strata=factor(new_strata, levels = new_strata_sofa, ordered=F)),
   family = binomial(link="logit")
 )
-tidy_models_list$'both_sofa_cat' <- tidy_make(both_sofa_glm, 'Both_SOFACat')
+tidy_models_list$'both_sofa_resp' <- tidy_make(both_o2cat_resp, 'Both_SOFA_Resp_SF_PF')
 
-both_sofa_cat <- combined_model_df %>%
- filter(analysis=='overall',
-        strata_type=='sofa_strata') |>
+both_sofa <- combined_model_df %>%
+ filter(strata %in% c(pf_sofa, sf_sofa),
+        analysis=='overall') |>
   distinct()
-both_sofa_cat <- both_sofa_cat |>
-  mutate(pred = predict(both_sofa_glm, newdata = both_sofa_cat, type = "response", re.form = NA),
+both_sofa <- both_sofa |>
+  mutate(pred = predict(both_sofa_glm, newdata = both_sofa, type = "response", re.form = NA),
          deaths = n_deathhosp28,
          survivors = n_in_group - deaths,
          model_n=sum(n_in_group, na.rm=T),
-         model_hospitals=length(unique(hospital_id))) |>
+         model_hospitals=length(unique(site))) |>
   filter(!is.na(pred), (deaths + survivors) > 0) 
 
-roc_both_df_sofa_cat <- expand_to_patients(both_sofa_cat) |>
-  left_join(both_sofa_cat %>% select(strata, new_strata, measure_type) %>% distinct(), by='strata') |>
-  select(-strata) |>
-  rename(strata=measure_type)
+roc_both_df_sofa <- both_sofa |>
+  mutate(
+    died=1
+  ) |>
+  uncount(weights=n_deathhosp28)
+alive <- both_sofa |>
+  mutate(
+    died=0) |>
+  uncount(weights=survivors) 
+roc_both_df_sofa <- roc_both_df_sofa |>
+  rowbind(alive, fill=T)
+rm(alive)
 
-roc_both_sofa_cat <- roc(response = roc_both_df_sofa_cat$label, 
-                       predictor = roc_both_df_sofa_cat$score)
-auc_both_cat <- auc(roc_both_sofa_cat)
-ci_both_cat <- as.numeric(pROC::ci.auc(roc_both_sofa_cat, method = "bootstrap", boot.n = BOOT_NUM, boot.stratified = TRUE))
+roc_both_sofa <- roc(response = roc_both_df_sofa$died, 
+                       predictor = roc_both_df_sofa$pred)
+rm(roc_both_df_sofa)
+auc_both_cat <- auc(roc_both_sofa)
+ci_both_cat <- as.numeric(pROC::ci.auc(roc_both_sofa, method = "bootstrap", boot.n = BOOT_NUM, boot.stratified = TRUE))
 # Weighted Brier score + 95% CI via stratified multinomial bootstrap (aggregated df)
-brier_both_cat <- compute_weighted_brier(both_sofa_cat, boot_n = BOOT_NUM)
+brier_both_cat <- compute_weighted_brier(both_sofa, boot_n = BOOT_NUM, cluster_col = 'site')
 #For Now Compare to the Best Performing Individual Categorical Model
-test <- roc.test(roc_sf_sofa_cat, roc_both_sofa_cat, method='bootstrap', boot.n=BOOT_NUM)
+test <- roc.test(roc_both_sofa, roc_both_o2_cat, method='bootstrap', boot.n=BOOT_NUM)
 
 roc_table <- bind_rows(
   roc_table,
   data.frame(
-  model = "Overall_SOFA_Cat_Includes SF and PF",
-  model_n_patients = both_sofa_cat$model_n[1],
-  model_n_hospitals = both_sofa_cat$model_hospitals[1],
+  model = "SF and PF AND Resp Support and Type_SOFA",
+  model_n_patients = both_sofa$model_n[1],
+  model_n_hospitals = both_sofa$model_hospitals[1],
   auc = round(auc_both_cat, digits=3),
   ci_low = round(ci_both_cat[1], digits=3),
   ci_hi = round(ci_both_cat[3], digits=3),
   brier       = round(brier_both_cat$value, 3),
   brier_low   = round(brier_both_cat$ci[1], 3),
   brier_hi    = round(brier_both_cat$ci[2], 3),
-  comparison = "SF and PF SOFA vs SF SOFA",
-  p.value = test$p.value
+  comparison = "SF Compared to PF SOFA vs O2 Cat",
+  p.value = as.numeric(test$p.value)
 ))
-rm(roc_both_df_sofa_cat)
-
-#Now Model with BOth SF and PF Cat PLUS indicator of whether an SF or PF
-#Model with Both SF and PF Defined O2 Cat
-both_sofa_type_glm <- glmmTMB(
-  cbind(n_deathhosp28, n_in_group - n_deathhosp28) ~ 
-    new_strata + measure_type + (1 | hospital_id),
-  data = dplyr::filter(combined_model_df,
-                      analysis=='overall',
-                      strata_type %in% c('sofa_strata')) |>
-      mutate(new_strata=factor(new_strata, level=new_strata_sofa, ordered=F)),
-  family = binomial(link="logit")
-)
-tidy_models_list$'both_sofa_type' <- tidy_make(both_sofa_type_glm, 'Both_SOFA_MeasureType')
-
-both_sofa_cat <- combined_model_df %>%
- filter(analysis=='overall',
-        strata_type=='sofa_strata') |>
-  distinct()
-both_sofa_cat <- both_sofa_cat |>
-  mutate(pred = predict(both_sofa_type_glm, newdata = both_sofa_cat, type = "response", re.form = NA),
-         deaths = n_deathhosp28,
-         survivors = n_in_group - deaths,
-         model_n=sum(n_in_group, na.rm=T),
-         model_hospitals=length(unique(hospital_id))) |>
-  filter(!is.na(pred), (deaths + survivors) > 0) 
-
-roc_both_df_sofa_cat_type <- expand_to_patients(both_sofa_cat) |>
-  left_join(both_sofa_cat %>% select(strata, new_strata, measure_type) %>% distinct(), by='strata') |>
-  select(-strata) |>
-  rename(strata=measure_type)
-
-roc_both_sofa_cat_type <- roc(response = roc_both_df_sofa_cat_type$label, 
-                       predictor = roc_both_df_sofa_cat_type$score)
-auc_both_cat <- auc(roc_both_sofa_cat_type)
-ci_both_cat <- as.numeric(pROC::ci.auc(roc_both_sofa_cat_type, method = "bootstrap", boot.n = BOOT_NUM, boot.stratified = TRUE))
-# Weighted Brier score + 95% CI via stratified multinomial bootstrap (aggregated df)
-brier_both_cat <- compute_weighted_brier(both_sofa_cat, boot_n = BOOT_NUM)
-#For Now Compare to the Best Performing Individual Categorical Model
-test <- roc.test(roc_both_sofa_cat_type, roc_both_sofa_cat, method='bootstrap', boot.n=BOOT_NUM)
-
-roc_table <- bind_rows(
-  roc_table,
-  data.frame(
-  model = "Overall_SOFA_Includes SF and PF_AND_MeasureType",
-  model_n_patients = both_sofa_cat$model_n[1],
-  model_n_hospitals = both_sofa_cat$model_hospitals[1],
-  auc = round(auc_both_cat, digits=3),
-  ci_low = round(ci_both_cat[1], digits=3),
-  ci_hi = round(ci_both_cat[3], digits=3),
-  brier       = round(brier_both_cat$value, 3),
-  brier_low   = round(brier_both_cat$ci[1], 3),
-  brier_hi    = round(brier_both_cat$ci[2], 3),
-  comparison = "SF and PF O2 Cat vs Adding Measure Type",
-  p.value = test$p.value
-))
-rm(roc_both_df_sofa_cat_type)
 ```
 
 ```{r Save Tidy Models and ROC Table}
 #Adjust P.Values for Multiple Comparisons in Both Tables
 tidy_all <- bind_rows(tidy_models_list) |>
   mutate(
-    p.adjust=round(as.numeric(p.adjust(p.value, method='BH')), 3),
+    p.adjust=round(as.numeric(p.adjust(p.value, method='BH')), 3), #Benjamini-Hochberg P-value Adjustment for Multiple Comparisons
     p.value=round(p.value, digits=3)) |>
   relocate(p.adjust, .after=p.value)
 write_csv(tidy_all, paste0(project_location, '/tables/tidy_logistic_models.csv'))
@@ -4668,15 +4594,15 @@ ggroc(overall_roc_curve) +
   scale_color_brewer(name="") +
   theme_minimal()
 ggsave(
-  filename='roc_overall.pdf',
+  filename='roc_overall_linear.pdf',
   plot=last_plot(),
   path = paste0(project_location, '/graphs/'))
 
 race_stratified_roc <- list(
-  'Black-S/F'=roc_models$sf$black$roc, 
-  'Non-Black-S/F'=roc_models$sf$not_black$roc,
-  'Black-P/F'=roc_models$pf$black$roc,
-  'Non-Black-P/F'=roc_models$pf$not_black$roc
+  'Black-P/F'=roc_models_by_race$pf_o2_cat$black$roc, 
+  'Non-Black-P/F'=roc_models_by_race$pf_o2_cat$not_black$roc,
+  'Black-S/F'=roc_models_by_race$sf_o2_cat$black$roc,
+  'Non-Black-S/F'=roc_models_by_race$sf_o2_cat$not_black$roc
 )
 ggroc(race_stratified_roc) +
   geom_abline(slope = 1, intercept = 1, linetype = "dashed") +
@@ -4684,41 +4610,97 @@ ggroc(race_stratified_roc) +
   scale_color_viridis_d(name="") +
   theme_minimal()
 ggsave(
-  filename='roc_race.pdf',
+  filename='roc_race_o2_cat.pdf',
   plot=last_plot(),
   path = paste0(project_location, '/graphs/'))
 
+#####Repeat RACE and SOFA ROC Curve
+race_stratified_roc <- list(
+  'Black-P/F'=roc_models_by_race$pf_sofa$black$roc, 
+  'Non-Black-P/F'=roc_models_by_race$pf_sofa$not_black$roc,
+  'Black-S/F'=roc_models_by_race$sf_sofa$black$roc,
+  'Non-Black-S/F'=roc_models_by_race$sf_sofa$not_black$roc
+)
+ggroc(race_stratified_roc) +
+  geom_abline(slope = 1, intercept = 1, linetype = "dashed") +
+  coord_equal() +
+  scale_color_viridis_d(name="") +
+  theme_minimal()
+ggsave(
+  filename='roc_race_sofa.pdf',
+  plot=last_plot(),
+  path = paste0(project_location, '/graphs/'))
+
+####################
+#RESPIRATORY SUPPORT
+####################
+
 resp_stratified_roc_sf <- list(
-  'IMV-S/F'=roc_models$sf$imv$roc, 
-  'NIPPV-S/F'=roc_models$sf$nippv$roc,
-  'HIFNC-S/F'=roc_models$sf$high_flow_nc$roc)
+  'IMV-S/F'=roc_models_by_resp$sf_o2_cat$imv$roc, 
+  'NIPPV-S/F'=roc_models_by_resp$sf_o2_cat$nippv$roc,
+  'HIFNC-S/F'=roc_models_by_resp$sf_o2_cat$high_flow_nc$roc)
 ggroc(resp_stratified_roc_sf) +
   geom_abline(slope = 1, intercept = 1, linetype = "dashed") +
   coord_equal() +
   scale_color_viridis_d(name="") +
   theme_minimal()
 ggsave(
-  filename='roc_resp_support_sf.pdf',
+  filename='roc_resp_support_sf_o2_cat.pdf',
   plot=last_plot(),
   path = paste0(project_location, '/graphs/'))
 
 resp_stratified_roc_pf <- list(
-  'IMV-P/F'=roc_models$pf$imv$roc, 
-  'NIPPV-P/F'=roc_models$pf$nippv$roc,
-  'HIFNC-P/F'=roc_models$pf$high_flow_nc$roc)
+  'IMV-P/F'=roc_models_by_resp$pf_o2_cat$imv$roc, 
+  'NIPPV-P/F'=roc_models_by_resp$pf_o2_cat$nippv$roc,
+  'HIFNC-P/F'=roc_models_by_resp$pf_o2_cat$high_flow_nc$roc)
 ggroc(resp_stratified_roc_pf) +
   geom_abline(slope = 1, intercept = 1, linetype = "dashed") +
   coord_equal() +
   scale_color_viridis_d(name="") +
   theme_minimal()
 ggsave(
-  filename='roc_resp_support_pf.pdf',
+  filename='roc_resp_support_pf_o2_cat.pdf',
+  plot=last_plot(),
+  path = paste0(project_location, '/graphs/'))
+
+################
+#Repeat for SOFA
+#################
+resp_stratified_roc_sf <- list(
+  'IMV-S/F'=roc_models_by_resp$sf_sofa$imv$roc, 
+  'NIPPV-S/F'=roc_models_by_resp$sf_sofa$nippv$roc,
+  'HIFNC-S/F'=roc_models_by_resp$sf_sofa$high_flow_nc$roc)
+ggroc(resp_stratified_roc_sf) +
+  geom_abline(slope = 1, intercept = 1, linetype = "dashed") +
+  coord_equal() +
+  scale_color_viridis_d(name="") +
+  theme_minimal()
+ggsave(
+  filename='roc_resp_support_sf_sofa.pdf',
+  plot=last_plot(),
+  path = paste0(project_location, '/graphs/'))
+
+resp_stratified_roc_pf <- list(
+  'IMV-P/F'=roc_models_by_resp$pf_sofa$imv$roc, 
+  'NIPPV-P/F'=roc_models_by_resp$pf_sofa$nippv$roc,
+  'HIFNC-P/F'=roc_models_by_resp$pf_sofa$high_flow_nc$roc)
+ggroc(resp_stratified_roc_pf) +
+  geom_abline(slope = 1, intercept = 1, linetype = "dashed") +
+  coord_equal() +
+  scale_color_viridis_d(name="") +
+  theme_minimal()
+ggsave(
+  filename='roc_resp_support_pf_sofa.pdf',
   plot=last_plot(),
   path = paste0(project_location, '/graphs/'))
 
 ```
 
 
+```{r PF and SF on Same Curve}
+
+
+```
 
 
 
@@ -4757,7 +4739,8 @@ ggplot(cal_bin, aes(x = pred_mean, y = obs_rate)) +
   theme_minimal()
 
 agg_df <- dat_pf |>
-  group_by(measure_value_5) |>
+  filter(variable=='measure_value_5') |>
+  group_by(value) |>
   summarise(
     pred_mean = weighted.mean(pred, n_in_group),
     events = sum(deaths),
@@ -4821,7 +4804,8 @@ ggplot(cal_bin, aes(x = pred_mean, y = obs_rate)) +
   theme_minimal()
 
 agg_df <- dat_sf |>
-  group_by(measure_value_5) |>
+  group_by(value) |>
+  filter(variable=='measure_value_5') |>
   summarise(
     pred_mean = weighted.mean(pred, n_in_group),
     events = sum(deaths),
@@ -4852,13 +4836,13 @@ ggsave(
   filename='calibration_sf_overall.pdf',
   plot=last_plot(),
   path = paste0(project_location, '/graphs/'))
-
 ```
 
-```{r Export Tidied Models and ROC Table}
-tidied_models <- rbindlist(tidy_models_list)
+```{r Meta-analysis of Proportional Odds models}
+cumulative_mods <- collate_tables('_proportional_odds_models.csv') |>
+  mutate(term = as.character(term)) |>
+  filter(!str_detect(term, "\\|"))
 
 ```
-
 
 
