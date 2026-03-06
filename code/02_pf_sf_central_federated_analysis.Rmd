@@ -11,7 +11,7 @@ project_location <- '~/Library/CloudStorage/OneDrive-JohnsHopkins/Research Proje
 #Which Sites Participated
 sites <- c("hopkins", "nu", "umn", "rush", 
            "ohsu", "ucmc", "emory", "penn",
-           "michigan", "mgb")
+           "michigan", "mgb", "ucsf")
 
 if (!dir.exists(paste0(project_location, "/tables"))) {
   dir.create(paste0(project_location, "/tables"))
@@ -961,17 +961,22 @@ sf_pf_graph <- collate_tables('_pf_sf_count_table.csv') |>
     strata = factor(strata, 
                     levels = c("Overall", "imv", "high_flow_nc", "nippv"),
                     labels = c("Overall", "IMV", "HFNO", "NIPPV")),
-    total=fifelse(variable=="# SpO2 with FiO2", count, NA_real_))
+    total=fifelse(variable=="# SpO2 with FiO2", count, NA_real_),
+    placement=fcase(
+      variable=='# Calculable SF (SPO2<=97%)' & strata %in% c('Overall', 'IMV'), count/2,
+      variable=='# Calculable SF (SPO2<=97%)' & strata %in% c('HFNO'), 100000,
+      variable=='# Calculable SF (SPO2<=97%)' & strata %in% c('NIPPV'), 250,
+      default=NA_real_))                                      
 
 #Now Plot
 ggplot(sf_pf_graph, aes(x = strata, y = count, fill = variable)) +
   geom_bar(stat = "identity") +
   geom_label(
-    aes(x = strata, y = n_eligible_spo2, 
+    aes(x = strata, y = placement, 
         label = paste0(round(spo2_with_sf * 100, 1), "%")),
     vjust = -0.5,
     inherit.aes = FALSE,
-    size = 3.5,
+    size = 2.5,
     fontface = "bold",
     fill = "white",
     label.size = 0.5,  # Border thickness
@@ -1092,7 +1097,7 @@ plot <- ggplot(quarter_admit_graph, aes(x=study_quarter, y=n_patients_quarter, f
                      name = 'Months-Year') +
   theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1, size = 4.75)) +
   scale_y_continuous(
-    breaks=seq(0, max_quarter_n, by=50),
+    breaks=seq(0, 4000, by=250),
     name = 'Number of Admissions') +
   scale_fill_viridis_d('CLIF Site')
 
@@ -1159,9 +1164,10 @@ hospital_types <- collate_tables('_hospital_categories.csv')
 
 #Merge with ABGs
 abgs_by_hospital <- abgs_by_hospital |>
-  left_join(hospital_types, by=c('hospital_id', 'site'))
+  full_join(hospital_types, by=c('hospital_id', 'site'))
 
 write_csv(abgs_by_hospital, paste0(project_location, '/tables/abgs_by_hospital.csv'))
+write_csv(hospital_types, paste0(project_location, '/tables/hospital_types.csv'))
   
 ```
 
@@ -4836,13 +4842,6 @@ ggsave(
   filename='calibration_sf_overall.pdf',
   plot=last_plot(),
   path = paste0(project_location, '/graphs/'))
-```
-
-```{r Meta-analysis of Proportional Odds models}
-cumulative_mods <- collate_tables('_proportional_odds_models.csv') |>
-  mutate(term = as.character(term)) |>
-  filter(!str_detect(term, "\\|"))
-
 ```
 
 

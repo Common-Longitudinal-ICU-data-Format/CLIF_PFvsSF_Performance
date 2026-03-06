@@ -7,31 +7,51 @@ consort_data <- read.csv(paste0(project_location, '/tables/consort_overall.csv')
 
 #Prepare Data
 consort_data <- consort_data |>
-  filter(!step=='N Encounters for Adults In Registry During Study Time Frame')
+  filter(!step=='N Encounters for Adults In Registry During Study Time Frame',
+         !step=='n, Undefined oxygenation (no eligible SF)')
 
 consort_labels <- consort_data %>%
   mutate(
     short_label = c(
-      "Admitted to Participating CLIF Hospital via ED",
+      "Admitted to Hospital via ED",
       "Respiratory Support >24h In First 7 Days",
-      "FiO2 Recorded",
-      "Tracheostomy Present On 1st Day of Mechanical Ventilation",
+      "FiO2 Recorded in 1st 24 Hours",
+      "No Tracheostomy at Vent Initiation",
       "Not Do-Not-Intubate",
       "Eligible PF/SF Ratios",
       "Respiratory Failure Before 2025",
-      "Eligible Encounters",
       "Final Cohort"
     ),
-    node_id = c("A", "B", "C", "D", "E", "F", "G", "H", "I"),
-    exc_id = c("EX0", "EX1", "EX2", "EX3", "EX4", "EX5", "EX6", "EX7", "EX8"),
+    node_id = c("A", "B", "C", "D", "E", "F", "G", "I"),
+    exc_id = c("EX0", "EX1", "EX2", "EX3", "EX4", "EX5", "EX6", "EX7"),
     included_fmt = format(included, big.mark = ","),
+    included_fmt=trimws(included_fmt),
     excluded_fmt = format(excluded, big.mark = ","),
+    excluded_fmt = trimws(excluded_fmt),
     label = paste0(short_label, "\nn=",included_fmt),
     exc_label = paste0("Excluded: n=",excluded_fmt),
     # Mark which are main flow vs exclusion criteria
     type = c("main", "main", "exclusion", "exclusion", "exclusion", 
-             "exclusion", "exclusion", "main", "main")
+             "exclusion", "exclusion", "main")
   )
+
+#Extra Row
+consort_extra <- consort_labels |>
+  filter(short_label=='Respiratory Failure Before 2025') |>
+  mutate(short_label = c("Eligible Encounters"),
+  node_id = c("H"),
+  exc_id = c("EX8"),
+  included_fmt = format(included, big.mark = ","),
+  included_fmt=trimws(included_fmt),
+  excluded_fmt = format(excluded, big.mark = ","),
+  excluded_fmt = trimws(excluded_fmt),
+  label = paste0(short_label, "\nn=",included_fmt),
+  exc_label = paste0("Excluded: n=",excluded_fmt),
+  # Mark which are main flow vs exclusion criteria
+  type = c("main")
+  )
+consort_labels <- consort_labels |>
+  rbind(consort_extra)
 
 # Main flow nodes (A, B, H, I)
 main_node_defs <- consort_labels %>%
