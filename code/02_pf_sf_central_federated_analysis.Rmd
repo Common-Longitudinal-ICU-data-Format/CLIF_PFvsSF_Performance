@@ -58,7 +58,8 @@ packages_to_load =
     "glmmTMB",
     "pROC",
     "rms",
-    "marginaleffects")
+    "marginaleffects",
+    "patchwork")
 options(dplyr.summarise.inform = FALSE)
 
 fn_install_if_mi = function(p) {
@@ -1552,7 +1553,7 @@ mortality_by_o2 <- collate_tables('_aggregate_by_o2cat.csv') |>
 aggregate_table_mortality <- mortality_by_o2 |>
   group_by(analysis, strata, variable, level) |>
   dplyr::reframe(
-    n_total=sum(n),
+    n_total=sum(n, na.rm=T),
     n_miss=sum(miss, na.rm=T),
     count=sum(freq,na.rm=T),
     percent=count/(n_total-n_miss)
@@ -1632,7 +1633,8 @@ strata_values <- c(
   'sf_pf_contemp-1',
   'sf_pf_contemp-2',
   'sf_pf_contemp-3',
-  'sf_pf_contemp-4'
+  'sf_pf_contemp-4',
+  'NA-undefined'
   )
 
 #Keep Long Form Table
@@ -1672,6 +1674,105 @@ table_mortality_paper <- readable_table(table_mortality_paper, strata_values, ha
 write_csv(table_mortality_paper, paste0(project_location, '/tables/table_o2cat_mortality.csv'))
 write_csv(table_mortality_long, paste0(project_location, '/tables/table_o2cat_mortality_long.csv'))
 ```
+```{r Mortality for PF and SF Groups Overall}
+table_mortality_overall <- table_mortality_long |>
+  filter(analysis=='overall') |>
+  mutate(group=fcase(
+    grepl('sf-', strata), 'sf',
+    grepl('pf-', strata), 'pf',
+    default=NA_character_
+  )) |>
+  filter(group %in% c('sf', 'pf'),
+         (grepl('not|mild|mod|severe', strata)),
+         variable=='death_hospice28') |>
+  summarise(
+    n_death=sum(count_mean, na.rm=T),
+    n_total=sum(n_total, na.rm=T),
+    percent=round((n_death/n_total), 3),
+    .by=c('group')
+  )
+
+prop_result <- prop.test(
+  x = c(
+    table_mortality_overall[1,2], table_mortality_overall[2,2]),           # number of deaths
+  n = c(
+    table_mortality_overall[1,3], table_mortality_overall[2,3]),          # total in each group
+  correct = FALSE                # no continuity correction (large n)
+)
+
+print(prop_result)
+
+table_mortality_overall <- table_mortality_overall |>
+  mutate(chi=prop_result$statistic,
+         p.value=round(prop_result$p.value, digits=4))
+write_csv(table_mortality_overall, paste0(project_location, '/tables/table_mortality_overall.csv'))
+```
+
+```{r MH Test Across Strata}
+tidy_table <- aggregate_table_mortality %>%
+  filter(strata %in% strata_values,
+         strata!='Overall', 
+         level==1) |> #Only Need 1 Level) 
+  mutate(label = paste0(percent(percent, accuracy = 0.1))) |>
+  separate(strata, into = c("strata","level"), sep = "-", remove = FALSE)
+
+
+cat_levels <- c("not_hypoxemic", "mild_hypoxemia", "moderate_hypoxemia", "severe_hypoxemia")
+tidy_table <- tidy_table |>
+  filter(
+    variable=='death_hospice28',
+    grepl('hypox', level)==T) |>
+  mutate(level = factor(level, levels = cat_levels))
+
+#SF vs PF O2 Cat
+chi_data <- tidy_table %>%
+  filter(analysis=='overall') |>
+  mutate(survived = n_total - count) %>%
+  pivot_longer(cols = c(count, survived), 
+               names_to = "outcome", 
+               values_to = "n")
+
+# 3-way table: strata × level × outcome
+cont_array <- xtabs(n ~ strata + level + outcome, data = chi_data)
+
+# Mantel-Haenszel test (tests for interaction/homogeneity)
+mh_result <- mantelhaen.test(cont_array)
+print(mh_result)
+
+table_mh_tests <- data.frame(
+  comparison='SFvsPF_O2Cat',
+  MH2=as.numeric(mh_result$statistic),
+  p.value=round(mh_result$p.value, 5)
+)
+
+#SF vs PF O2 Cat When Both SF and PF Measured
+chi_data <- tidy_table %>%
+  filter(
+    analysis=='sf_pf',
+    strata %in% c('pf', 'sf_pf_')) |>
+  mutate(survived = n_total - count) %>%
+  pivot_longer(cols = c(count, survived), 
+               names_to = "outcome", 
+               values_to = "n")
+
+# 3-way table: strata × level × outcome
+cont_array <- xtabs(n ~ strata + level + outcome, data = chi_data)
+
+# Mantel-Haenszel test (tests for interaction/homogeneity)
+mh_result <- mantelhaen.test(cont_array)
+print(mh_result)
+
+table_mh_tests <- rowbind(table_mh_tests,
+  data.frame(
+  comparison='SFvsPF_O2Cat_BothMeasured',
+  MH2=as.numeric(mh_result$statistic),
+  p.value=round(mh_result$p.value, 5)
+))
+
+write_csv(table_mh_tests, paste0(project_location, '/tables/table_mh_tests.csv'))
+```
+
+
 
 ```{r Mortality by O2 Category HeatMap}
 heat_map_o2_mortality <- aggregate_table_mortality %>%
@@ -2016,6 +2117,10 @@ heat_map_o2_mortality <- aggregate_mortality_race %>%
 
 #Order Hypoxemia Categories
 cat_levels <- c("not_hypoxemic", "mild_hypoxemia", "moderate_hypoxemia", "severe_hypoxemia")
+rn <- data.frame(
+  level=cat_levels
+) |>
+  mutate(rn=dplyr::row_number())
 heat_map_o2_cat <- heat_map_o2_mortality |>
   filter(
     variable=='death_hospice28',
@@ -2031,9 +2136,10 @@ level  = levels(level),
 strata = c("pf", "sf"),
 fill   = list(percent = NA_real_, label = "")
 ) |>
-ungroup()
+ungroup() |>
+  left_join(rn, by='level')
 
-ggplot(heat_map_o2_cat, aes(x = level, y = strata, fill = percent)) +
+ggplot(heat_map_o2_cat, aes(x = rn, y = strata, fill = percent)) +
   geom_tile(color = "white", width = 0.95, height = 0.95) +
   scale_fill_gradient2(name="",
     low = 'dodgerblue4',
@@ -2062,6 +2168,10 @@ ggsave(
 
 #Order Sofa Categories
 cat_levels <- c("0", "1", "2", "3", "4")
+rn <- data.frame(
+  level=cat_levels
+) |>
+  mutate(rn=dplyr::row_number())
 heat_map_sofa <- heat_map_o2_mortality |>
   filter(
     variable=='death_hospice28',
@@ -2075,9 +2185,10 @@ complete(
 level  = levels(level),
 strata = c("pf", "sf"),
 fill   = list(percent = NA_real_, label = "")) |>
-ungroup()
+ungroup() |>
+  left_join(rn, by='level')
 
-ggplot(heat_map_sofa, aes(x = level, y = strata, fill = percent)) +
+ggplot(heat_map_sofa, aes(x = rn, y = strata, fill = percent)) +
   geom_tile(color = "white", width = 0.95, height = 0.95) +
   scale_fill_gradient2(name="",
     low = 'dodgerblue4',
@@ -2109,6 +2220,10 @@ ggsave(
 ```{r Mortality Heat Map Stratified by Race for SF Both}
 #Order Hypoxemia Categories
 cat_levels <- c("not_hypoxemic", "mild_hypoxemia", "moderate_hypoxemia", "severe_hypoxemia")
+rn <- data.frame(
+  level=cat_levels
+) |>
+  mutate(rn=dplyr::row_number())
 heat_map_o2_cat <- heat_map_o2_mortality |>
   filter(
     variable=='death_hospice28',
@@ -2122,13 +2237,14 @@ complete(
 level  = levels(level),
 fill   = list(percent = NA_real_, label = "")
 ) |>
-ungroup()
+ungroup() |>
+  left_join(rn, by='level')
 
 heat_graph <- heat_map_o2_cat |>
   filter(
     analysis=='sf_pf',
     strata %in% c('sf_pf_', 'pf'))
-ggplot(heat_graph, aes(x = level, y = strata, fill = percent)) +
+ggplot(heat_graph, aes(x = rn, y = strata, fill = percent)) +
   geom_tile(color = "white", width = 0.95, height = 0.95) +
   scale_fill_gradient2(name="",
     low = 'dodgerblue4',
@@ -2158,6 +2274,10 @@ ggsave(
 #Order Sofa Categories
 #Order Sofa Categories
 cat_levels <- c("0", "1", "2", "3", "4")
+rn <- data.frame(
+  level=cat_levels
+) |>
+  mutate(rn=dplyr::row_number())
 heat_map_sofa <- heat_map_o2_mortality |>
   filter(
     variable=='death_hospice28',
@@ -2170,14 +2290,15 @@ complete(
 level  = levels(level),
 strata = c("pf", "sf"),
 fill   = list(percent = NA_real_, label = "")) |>
-ungroup()
+ungroup() |>
+  left_join(rn, by='level')
 
 heat_graph <- heat_map_sofa |>
   filter(
     analysis=='sf_pf',
     strata %in% c('sf_pf_', 'pf'))
 
-ggplot(heat_graph, aes(x = level, y = strata, fill = percent)) +
+ggplot(heat_graph, aes(x = rn, y = strata, fill = percent)) +
   geom_tile(color = "white", width = 0.95, height = 0.95) +
   scale_fill_gradient2(name="",
     low = 'dodgerblue4',
@@ -2209,7 +2330,7 @@ heat_graph <- heat_map_o2_cat |>
   filter(
     analysis=='sf_pf',
     strata %in% c('sf_pf_contemp', 'pf'))
-ggplot(heat_graph, aes(x = level, y = strata, fill = percent)) +
+ggplot(heat_graph, aes(x = rn, y = strata, fill = percent)) +
   geom_tile(color = "white", width = 0.95, height = 0.95) +
   scale_fill_gradient2(name="",
     low = 'dodgerblue4',
@@ -2242,7 +2363,7 @@ heat_graph <- heat_map_sofa |>
     analysis=='sf_pf',
     strata %in% c('sf_pf_contemp', 'pf'))
 
-ggplot(heat_graph, aes(x = level, y = strata, fill = percent)) +
+ggplot(heat_graph, aes(x = rn, y = strata, fill = percent)) +
   geom_tile(color = "white", width = 0.95, height = 0.95) +
   scale_fill_gradient2(name="",
     low = 'dodgerblue4',
@@ -2300,22 +2421,22 @@ mortality_tab_chi <- chisq_function(aggregate_mortality_resp) |>
 #Vector For Reordering Columns
 strata_values <- c(
   'Overall', 
+  'pf-not_hypoxemic',
   'pf-mild_hypoxemia', 
   'pf-moderate_hypoxemia', 
   'pf-severe_hypoxemia',
-  'pf-not_hypoxemic',
+  'sf-not_hypoxemic',
   'sf-mild_hypoxemia', 
   'sf-moderate_hypoxemia', 
   'sf-severe_hypoxemia',
-  'sf-not_hypoxemic',
+  'sf_pf_-not_hypoxemic',
   'sf_pf_-mild_hypoxemia', 
   'sf_pf_-moderate_hypoxemia', 
   'sf_pf_-severe_hypoxemia',
-  'sf_pf_-not_hypoxemic',
+  'sf_pf_contemp-not_hypoxemic',
   'sf_pf_contemp-mild_hypoxemia', 
   'sf_pf_contemp-moderate_hypoxemia', 
   'sf_pf_contemp-severe_hypoxemia',
-  'sf_pf_contemp-not_hypoxemic',
   'pf-0',
   'pf-1',
   'pf-2',
@@ -2400,13 +2521,20 @@ heat_map_o2_mortality <- aggregate_mortality_resp %>%
 
 #Order Hypoxemia Categories
 cat_levels <- c("not_hypoxemic", "mild_hypoxemia", "moderate_hypoxemia", "severe_hypoxemia")
+rn <- data.frame(
+  level=cat_levels
+) |>
+  mutate(
+    rn=dplyr::row_number()
+  )
 heat_map_o2_cat <- heat_map_o2_mortality |>
   filter(
     variable=='death_hospice28',
     grepl('hypox', level)==T,
     analysis=='overall') |>
   mutate(
-    level = factor(level, levels = cat_levels),
+    level = factor(level, 
+                   levels = cat_levels),
     resp_support_category  = factor(resp_support_category, 
                                     levels = c("high_flow_nc", "imv", "nippv"))
 ) |>
@@ -2417,37 +2545,100 @@ strata = c("pf", "sf"),
 fill   = list(percent = NA_real_, label = "")
 ) |>
 ungroup() |>
-  filter(percent!='NA')
+  filter(percent!='NA') |>
+  left_join(rn, by='level') |>
+  arrange(rn) 
 
-ggplot(heat_map_o2_cat, aes(x = level, y = strata, fill = percent)) +
+p_imv <- heat_map_o2_cat %>% 
+  filter(resp_support_category == "imv") %>%
+  arrange(rn) |> #THis was Fix to Get the Order of the Categories Right
+  ggplot(aes(x = rn, y = strata, fill = percent)) +
   geom_tile(color = "white", width = 0.95, height = 0.95) +
   scale_fill_gradient2(name="",
-    low = 'dodgerblue4',
-    mid = 'white',
-    high = 'firebrick2',
-    limits = c(0, max(heat_map_o2_cat$percent)),
-    midpoint = (max(heat_map_o2_cat$percent)/2),
-    breaks = c(0, max(heat_map_o2_cat$percent)),
-    labels = c('Lower', 'Higher')      # no labels on colorbar
-  ) +
+                       low = 'dodgerblue4', mid = 'white', high = 'firebrick2',
+                       limits = c(0, max(heat_map_o2_cat$percent)),
+                       midpoint = (max(heat_map_o2_cat$percent)/2),
+                       breaks = c(0, max(heat_map_o2_cat$percent)),
+                       labels = c('Lower', 'Higher')) +
   scale_y_discrete(name='', labels = c('PaO2/FiO2 Defined', 'SpO2/FiO2 Defined')) +
   scale_x_discrete(name='',
-                   labels = c('Not\nHypoxemic', 'Mild\nHypoxemia', 'Moderate\nHypoxemia', 'Severe\nHypoxemia')) +
+                   labels = c('Not\nHypoxemic', 'Mild\n', 'Moderate\n', 'Severe\n')) +
   geom_text(aes(label = label), size = 3, fontface='bold') +
-  coord_equal() + 
-  facet_grid(. ~ resp_support_category, labeller = ggplot2::as_labeller(c(imv = "IMV", high_flow_nc = "HIFNC", nippv="NIPPV"))) +
-  facet_wrap(vars(resp_support_category), ncol=2) +
-  labs(x = "Hypoxemia Severity Category", 
-       title = paste0("Death or Hospice by Day 28, (n=",sum(heat_map_o2_cat$n_total, na.rm=T), ')'),
-       size=4) +
-  theme_minimal()
+  coord_equal() +
+  labs(title = paste0("IMV (n=", sum(heat_map_o2_cat$n_total[heat_map_o2_cat$resp_support_category=='imv'], na.rm=T), ')')) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(size = 8),
+    axis.title.x = element_text(size = 10),
+    plot.title = element_text(size = 10)
+  )
+
+p_hifnc <- heat_map_o2_cat %>% 
+  filter(resp_support_category == "high_flow_nc") %>%
+  arrange(rn) |> #THis was Fix to Get the Order of the Categories Right
+  ggplot(aes(x = rn, y = strata, fill = percent)) +
+  geom_tile(color = "white", width = 0.95, height = 0.95) +
+  scale_fill_gradient2(name="",
+                       low = 'dodgerblue4', mid = 'white', high = 'firebrick2',
+                       limits = c(0, max(heat_map_o2_cat$percent)),
+                       midpoint = (max(heat_map_o2_cat$percent)/2),
+                       breaks = c(0, max(heat_map_o2_cat$percent)),
+                       labels = c('Lower', 'Higher')) +
+  scale_y_discrete(name='', labels = c('PaO2/FiO2 Defined', 'SpO2/FiO2 Defined')) +
+  scale_x_discrete(name='',
+                   labels = c('Not\nHypoxemic', 'Mild\n', 'Moderate\n', 'Severe\n')) +
+  geom_text(aes(label = label), size = 3, fontface='bold') +
+  coord_equal() +
+  labs(title = paste0("HIFNC (n=", sum(heat_map_o2_cat$n_total[heat_map_o2_cat$resp_support_category=='high_flow_nc'], na.rm=T), ')')) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(size = 8),
+    axis.title.x = element_text(size = 10),
+    plot.title = element_text(size = 10)
+  )
+
+p_nippv <- heat_map_o2_cat %>% 
+  filter(resp_support_category == "nippv") %>%
+  arrange(rn) |> #THis was Fix to Get the Order of the Categories Right
+  ggplot(aes(x = rn, y = strata, fill = percent)) +
+  geom_tile(color = "white", width = 0.95, height = 0.95) +
+  scale_fill_gradient2(name="",
+                       low = 'dodgerblue4', mid = 'white', high = 'firebrick2',
+                       limits = c(0, max(heat_map_o2_cat$percent)),
+                       midpoint = (max(heat_map_o2_cat$percent)/2),
+                       breaks = c(0, max(heat_map_o2_cat$percent)),
+                       labels = c('Lower', 'Higher')) +
+  scale_y_discrete(name='', labels = c('PaO2/FiO2 Defined', 'SpO2/FiO2 Defined')) +
+  scale_x_discrete(name='Hypoxemia Severity Category',
+                   labels = c('Not\nHypoxemic', 'Mild\n', 'Moderate\n', 'Severe\n')) +
+  geom_text(aes(label = label), size = 3, fontface='bold') +
+  coord_equal() +
+  labs(title = paste0("NIPPV (n=", sum(heat_map_o2_cat$n_total[heat_map_o2_cat$resp_support_category=='nippv'], na.rm=T), ')')) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(size = 8),
+    plot.title = element_text(size = 10)
+  )
+
+
+# Arrange: 
+(p_imv / p_hifnc/ p_nippv)  +
+  plot_layout(guides = 'collect')
 ggsave(
   filename='o2_category_mortality_resp_support.pdf',
   plot=last_plot(),
-  path = paste0(project_location, '/graphs/'))
+  path = paste0(project_location, '/graphs/'),
+  device=cairo_pdf(),
+  height=12,
+  width=8,
+  units='in')
 
 #Order Sofa Categories
 cat_levels <- c("0", "1", "2", "3", "4")
+rn <- data.frame(
+  level=cat_levels
+) |>
+  mutate(rn=dplyr::row_number())
 heat_map_sofa <- heat_map_o2_mortality |>
   filter(
     variable=='death_hospice28',
@@ -2464,43 +2655,102 @@ strata = c("pf", "sf"),
 fill   = list(percent = NA_real_, label = "")
 ) |>
 ungroup() |>
-  filter(percent!='NA')
+  filter(percent!='NA') |>
+arrange(level) |>
+left_join(rn, by='level')
 
 heat_graph <- heat_map_sofa |>
   filter(analysis=='overall')
-ggplot(heat_graph, aes(x = level, y = strata, fill = percent)) +
+# Create individual plots for each facet
+p_imv <- heat_graph %>% filter(resp_support_category == "imv") %>%
+  arrange(rn) |>
+  ggplot(aes(x = rn, y = strata, fill = percent)) +
   geom_tile(color = "white", width = 0.95, height = 0.95) +
   scale_fill_gradient2(name="",
-    low = 'dodgerblue4',
-    mid = 'white',
-    high = 'firebrick2',
-    limits = c(0, max(heat_graph$percent)),
-    midpoint = (max(heat_graph$percent)/2),
-    breaks = c(0, max(heat_graph$percent)),
-    labels = c('Lower', 'Higher')      # no labels on colorbar
-  ) +
+                       low = 'dodgerblue4', mid = 'white', high = 'firebrick2',
+                       limits = c(0, max(heat_graph$percent)),
+                       midpoint = (max(heat_graph$percent)/2),
+                       breaks = c(0, max(heat_graph$percent)),
+                       labels = c('Lower', 'Higher')) +
   scale_y_discrete(name='', labels = c('PaO2/FiO2 Defined', 'SpO2/FiO2 Defined')) +
-  scale_x_discrete(name='SOFA-2 Respiratory Score',
-                   labels = c('0', '1', '2', '3', '4')) +
+  scale_x_discrete(name='', labels = c('0', '1', '2', '3', '4')) +
   geom_text(aes(label = label), size = 3, fontface='bold') +
   coord_equal() +
-  facet_grid(. ~ resp_support_category, labeller = ggplot2::as_labeller(c(imv = "IMV", high_flow_nc = "HIFNC", nippv="NIPPV"))) +
-  facet_wrap(vars(resp_support_category), ncol=2) +
-  labs(x = "Hypoxemia Severity Category", 
-       title = paste0("Death or Hospice by Day 28, (n=",sum(heat_graph$n_total, na.rm=T), ')'),
-       fontface='bold',
-       size=4) +
-  theme_minimal()
+  labs(title = paste0("IMV (n=", sum(heat_graph$n_total[heat_graph$resp_support_category=='imv'], na.rm=T), ')'), size=3) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(size = 8),
+    axis.title.x = element_text(size = 10),
+    plot.title = element_text(size = 10)
+  )
+
+p_hifnc <- heat_graph %>% filter(resp_support_category == "high_flow_nc") %>%
+  arrange(rn) |>
+  ggplot(aes(x = rn, y = strata, fill = percent)) +
+  geom_tile(color = "white", width = 0.95, height = 0.95) +
+  scale_fill_gradient2(name="",
+                       low = 'dodgerblue4', mid = 'white', high = 'firebrick2',
+                       limits = c(0, max(heat_graph$percent)),
+                       midpoint = (max(heat_graph$percent)/2),
+                       breaks = c(0, max(heat_graph$percent)),
+                       labels = c('Lower', 'Higher')) +
+  scale_y_discrete(name='', labels = c('PaO2/FiO2 Defined', 'SpO2/FiO2 Defined')) +
+  scale_x_discrete(name='', labels = c('0', '1', '2', '3', '4')) +
+  geom_text(aes(label = label), size = 3, fontface='bold') +
+  coord_equal() +
+  labs(title = paste0("HIFNC (n=", sum(heat_graph$n_total[heat_graph$resp_support_category=='high_flow_nc'], na.rm=T), ')')) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(size = 8),
+    axis.title.x = element_text(size = 10),
+    plot.title = element_text(size = 10)
+  )
+
+p_nippv <- heat_graph %>% filter(resp_support_category == "nippv") %>%
+  arrange(rn) |>
+  ggplot(aes(x = rn, y = strata, fill = percent)) +
+  geom_tile(color = "white", width = 0.95, height = 0.95) +
+  scale_fill_gradient2(name="",
+                       low = 'dodgerblue4', mid = 'white', high = 'firebrick2',
+                       limits = c(0, max(heat_graph$percent)),
+                       midpoint = (max(heat_graph$percent)/2),
+                       breaks = c(0, max(heat_graph$percent)),
+                       labels = c('Lower', 'Higher')) +
+  scale_y_discrete(name='', labels = c('PaO2/FiO2 Defined', 'SpO2/FiO2 Defined')) +
+  scale_x_discrete(name='SOFA-2 Score', labels = c('0', '1', '2', '3', '4')) +
+  geom_text(aes(label = label), size = 3, fontface='bold') +
+  coord_equal() +
+  labs(title = paste0("NIPPV (n=", sum(heat_graph$n_total[heat_graph$resp_support_category=='nippv'], na.rm=T), ')')) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(size = 8),
+    axis.title.x = element_text(size = 10),
+    plot.title = element_text(size = 10)
+  )
+
+# Arrange: 2 on top, 1 centered below
+(p_imv / p_hifnc/ p_nippv)  +
+  plot_layout(guides = 'collect')
+
 ggsave(
   filename='o2_sofa_mortality_resp.pdf',
   plot=last_plot(),
-  path = paste0(project_location, '/graphs/'))
+  path = paste0(project_location, '/graphs/'),
+  device=cairo_pdf(),
+  height=12,
+  width=8,
+  units='in')
 
 ```
+
 
 ```{r Repeat Respiratory Stratified Heat Map with SF Both}
 #Order Hypoxemia Categories
 cat_levels <- c("not_hypoxemic", "mild_hypoxemia", "moderate_hypoxemia", "severe_hypoxemia")
+rn <- data.frame(
+  level=cat_levels
+) |>
+  mutate(rn=dplyr::row_number())
 heat_map_o2_cat <- heat_map_o2_mortality |>
   filter(
     variable=='death_hospice28',
@@ -2517,41 +2767,100 @@ strata = c("pf", "sf"),
 fill   = list(percent = NA_real_, label = "")
 ) |>
 ungroup() |>
-  filter(percent!='NA')
+  filter(percent!='NA') |>
+left_join(rn, by='level')
 
 heat_graph <- heat_map_o2_cat |>
   filter(
     analysis=='sf_pf',
     strata %in% c('sf_pf_', 'pf'))
-ggplot(heat_graph, aes(x = level, y = strata, fill = percent)) +
+p_imv <- heat_graph %>% 
+  filter(resp_support_category == "imv") %>%
+  ggplot(aes(x = rn, y = strata, fill = percent)) +
   geom_tile(color = "white", width = 0.95, height = 0.95) +
   scale_fill_gradient2(name="",
-    low = 'dodgerblue4',
-    mid = 'white',
-    high = 'firebrick2',
-    limits = c(0, max(heat_graph$percent)),
-    midpoint = (max(heat_graph$percent)/2),
-    breaks = c(0, max(heat_graph$percent)),
-    labels = c('Lower', 'Higher')      # no labels on colorbar
-  ) +
+                       low = 'dodgerblue4', mid = 'white', high = 'firebrick2',
+                       limits = c(0, max(heat_map_o2_cat$percent)),
+                       midpoint = (max(heat_map_o2_cat$percent)/2),
+                       breaks = c(0, max(heat_map_o2_cat$percent)),
+                       labels = c('Lower', 'Higher')) +
   scale_y_discrete(name='', labels = c('PaO2/FiO2 Defined', 'SpO2/FiO2 Defined')) +
   scale_x_discrete(name='',
-                   labels = c('Not\nHypoxemic', 'Mild\nHypoxemia', 'Moderate\nHypoxemia', 'Severe\nHypoxemia')) +
+                   labels = c('Not\nHypoxemic', 'Mild\n', 'Moderate\n', 'Severe\n')) +
   geom_text(aes(label = label), size = 3, fontface='bold') +
   coord_equal() +
-  facet_grid(. ~ resp_support_category, labeller = ggplot2::as_labeller(c(imv = "IMV", high_flow_nc = "HIFNC", nippv="NIPPV"))) +
-  facet_wrap(vars(resp_support_category), ncol=2) +
-labs(x = "Hypoxemia Severity Category", 
-       title = paste0("Death or Hospice by Day 28, (n=",sum(heat_graph$n_total[heat_graph$strata=='pf'], na.rm=T), ')\nPatients with SF and PF'),
-       size=4) +
-  theme_minimal()
+  labs(title = paste0("IMV (n=", sum(heat_graph$n_total[heat_graph$resp_support_category=='imv' & heat_graph$strata=='pf'], na.rm=T), ')')) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(size = 8),
+    axis.title.x = element_text(size = 10),
+    plot.title = element_text(size = 10)
+  )
+
+p_hifnc <- heat_graph %>% 
+  filter(resp_support_category == "high_flow_nc") %>%
+  ggplot(aes(x = rn, y = strata, fill = percent)) +
+  geom_tile(color = "white", width = 0.95, height = 0.95) +
+  scale_fill_gradient2(name="",
+                       low = 'dodgerblue4', mid = 'white', high = 'firebrick2',
+                       limits = c(0, max(heat_map_o2_cat$percent)),
+                       midpoint = (max(heat_map_o2_cat$percent)/2),
+                       breaks = c(0, max(heat_map_o2_cat$percent)),
+                       labels = c('Lower', 'Higher')) +
+  scale_y_discrete(name='', labels = c('PaO2/FiO2 Defined', 'SpO2/FiO2 Defined')) +
+  scale_x_discrete(name='',
+                   labels = c('Not\nHypoxemic', 'Mild\n', 'Moderate\n', 'Severe\n')) +
+  geom_text(aes(label = label), size = 3, fontface='bold') +
+  coord_equal() +
+  labs(title = paste0("HIFNC (n=", sum(heat_graph$n_total[heat_graph$resp_support_category=='high_flow_nc' & heat_graph$strata=='pf'], na.rm=T), ')')) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(size = 8),
+    axis.title.x = element_text(size = 10),
+    plot.title = element_text(size = 10)
+  )
+
+p_nippv <- heat_graph %>% 
+  filter(resp_support_category == "nippv") %>%
+  ggplot(aes(x = rn, y = strata, fill = percent)) +
+  geom_tile(color = "white", width = 0.95, height = 0.95) +
+  scale_fill_gradient2(name="",
+                       low = 'dodgerblue4', mid = 'white', high = 'firebrick2',
+                       limits = c(0, max(heat_map_o2_cat$percent)),
+                       midpoint = (max(heat_map_o2_cat$percent)/2),
+                       breaks = c(0, max(heat_map_o2_cat$percent)),
+                       labels = c('Lower', 'Higher')) +
+  scale_y_discrete(name='', labels = c('PaO2/FiO2 Defined', 'SpO2/FiO2 Defined')) +
+  scale_x_discrete(name='Hypoxemia Severity Category',
+                   labels = c('Not\nHypoxemic', 'Mild\n', 'Moderate\n', 'Severe\n')) +
+  geom_text(aes(label = label), size = 3, fontface='bold') +
+  coord_equal() +
+  labs(title = paste0("NIPPV (n=", sum(heat_graph$n_total[heat_graph$resp_support_category=='nippv' & heat_graph$strata=='pf'], na.rm=T), ')')) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(size = 8),
+    plot.title = element_text(size = 10)
+  )
+
+
+# Arrange: 2 on top, 1 centered below
+(p_imv / p_hifnc/ p_nippv)  +
+  plot_layout(guides = 'collect')
 ggsave(
   filename='o2_category_mortality_resp_support_sf_pf.pdf',
   plot=last_plot(),
-  path = paste0(project_location, '/graphs/'))
+  path = paste0(project_location, '/graphs/'),
+  device=cairo_pdf(),
+  height=12,
+  width=8,
+  units='in')
 
 #Order Sofa Categories
 cat_levels <- c("0", "1", "2", "3", "4")
+rn <- data.frame(
+  level=cat_levels
+) |>
+  mutate(rn=dplyr::row_number())
 heat_map_sofa <- heat_map_o2_mortality |>
   filter(
     variable=='death_hospice28',
@@ -2568,38 +2877,91 @@ strata = c("pf", "sf"),
 fill   = list(percent = NA_real_, label = "")
 ) |>
 ungroup() |>
-  filter(percent!='NA')
+  filter(percent!='NA') |>
+  left_join(rn, by='level')
 
 heat_graph <- heat_map_sofa |>
   filter(
     analysis=='sf_pf',
     strata %in% c('sf_pf_', 'pf'))
-ggplot(heat_graph, aes(x = level, y = strata, fill = percent)) +
+
+# Create individual plots for each facet
+p_imv <- heat_graph %>% filter(resp_support_category == "imv") %>%
+  ggplot(aes(x = rn, y = strata, fill = percent)) +
   geom_tile(color = "white", width = 0.95, height = 0.95) +
   scale_fill_gradient2(name="",
-    low = 'dodgerblue4',
-    mid = 'white',
-    high = 'firebrick2',
-    limits = c(0, max(heat_graph$percent)),
-    midpoint = (max(heat_graph$percent)/2),
-    breaks = c(0, max(heat_graph$percent)),
-    labels = c('Lower', 'Higher')      # no labels on colorbar
-  ) +
+                       low = 'dodgerblue4', mid = 'white', high = 'firebrick2',
+                       limits = c(0, max(heat_graph$percent)),
+                       midpoint = (max(heat_graph$percent)/2),
+                       breaks = c(0, max(heat_graph$percent)),
+                       labels = c('Lower', 'Higher')) +
   scale_y_discrete(name='', labels = c('PaO2/FiO2 Defined', 'SpO2/FiO2 Defined')) +
-  scale_x_discrete(name='SOFA-2 Respiratory Score',
-                   labels = c('0', '1', '2', '3', '4')) +
+  scale_x_discrete(name='', labels = c('0', '1', '2', '3', '4')) +
   geom_text(aes(label = label), size = 3, fontface='bold') +
   coord_equal() +
-  facet_grid(. ~ resp_support_category, labeller = ggplot2::as_labeller(c(imv = "IMV", high_flow_nc = "HIFNC", nippv="NIPPV"))) +
-  facet_wrap(vars(resp_support_category), ncol=2) +
-  labs(x = "Hypoxemia Severity Category", 
-       title = paste0("Death or Hospice by Day 28, (n=",sum(heat_graph$n_total[heat_graph$strata=='pf'], na.rm=T), ')\nPatients with SF and PF'),
-       size=4) +
-  theme_minimal()
+  labs(title = paste0("IMV (n=", sum(heat_graph$n_total[heat_graph$resp_support_category=='imv' & heat_graph$strata=='pf'], na.rm=T), ')'), size=3) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(size = 8),
+    axis.title.x = element_text(size = 10),
+    plot.title = element_text(size = 10)
+  )
+
+p_hifnc <- heat_graph %>% filter(resp_support_category == "high_flow_nc") %>%
+  ggplot(aes(x = rn, y = strata, fill = percent)) +
+  geom_tile(color = "white", width = 0.95, height = 0.95) +
+  scale_fill_gradient2(name="",
+                       low = 'dodgerblue4', mid = 'white', high = 'firebrick2',
+                       limits = c(0, max(heat_graph$percent)),
+                       midpoint = (max(heat_graph$percent)/2),
+                       breaks = c(0, max(heat_graph$percent)),
+                       labels = c('Lower', 'Higher')) +
+  scale_y_discrete(name='', labels = c('PaO2/FiO2 Defined', 'SpO2/FiO2 Defined')) +
+  scale_x_discrete(name='', labels = c('0', '1', '2', '3', '4')) +
+  geom_text(aes(label = label), size = 3, fontface='bold') +
+  coord_equal() +
+  labs(title = paste0("HIFNC (n=", sum(heat_graph$n_total[heat_graph$resp_support_category=='high_flow_nc'  &
+                                                            heat_graph$strata=='pf'], na.rm=T), ')')) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(size = 8),
+    axis.title.x = element_text(size = 10),
+    plot.title = element_text(size = 10)
+  )
+
+p_nippv <- heat_graph %>% filter(resp_support_category == "nippv") %>%
+  ggplot(aes(x = rn, y = strata, fill = percent)) +
+  geom_tile(color = "white", width = 0.95, height = 0.95) +
+  scale_fill_gradient2(name="",
+                       low = 'dodgerblue4', mid = 'white', high = 'firebrick2',
+                       limits = c(0, max(heat_graph$percent)),
+                       midpoint = (max(heat_graph$percent)/2),
+                       breaks = c(0, max(heat_graph$percent)),
+                       labels = c('Lower', 'Higher')) +
+  scale_y_discrete(name='', labels = c('PaO2/FiO2 Defined', 'SpO2/FiO2 Defined')) +
+  scale_x_discrete(name='SOFA-2 Score', labels = c('0', '1', '2', '3', '4')) +
+  geom_text(aes(label = label), size = 3, fontface='bold') +
+  coord_equal() +
+  labs(title = paste0("NIPPV (n=", sum(heat_graph$n_total[heat_graph$resp_support_category=='nippv' &
+                                                            heat_graph$strata=='pf'], na.rm=T), ')')) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(size = 8),
+    axis.title.x = element_text(size = 10),
+    plot.title = element_text(size = 10)
+  )
+
+# Arrange: 2 on top, 1 centered below
+(p_imv / p_hifnc/ p_nippv)  +
+  plot_layout(guides = 'collect')
 ggsave(
   filename='o2_sofa_mortality_resp_sf_pf.pdf',
   plot=last_plot(),
-  path = paste0(project_location, '/graphs/'))
+  path = paste0(project_location, '/graphs/'),
+   device=cairo_pdf(),
+  height=12,
+  width=8,
+  units='in')
 
 #####
 # Repeat for SF Contemp to PF
@@ -2608,7 +2970,7 @@ heat_graph <- heat_map_o2_cat |>
   filter(
     analysis=='sf_pf',
     strata %in% c('sf_pf_contemp', 'pf'))
-ggplot(heat_graph, aes(x = level, y = strata, fill = percent)) +
+ggplot(heat_graph, aes(x = rn, y = strata, fill = percent)) +
   geom_tile(color = "white", width = 0.95, height = 0.95) +
   scale_fill_gradient2(name="",
     low = 'dodgerblue4',
@@ -2639,7 +3001,7 @@ heat_graph <- heat_map_sofa |>
   filter(
     analysis=='sf_pf',
     strata %in% c('sf_pf_contemp', 'pf'))
-ggplot(heat_graph, aes(x = level, y = strata, fill = percent)) +
+ggplot(heat_graph, aes(x = rn, y = strata, fill = percent)) +
   geom_tile(color = "white", width = 0.95, height = 0.95) +
   scale_fill_gradient2(name="",
     low = 'dodgerblue4',
@@ -2666,6 +3028,82 @@ ggsave(
   plot=last_plot(),
   path = paste0(project_location, '/graphs/'))
 ```
+
+```{r Summarise RespSupport Free Days by Oxygenation Category}
+rsfds_o2_cat <- collate_tables('_table1_cont_by_oxygenation.csv') |>
+  filter(variable=='resp_support_free_days28')
+rsfds_sofa <- collate_tables('_table1_cont_by_sofa2.csv') |>
+  filter(variable=='resp_support_free_days28')
+  
+rsfds_o2_working <- cont_table_function(rsfds_o2_cat)
+group_p_values <- weighted_anova_pval(rsfds_o2_working)
+
+rsfds_o2_cat <- rsfds_o2_working |>
+  left_join(group_p_values, by='variable') |>
+  select(strata, variable, weighted_mean, weighted_sd, f_stat, p.value, overall_n) |>
+  distinct()
+
+median_summary <- rsfds_o2_working |>
+  summarise(
+    median_medians=median(median, na.rm=T),
+    median_range=paste0(range(median, na.rm=T)[1],'-',range(median, na.rm=T)[2]),
+    p25_range=paste0(range(p25, na.rm=T)[1],'-',range(p25, na.rm=T)[2]),
+    p75_range=paste0(range(p75, na.rm=T)[1],'-',range(p75, na.rm=T)[2]),
+    .by = c('strata')
+  )
+
+rsfds_o2_cat <- rsfds_o2_cat |>
+  left_join(median_summary, by='strata') |>
+  mutate(
+    rn=fcase(
+      strata=='Overall', 1,
+      strata=='not_hypoxemic', 2,
+      strata=='mild_hypoxemia',4,
+      strata=='moderate_hypoxemia', 5,
+      strata=='severe_hypoxemia', 5,
+      strata=='undefined', 6
+    )
+  ) |>
+  arrange(rn)
+write_csv(rsfds_o2_cat, paste0(project_location, '/tables/rsfds_o2_cat.csv'))
+rm(rsfds_o2_working)
+
+  
+rsfds_sofa_working <- cont_table_function(rsfds_sofa)
+group_p_values <- weighted_anova_pval(rsfds_sofa_working)
+
+rsfds_sofa <- rsfds_sofa_working |>
+  left_join(group_p_values, by='variable') |>
+  select(strata, variable, weighted_mean, weighted_sd, f_stat, p.value, overall_n) |>
+  distinct()
+
+median_summary <- rsfds_sofa_working |>
+  summarise(
+    median_medians=median(median, na.rm=T),
+    median_range=paste0(range(median, na.rm=T)[1],'-',range(median, na.rm=T)[2]),
+    p25_range=paste0(range(p25, na.rm=T)[1],'-',range(p25, na.rm=T)[2]),
+    p75_range=paste0(range(p75, na.rm=T)[1],'-',range(p75, na.rm=T)[2]),
+    .by = c('strata')
+  )
+
+rsfds_sofa <- rsfds_sofa |>
+  left_join(median_summary, by='strata') |>
+  mutate(
+    rn=fcase(
+      strata=='Overall', 0,
+      strata=='0', 1,
+      strata=='1',2,
+      strata=='2', 3,
+      strata=='3', 4,
+      strata=='5', 6
+    )
+  ) |>
+  arrange(rn)
+rm(median_summary)
+write_csv(rsfds_sofa, paste0(project_location, '/tables/rsfds_sofa.csv'))
+rm(rsfds_sofa)
+```
+
 
 
 ```{r Function for Calculating Logistic Mixed ICC}
@@ -4570,7 +5008,127 @@ roc_table <- bind_rows(
   comparison = "SF Compared to PF SOFA vs O2 Cat",
   p.value = as.numeric(test$p.value)
 ))
+
+#Add Additional P-Values- Compare Models that INclude both SF and PF with Measure Type With and Without Respiratory Support
+#Add Additional P-valuees to ROC Table
+test1 <- roc.test(roc_both_o2_cat_type, roc_both_o2_cat, method='bootstrap', boot.n=BOOT_NUM)
+test2 <- roc.test(roc_both_sofa_cat_type, roc_both_sofa, method='bootstrap', boot.n=BOOT_NUM)
+
+
+roc_table <- roc_table |>
+  mutate(
+    p.value=fcase(
+    model=='SF and PF AND Resp Support and Type_O2 Cat', as.numeric(test1$p.value),
+    model=='SF and PF AND Resp Support and Type_SOFA', as.numeric(test2$p.value),
+    default = p.value),
+    comparison=fcase(
+      model=='SF and PF AND Resp Support and Type_O2 Cat', 'Without Respiratory Support',
+      model=='SF and PF AND Resp Support and Type_SOFA', 'Without Respiratory Support', 
+      default=comparison
+    )
+    )
 ```
+
+```{r Sensitivity Analysis - Add ABG Propensity by Hospital}
+set.seed(3982)
+mortality_with_abg <- aggregate_mortality_hospital |>
+  mutate(
+    new_strata=fcase(
+      grepl('undefined', strata, ignore.case=T), 'undefined',
+      grepl('not', strata, ignore.case=T), 'not_hypoxemic',
+      grepl('mild', strata, ignore.case=T), 'mild_hypoxemia',
+      grepl('moderate', strata, ignore.case=T), 'moderate_hypoxemia',
+      grepl('severe', strata, ignore.case=T), 'severe_hypoxemia',
+      grepl('0', strata, ignore.case=T), 'sofa0',
+      grepl('1', strata, ignore.case=T), 'sofa1', 
+      grepl('2', strata, ignore.case=T), 'sofa2',
+      grepl('3', strata, ignore.case=T), 'sofa3',
+      grepl('4', strata, ignore.case=T), 'sofa4',
+      grepl('5', strata, ignore.case=T), 'sofa5'
+    ),
+    measure_type=fcase(
+      grepl('sf-', strata, ignore.case=T), 'sf',
+      grepl('pf-', strata, ignore.case=T), 'pf',
+      grepl('sf_pf', strata, ignore.case=T), 'sf_pf'
+    ),
+    measure_type=factor(measure_type, levels=c('sf', 'pf', 'sf_pf'))
+  ) |>
+  mutate(measure_type=factor(measure_type)) |>
+  filter(!is.na(new_strata),
+         !is.na(measure_type)) |>
+  mutate(log_odds_abg=qlogis(percent_with_abg))
+
+new_strata_sofa <- c(
+  'sofa0',
+  'sofa1',
+  'sofa2',
+  'sofa3',
+  'sofa4',
+  'sofa5'
+)
+new_strata_o2 <- c(
+  'not_hypoxemic',
+  'mild_hypoxemia',
+  'moderate_hypoxemia',
+  'severe_hypoxemia'
+) 
+
+###############################
+#ARDS Criteria
+###############################
+
+both_glm_o2_cat_abg <- glmmTMB(
+  cbind(n_deathhosp28, n_in_group - n_deathhosp28) ~
+    new_strata + measure_type*log_odds_abg + (1 | site),
+data   = mortality_with_abg |> 
+  dplyr::filter(new_strata %in%  new_strata_o2, 
+                measure_type!='sf_pf') |>
+  mutate(new_strata = factor(new_strata, levels = new_strata_o2, ordered = F)),
+family = binomial(link = "logit")
+)
+#tidy_models_list[['pf_o2_cat_abg_propensity']] <- tidy_make(pf_glm_o2_cat, "PF - O2Cat_ABG")
+tidy_models_list$'both_o2_cat_w_abg' <- tidy_make(both_glm_o2_cat_abg, "Both_O2Cat_ABG")
+
+#Now Interaction of Measure Type and Hypoxemia Category
+both_glm_o2_cat_type_interaction <- glmmTMB(
+  cbind(n_deathhosp28, n_in_group - n_deathhosp28) ~
+    new_strata*measure_type + (1 | site),
+data   = mortality_with_abg |> 
+  dplyr::filter(new_strata %in%  new_strata_o2, 
+                measure_type!='sf_pf') |>
+  mutate(new_strata = factor(new_strata, levels = new_strata_o2, ordered = F)),
+family = binomial(link = "logit")
+)
+tidy_models_list$'both_o2_cat_w_type_interaction' <- tidy_make(both_glm_o2_cat_type_interaction, "Both_O2-Type_Interaction")
+
+###############################
+#SOFA Criteria
+###############################
+both_glm_sofa_abg <- glmmTMB(
+  cbind(n_deathhosp28, n_in_group - n_deathhosp28) ~
+    new_strata + measure_type*log_odds_abg + (1 | site),
+data   = mortality_with_abg |> 
+  dplyr::filter(new_strata %in%  new_strata_sofa, 
+                measure_type!='sf_pf') |>
+  mutate(new_strata = factor(new_strata, levels = new_strata_sofa, ordered = F)),
+family = binomial(link = "logit")
+)
+#tidy_models_list[['pf_o2_cat_abg_propensity']] <- tidy_make(pf_glm_o2_cat, "PF - O2Cat_ABG")
+tidy_models_list$'both_sofa_abg' <- tidy_make(both_glm_sofa_abg, "Both_SOFA_ABG")
+
+#Now Interaction of Measure Type and Hypoxemia Category
+both_glm_sofa_type_interaction <- glmmTMB(
+  cbind(n_deathhosp28, n_in_group - n_deathhosp28) ~
+    new_strata*measure_type + (1 | site),
+data   = mortality_with_abg |> 
+  dplyr::filter(new_strata %in%  new_strata_sofa, 
+                measure_type!='sf_pf') |>
+  mutate(new_strata = factor(new_strata, levels = new_strata_sofa, ordered = F)),
+family = binomial(link = "logit")
+)
+tidy_models_list$'both_sofa_type_interaction' <- tidy_make(both_glm_sofa_type_interaction, "Both_SOFA-Type_Interaction")
+```
+
 
 ```{r Save Tidy Models and ROC Table}
 #Adjust P.Values for Multiple Comparisons in Both Tables
@@ -4669,6 +5227,24 @@ ggsave(
   plot=last_plot(),
   path = paste0(project_location, '/graphs/'))
 
+resp_stratified_roc_o2_all <- list(
+  'IMV-P/F'=roc_models_by_resp$pf_o2_cat$imv$roc, 
+  'NIPPV-P/F'=roc_models_by_resp$pf_o2_cat$nippv$roc,
+  'HIFNC-P/F'=roc_models_by_resp$pf_o2_cat$high_flow_nc$roc,
+  'IMV-S/F'=roc_models_by_resp$sf_o2_cat$imv$roc, 
+  'NIPPV-S/F'=roc_models_by_resp$sf_o2_cat$nippv$roc,
+  'HIFNC-S/F'=roc_models_by_resp$sf_o2_cat$high_flow_nc$roc
+  )
+ggroc(resp_stratified_roc_o2_all) +
+  geom_abline(slope = 1, intercept = 1, linetype = "dashed") +
+  coord_equal() +
+  scale_color_viridis_d(name="") +
+  theme_minimal()
+ggsave(
+  filename='roc_resp_support_o2_cat_all.pdf',
+  plot=last_plot(),
+  path = paste0(project_location, '/graphs/'))
+
 ################
 #Repeat for SOFA
 #################
@@ -4700,14 +5276,25 @@ ggsave(
   plot=last_plot(),
   path = paste0(project_location, '/graphs/'))
 
+resp_stratified_roc_sofa_all <- list(
+  'IMV-P/F'=roc_models_by_resp$pf_sofa$imv$roc, 
+  'NIPPV-P/F'=roc_models_by_resp$pf_sofa$nippv$roc,
+  'HIFNC-P/F'=roc_models_by_resp$pf_sofa$high_flow_nc$roc,
+  'IMV-S/F'=roc_models_by_resp$sf_sofa$imv$roc, 
+  'NIPPV-S/F'=roc_models_by_resp$sf_sofa$nippv$roc,
+  'HIFNC-S/F'=roc_models_by_resp$sf_sofa$high_flow_nc$roc
+  )
+ggroc(resp_stratified_roc_sofa_all) +
+  geom_abline(slope = 1, intercept = 1, linetype = "dashed") +
+  coord_equal() +
+  scale_color_viridis_d(name="") +
+  theme_minimal()
+ggsave(
+  filename='roc_resp_support_sofa_all.pdf',
+  plot=last_plot(),
+  path = paste0(project_location, '/graphs/'))
+
 ```
-
-
-```{r PF and SF on Same Curve}
-
-
-```
-
 
 
 ```{r Calibration Curves}
@@ -4843,5 +5430,6 @@ ggsave(
   plot=last_plot(),
   path = paste0(project_location, '/graphs/'))
 ```
+
 
 
