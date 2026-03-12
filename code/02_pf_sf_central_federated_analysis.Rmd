@@ -4396,6 +4396,7 @@ rm(roc_both_df_sofa_cat_type)
 
 
 ```{r Repeat Catgorical ROC With Race}
+set.seed(32284)
 aggregate_categories_race <- collate_tables('_aggregate_by_o2cat_race.csv') |>
   filter(!is.na(new_race_cat),
          level==1,
@@ -4606,15 +4607,18 @@ roc_models_by_race <- roc_models
 
 
 ```{r ROC Analysis Stratified by Respiratory Support}
+set.seed(32284)
 aggregate_categories_resp <- collate_tables('_aggregate_by_o2cat_resp_support.csv') |>
   filter(!is.na(resp_support_category),
          level==1,
          variable=='death_hospice28') |> #only need One Row per Outcome) 
- group_by(site, resp_support_category, strata_type, strata) |>
+ group_by(site, resp_support_category, strata_type, strata, analysis) |>
  summarise(
    n_in_group=sum(n, na.rm=T), 
    n_deathhosp28=sum(freq, na.rm=T)
  ) |>
+  filter(!(strata_type=='o2_strata' & analysis=='sf_pf'),
+         !(strata_type=='sofa_strata' & analysis=='sf_pf')) |>
   ungroup()
 
 resp_strata  <- c("imv", "high_flow_nc", "nippv")
