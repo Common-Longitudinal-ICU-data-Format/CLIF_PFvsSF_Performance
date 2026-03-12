@@ -4403,11 +4403,13 @@ aggregate_categories_race <- collate_tables('_aggregate_by_o2cat_race.csv') |>
   mutate(
     black=fifelse(new_race_cat=='black', 'black', 'not_black')
   ) |>
- group_by(site, black, strata_type, strata) |>
+ group_by(site, black, strata_type, strata, analysis) |>
  summarise(
    n_in_group=sum(n, na.rm=T), 
    n_deathhosp28=sum(freq, na.rm=T)
  ) |>
+  filter(!(strata_type=='o2_strata' & analysis=='sf_pf'),
+         !(strata_type=='sofa_strata' & analysis=='sf_pf')) |>
   ungroup()
 
 race_strata  <- c("black", "not_black")
@@ -4424,6 +4426,7 @@ glm_models[[m]] <- setNames(vector("list", length(race_strata)), race_strata)
 strata_levels <- metrics[[m]] 
 for (z in race_strata) {
     dat <- aggregate_categories_race |>
+      #mutate(drop=fifelse(m=='pf_o2_cat' & analysis=='sf_pf', 1L, 0L)) |>
       filter(strata %in% metrics[[m]], 
              black == z,
              n_in_group>0) |>
