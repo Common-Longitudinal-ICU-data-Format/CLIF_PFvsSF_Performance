@@ -5307,6 +5307,9 @@ ggsave(
 ```{r Calibration Curves}
 N_BINS <- 18
 
+#####################################
+### MAIN MEASURE - Lowest in First 24
+#####################################
 #PF Ratio
 cal_bin <- dat_pf %>%
   mutate(bin = ntile(pred, N_BINS)) %>%
@@ -5436,6 +5439,140 @@ ggsave(
   filename='calibration_sf_overall.pdf',
   plot=last_plot(),
   path = paste0(project_location, '/graphs/'))
+
+#####################################
+### SENSITIVITY MEASURE - Median in 1st 24
+#####################################
+#PF Ratio
+cal_bin <- dat_pf_median %>%
+  mutate(bin = ntile(pred, N_BINS)) %>%
+  group_by(bin) %>%
+  summarise(
+    pred_mean = weighted.mean(pred, n_in_group),
+    events = sum(deaths),
+    total = sum(n_in_group),
+    obs_rate = events / total,
+    .groups = "drop"
+  ) %>%
+  rowwise() %>%
+  mutate(
+    ci_low = binom::binom.confint(events, total, method = "wilson")$lower,
+    ci_high = binom::binom.confint(events, total, method = "wilson")$upper
+  ) %>%
+  ungroup()
+
+ggplot(cal_bin, aes(x = pred_mean, y = obs_rate)) +
+  geom_smooth(color="firebrick2", se=F) +
+  geom_point(size = 2) +
+  geom_errorbar(aes(ymin = ci_low, ymax = ci_high), width = 0.015) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "gray40") +
+  scale_x_continuous(limits=c(0.1,0.5)) +
+  scale_y_continuous(limits=c(0.1,0.5)) +
+  coord_equal() +
+  labs(x = "Mean predicted probability (bin)",
+       y = "Observed Event Probability",
+       title = "Calibration plot for PaO2/FiO2 (median value)") +
+  theme_minimal()
+
+agg_df <- dat_pf_median |>
+  filter(variable=='median_measure_5') |>
+  group_by(value) |>
+  summarise(
+    pred_mean = weighted.mean(pred, n_in_group),
+    events = sum(deaths),
+    total = sum(n_in_group),
+    obs_rate = events / total,
+    .groups = "drop"
+  ) %>%
+  rowwise() %>%
+  mutate(
+    ci_low = binom::binom.confint(events, total, method = "wilson")$lower,
+    ci_high = binom::binom.confint(events, total, method = "wilson")$upper
+  ) %>%
+  ungroup()
+
+ggplot(agg_df, aes(x = pred_mean, y = obs_rate, weight = total)) +
+  geom_point(aes(size=total), alpha = 0.3) +
+  geom_smooth(method = "loess", formula = y ~ x, se = TRUE, color = "dodgerblue4") +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "gray40") +
+  scale_size(range = c(0.25, 1.75), guide = "none") +
+  scale_y_continuous(labels = scales::label_percent()) +
+  scale_x_continuous(labels = scales::label_percent()) +
+  coord_equal(xlim = c(0, 0.5), ylim = c(0, 0.5)) +
+  labs(x = "Predicted probability (Death/Hospice at Day 28)",
+       y = "Observed Probability",
+       title = "Calibration: Median PaO2/FiO2") +
+  theme_minimal()
+ggsave(
+  filename='calibration_pf_median_continuous.pdf',
+  plot=last_plot(),
+  path = paste0(project_location, '/graphs/'))
+
+#SF Ratio
+cal_bin <- dat_sf_median %>%
+  mutate(bin = ntile(pred, N_BINS)) %>%
+  group_by(bin) %>%
+  summarise(
+    pred_mean = weighted.mean(pred, n_in_group),
+    events = sum(deaths),
+    total = sum(n_in_group),
+    obs_rate = events / total,
+    .groups = "drop"
+  ) %>%
+  rowwise() %>%
+  mutate(
+    ci_low = binom::binom.confint(events, total, method = "wilson")$lower,
+    ci_high = binom::binom.confint(events, total, method = "wilson")$upper
+  ) %>%
+  ungroup()
+
+ggplot(cal_bin, aes(x = pred_mean, y = obs_rate)) +
+  geom_smooth(color="firebrick2", se=F) +
+  geom_point(size = 2) +
+  geom_errorbar(aes(ymin = ci_low, ymax = ci_high), width = 0.015) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "gray40") +
+  scale_x_continuous(limits=c(0.1,0.5)) +
+  scale_y_continuous(limits=c(0.1,0.5)) +
+  coord_equal() +
+  labs(x = "Mean predicted probability (bin)",
+       y = "Observed Event Probability",
+       title = "Calibration plot for SpO2/FiO2 (binned deciles)") +
+  theme_minimal()
+
+agg_df <- dat_sf_median |>
+  group_by(value) |>
+  filter(variable=='median_measure_5') |>
+  summarise(
+    pred_mean = weighted.mean(pred, n_in_group),
+    events = sum(deaths),
+    total = sum(n_in_group),
+    obs_rate = events / total,
+    .groups = "drop"
+  ) %>%
+  rowwise() %>%
+  mutate(
+    ci_low = binom::binom.confint(events, total, method = "wilson")$lower,
+    ci_high = binom::binom.confint(events, total, method = "wilson")$upper
+  ) %>%
+  ungroup()
+
+ggplot(agg_df, aes(x = pred_mean, y = obs_rate, weight = total)) +
+  geom_point(aes(size=total), alpha = 0.3) +
+  geom_smooth(method = "loess", formula = y ~ x, se = TRUE, color = "dodgerblue4") +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "gray40") +
+  scale_size(range = c(0.25, 1.75), guide = "none") +
+  scale_y_continuous(labels = scales::label_percent()) +
+  scale_x_continuous(labels = scales::label_percent()) +
+  coord_equal(xlim = c(0, 0.5), ylim = c(0, 0.5)) +
+  labs(x = "Predicted probability (Death/Hospice at Day 28)",
+       y = "Observed Probability",
+       title = "Calibration: SpO2/FiO2 (median)") +
+  theme_minimal()
+ggsave(
+  filename='calibration_sf_median_continuous.pdf',
+  plot=last_plot(),
+  path = paste0(project_location, '/graphs/'))
+
 ```
 
 
