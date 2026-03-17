@@ -4378,7 +4378,7 @@ both_o2_cat <- both_o2_cat |>
          deaths = n_deathhosp28,
          survivors = n_in_group - deaths,
          model_n=sum(n_in_group, na.rm=T),
-         model_hospitals=length(unique(hospital_id))) |>
+         model_hospitals=length(unique(site))) |>
   filter(!is.na(pred), (deaths + survivors) > 0) 
 
 roc_both_df_o2_cat <- expand_to_patients(both_o2_cat) |>
@@ -4439,7 +4439,7 @@ both_sofa_cat <- both_sofa_cat |>
          deaths = n_deathhosp28,
          survivors = n_in_group - deaths,
          model_n=sum(n_in_group, na.rm=T),
-         model_hospitals=length(unique(hospital_id))) |>
+         model_hospitals=length(unique(site))) |>
   filter(!is.na(pred), (deaths + survivors) > 0) 
 
 roc_both_df_sofa_cat <- expand_to_patients(both_sofa_cat) |>
