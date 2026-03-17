@@ -3534,6 +3534,60 @@ expand_to_patients <- function(df) {
 }
 ```
 
+```{r Compute Clustered Integrated Calibration Index}
+bootstrap_val_prob_clustered <- function(df, 
+                                         cluster_col = "site",
+                                         n_boot = 2500, 
+                                         seed = 123) {
+  
+  set.seed(seed)
+  
+  # Point estimate
+  val <- val.prob(df$score, df$label, smooth = TRUE, pl = FALSE)
+  eavg_point <- val['Eavg']
+  
+  cat(sprintf("E_avg: %.4f\n", eavg_point))
+  
+  # Get clusters
+  clusters <- unique(df[[cluster_col]])
+  n_clusters <- length(clusters)
+  cat(sprintf("Bootstrapping %d iterations (%d clusters)...\n", n_boot, n_clusters))
+  
+  # Split by cluster
+  df_by_cluster <- split(df, df[[cluster_col]])
+  
+  eavg_boot <- numeric(n_boot)
+  
+  for (b in 1:n_boot) {
+    # Resample clusters
+    samp_clusters <- sample(clusters, n_clusters, replace = TRUE)
+    df_b <- do.call(rbind, df_by_cluster[samp_clusters])
+    
+    tryCatch({
+      val_b <- val.prob(df_b$score, df_b$label, smooth = TRUE, pl = FALSE)
+      eavg_boot[b] <- val_b['Eavg']
+    }, error = function(e) {
+      eavg_boot[b] <- NA_real_
+    })
+    
+    if (b %% 500 == 0) cat(sprintf("  %d/%d\n", b, n_boot))
+  }
+  
+  
+  median <- median(eavg_boot, na.rm=T)
+  ci <- quantile(eavg_boot, c(0.025, 0.975), na.rm = TRUE)
+  
+  cat(sprintf("\nE_avg: %.4f [%.4f, %.4f]\n", eavg_point, ci[1], ci[2]))
+  
+  list(
+    eavg = median,
+    ci_lower = ci[1],
+    ci_upper = ci[2],
+    boot_values = eavg_boot,
+    n_clusters = n_clusters
+  )
+}
+```
 
 
 ```{r AUROC and ROC Curves - Continuous Measures}
@@ -3564,6 +3618,7 @@ brier_sf <- compute_weighted_brier(
   cluster_col = "hospital_id",
   boot_n      = BOOT_NUM,
   seed        = 42)
+vals <- bootstrap_val_prob_clustered(roc_df_sf)
 
 roc_table <- data.frame(
   model = "Overall_SF_Ratio_Linear",
@@ -3575,6 +3630,9 @@ roc_table <- data.frame(
   brier       = round(brier_sf$value, 3),
   brier_low   = round(brier_sf$ci[1], 3),
   brier_hi    = round(brier_sf$ci[2], 3),
+  ici = round(vals$eavg, 5),
+  ici_low = round(vals$ci_lower, 5),
+  ici_hi = round(vals$ci_upper, 5),
   comparison = NA_character_,
   p.value = NA_real_
 )
@@ -3598,9 +3656,10 @@ roc_pf <- roc(response = roc_df_pf$label, predictor = roc_df_pf$score)
 auc_pf <- auc(roc_pf)
 ci_pf <- as.numeric(pROC::ci.auc(roc_pf, method = "bootstrap", boot.n = BOOT_NUM, boot.stratified = TRUE))
 # Weighted Brier score + 95% CI via stratified multinomial bootstrap (aggregated df)
-brier_pf <- compute_weighted_brier(dat_pf, cluster_col = "hospital_id",
+brier_pf <- compute_weighted_brier(dat_pf, cluster_col = "site",
   boot_n      = BOOT_NUM,
   seed        = 42)
+vals <- bootstrap_val_prob_clustered(roc_df_pf)
 test <- roc.test(roc_pf, roc_sf, method='bootstrap', boot.n=BOOT_NUM)
 roc_table <- bind_rows(
   roc_table,
@@ -3614,6 +3673,9 @@ roc_table <- bind_rows(
     brier       = round(brier_pf$value, 3),
     brier_low   = round(brier_pf$ci[1], 3),
     brier_hi    = round(brier_pf$ci[2], 3),
+    ici = round(vals$eavg, 5),
+    ici_low = round(vals$ci_lower, 5),
+    ici_hi = round(vals$ci_upper, 5),
     comparison = "Overall_PFvSF_Linear",
     p.value = test$p.value
   )
@@ -3645,6 +3707,7 @@ auc_sf_median <- auc(roc_sf_median)
 ci_sf_median <- as.numeric(pROC::ci.auc(roc_sf_median, method = "bootstrap", boot.n = BOOT_NUM, boot.stratified = TRUE))
 # Weighted Brier score + 95% CI via stratified multinomial bootstrap (aggregated df)
 brier_sf_median <- compute_weighted_brier(dat_sf_median, boot_n = BOOT_NUM)
+vals <- bootstrap_val_prob_clustered(roc_df_sf_median)
 test <- roc.test(roc_sf, roc_sf_median, method='bootstrap', boot.n=BOOT_NUM)
 
 roc_table <- bind_rows(
@@ -3659,6 +3722,9 @@ roc_table <- bind_rows(
   brier       = round(brier_sf_median$value, 3),
   brier_low   = round(brier_sf_median$ci[1], 3),
   brier_hi    = round(brier_sf_median$ci[2], 3),
+  ici = round(vals$eavg, 5),
+  ici_low = round(vals$ci_lower, 5),
+  ici_hi = round(vals$ci_upper, 5),
   comparison = "Overall_SF_Lowest_v_Median",
   p.value = test$p.value
 ))
@@ -3683,6 +3749,8 @@ auc_pf <- auc(roc_pf)
 ci_pf <- as.numeric(pROC::ci.auc(roc_pf, method = "bootstrap", boot.n = BOOT_NUM, boot.stratified = TRUE))
 # Weighted Brier score + 95% CI via stratified multinomial bootstrap (aggregated df)
 brier_pf <- compute_weighted_brier(dat_pf_median, boot_n = BOOT_NUM)
+vals <- bootstrap_val_prob_clustered(roc_df_pf)
+
 
 roc_table <- bind_rows(
   roc_table,
@@ -3696,6 +3764,9 @@ roc_table <- bind_rows(
     brier       = round(brier_pf$value, 3),
     brier_low   = round(brier_pf$ci[1], 3),
     brier_hi    = round(brier_pf$ci[2], 3),
+    ici = round(vals$eavg, 5),
+    ici_low = round(vals$ci_lower, 5),
+    ici_hi = round(vals$ci_upper, 5),
     comparison = NA_character_,
     p.value = NA_real_
   )
@@ -3857,6 +3928,7 @@ auc_sf_o2_cat <- auc(roc_sf_o2_cat)
 ci_sf_o2_cat <- as.numeric(pROC::ci.auc(roc_sf_o2_cat, method = "bootstrap", boot.n = BOOT_NUM, boot.stratified = TRUE))
 # Weighted Brier score + 95% CI via stratified multinomial bootstrap (aggregated df)
 brier_sf_o2_cat <- compute_weighted_brier(dat_sf_o2_cat, boot_n = BOOT_NUM)
+vals <- bootstrap_val_prob_clustered(roc_df_sf_o2_cat)
 #test <- roc.test(roc_sf, roc_sf_median, method='bootstrap', boot.n=BOOT_NUM)
 
 roc_table <- bind_rows(
@@ -3871,6 +3943,9 @@ roc_table <- bind_rows(
   brier       = round(brier_sf_o2_cat$value, 3),
   brier_low   = round(brier_sf_o2_cat$ci[1], 3),
   brier_hi    = round(brier_sf_o2_cat$ci[2], 3),
+  ici = round(vals$eavg, 5),
+  ici_low = round(vals$ci_lower, 5),
+  ici_hi = round(vals$ci_upper, 5),
   comparison = NA_character_,
   p.value = NA_real_
 ))
@@ -3895,6 +3970,7 @@ auc_pf_o2_cat <- auc(roc_pf_o2_cat)
 ci_pf_o2_cat <- as.numeric(pROC::ci.auc(roc_pf_o2_cat, method = "bootstrap", boot.n = BOOT_NUM, boot.stratified = TRUE))
 # Weighted Brier score + 95% CI via stratified multinomial bootstrap (aggregated df)
 brier_pf_o2_cat <- compute_weighted_brier(dat_pf_o2_cat, boot_n = BOOT_NUM)
+vals <- bootstrap_val_prob_clustered(roc_df_pf_o2_cat)
 test <- roc.test(roc_pf_o2_cat, roc_sf_o2_cat, method='bootstrap', boot.n=BOOT_NUM)
 
 roc_table <- bind_rows(
@@ -3909,6 +3985,9 @@ roc_table <- bind_rows(
   brier       = round(brier_pf_o2_cat$value, 3),
   brier_low   = round(brier_pf_o2_cat$ci[1], 3),
   brier_hi    = round(brier_pf_o2_cat$ci[2], 3),
+  ici = round(vals$eavg, 5),
+  ici_low = round(vals$ci_lower, 5),
+  ici_hi = round(vals$ci_upper, 5),
   comparison = "PF vs SF: O2Cat Exposure",
   p.value = test$p.value
 ))
@@ -3934,6 +4013,8 @@ auc_sf_sofa_cat <- auc(roc_sf_sofa_cat)
 ci_sf_sofa_cat <- as.numeric(pROC::ci.auc(roc_sf_sofa_cat, method = "bootstrap", boot.n = BOOT_NUM, boot.stratified = TRUE))
 # Weighted Brier score + 95% CI via stratified multinomial bootstrap (aggregated df)
 brier_sf_sofa_cat <- compute_weighted_brier(dat_sf_sofa_cat, boot_n = BOOT_NUM)
+vals <- bootstrap_val_prob_clustered(roc_df_sf_sofa_cat)
+
 #test <- roc.test(roc_sf, roc_sf_median, method='bootstrap', boot.n=BOOT_NUM)
 
 roc_table <- bind_rows(
@@ -3948,6 +4029,9 @@ roc_table <- bind_rows(
   brier       = round(brier_sf_sofa_cat$value, 3),
   brier_low   = round(brier_sf_sofa_cat$ci[1], 3),
   brier_hi    = round(brier_sf_sofa_cat$ci[2], 3),
+  ici = round(vals$eavg, 5),
+  ici_low = round(vals$ci_lower, 5),
+  ici_hi = round(vals$ci_upper, 5),
   comparison = NA_character_,
   p.value = NA_real_
 ))
@@ -3973,6 +4057,7 @@ auc_pf_sofa_cat <- auc(roc_pf_sofa_cat)
 ci_pf_sofa_cat <- as.numeric(pROC::ci.auc(roc_pf_sofa_cat, method = "bootstrap", boot.n = BOOT_NUM, boot.stratified = TRUE))
 # Weighted Brier score + 95% CI via stratified multinomial bootstrap (aggregated df)
 brier_pf_sofa_cat <- compute_weighted_brier(dat_pf_sofa_cat, boot_n = BOOT_NUM)
+vals <- bootstrap_val_prob_clustered(roc_df_pf_sofa_cat)
 test <- roc.test(roc_pf_sofa_cat, roc_sf_sofa_cat, method='bootstrap', boot.n=BOOT_NUM)
 
 roc_table <- bind_rows(
@@ -3987,6 +4072,9 @@ roc_table <- bind_rows(
   brier       = round(brier_pf_sofa_cat$value, 3),
   brier_low   = round(brier_pf_sofa_cat$ci[1], 3),
   brier_hi    = round(brier_pf_sofa_cat$ci[2], 3),
+  ici = round(vals$eavg, 5),
+  ici_low = round(vals$ci_lower, 5),
+  ici_hi = round(vals$ci_upper, 5),
   comparison = "PF_vs_SF SOFA Comparison",
   p.value = test$p.value
 ))
@@ -4014,6 +4102,7 @@ auc_sf_pf_o2_cat <- auc(roc_sf_pf_o2_cat)
 ci_sf_pf_o2_cat <- as.numeric(pROC::ci.auc(roc_sf_pf_o2_cat, method = "bootstrap", boot.n = BOOT_NUM, boot.stratified = TRUE))
 # Weighted Brier score + 95% CI via stratified multinomial bootstrap (aggregated df)
 brier_sf_pf_o2_cat <- compute_weighted_brier(dat_sf_pf_o2_cat, boot_n = BOOT_NUM)
+vals <- bootstrap_val_prob_clustered(roc_df_sf_pf_o2_cat)
 test <- roc.test(roc_sf_pf_o2_cat, roc_sf_o2_cat, method='bootstrap', boot.n=BOOT_NUM)
 
 roc_table <- bind_rows(
@@ -4028,6 +4117,9 @@ roc_table <- bind_rows(
   brier       = round(brier_sf_pf_o2_cat$value, 3),
   brier_low   = round(brier_sf_pf_o2_cat$ci[1], 3),
   brier_hi    = round(brier_sf_pf_o2_cat$ci[2], 3),
+  ici = round(vals$eavg, 5),
+  ici_low = round(vals$ci_lower, 5),
+  ici_hi = round(vals$ci_upper, 5),
   comparison = "SF_PF vs SF: O2 Cat",
   p.value = test$p.value
 ))
@@ -4054,6 +4146,7 @@ auc_sf_pf_o2_contemp_cat <- auc(roc_sf_pf_o2_contemp_cat)
 ci_sf_pf_o2_contemp_cat <- as.numeric(pROC::ci.auc(roc_sf_pf_o2_contemp_cat, method = "bootstrap", boot.n = BOOT_NUM, boot.stratified = TRUE))
 # Weighted Brier score + 95% CI via stratified multinomial bootstrap (aggregated df)
 brier_sf_pf_o2_contemp_cat <- compute_weighted_brier(dat_sf_pf_o2_contemp_cat, boot_n = BOOT_NUM)
+vals <- bootstrap_val_prob_clustered(roc_df_sf_pf_o2_contemp_cat)
 test <- roc.test(roc_sf_pf_o2_contemp_cat, roc_sf_o2_cat, method='bootstrap', boot.n=BOOT_NUM)
 
 roc_table <- bind_rows(
@@ -4068,6 +4161,9 @@ roc_table <- bind_rows(
   brier       = round(brier_sf_pf_o2_contemp_cat$value, 3),
   brier_low   = round(brier_sf_pf_o2_contemp_cat$ci[1], 3),
   brier_hi    = round(brier_sf_pf_o2_contemp_cat$ci[2], 3),
+  ici = round(vals$eavg, 5),
+  ici_low = round(vals$ci_lower, 5),
+  ici_hi = round(vals$ci_upper, 5),
   comparison = "SF_PF Contemporaneously Measured vs SF: O2 Cat",
   p.value = test$p.value
 ))
@@ -4094,6 +4190,7 @@ auc_sf_pf_sofa <- auc(roc_sf_pf_sofa)
 ci_sf_pf_sofa <- as.numeric(pROC::ci.auc(roc_sf_pf_sofa, method = "bootstrap", boot.n = BOOT_NUM, stratified = TRUE))
 # Weighted Brier score + 95% CI via stratified multinomial bootstrap (aggregated df)
 brier_sf_pf_sofa <- compute_weighted_brier(dat_sf_pf_sofa, boot_n = BOOT_NUM)
+vals <- bootstrap_val_prob_clustered(roc_df_sf_pf_sofa)
 test <- roc.test(roc_sf_pf_sofa, roc_sf_sofa_cat, method='bootstrap', boot.n=BOOT_NUM)
 
 roc_table <- bind_rows(
@@ -4108,6 +4205,9 @@ roc_table <- bind_rows(
   brier       = round(brier_sf_pf_sofa$value, 3),
   brier_low   = round(brier_sf_pf_sofa$ci[1], 3),
   brier_hi    = round(brier_sf_pf_sofa$ci[2], 3),
+  ici = round(vals$eavg, 5),
+  ici_low = round(vals$ci_lower, 5),
+  ici_hi = round(vals$ci_upper, 5),
   comparison = "SF_PF vs SF: SOFA Cat",
   p.value = test$p.value
 ))
@@ -4134,6 +4234,7 @@ auc_sf_pf_sofa_contemp <- auc(roc_sf_pf_sofa_contemp)
 ci_sf_pf_sofa_contemp <- as.numeric(pROC::ci.auc(roc_sf_pf_sofa_contemp, method = "bootstrap", boot.n = BOOT_NUM, boot.stratified = TRUE))
 # Weighted Brier score + 95% CI via stratified multinomial bootstrap (aggregated df)
 brier_sf_pf_sofa_contemp <- compute_weighted_brier(dat_sf_pf_sofa_contemp, boot_n = BOOT_NUM)
+vals <- bootstrap_val_prob_clustered(roc_df_sf_pf_sofa_contemp)
 test <- roc.test(roc_sf_pf_sofa_contemp, roc_sf_pf_sofa, method='bootstrap', boot.n=BOOT_NUM)
 
 roc_table <- bind_rows(
@@ -4148,6 +4249,9 @@ roc_table <- bind_rows(
   brier       = round(brier_sf_pf_sofa_contemp$value, 3),
   brier_low   = round(brier_sf_pf_sofa_contemp$ci[1], 3),
   brier_hi    = round(brier_sf_pf_sofa_contemp$ci[2], 3),
+  ici = round(vals$eavg, 5),
+  ici_low = round(vals$ci_lower, 5),
+  ici_hi = round(vals$ci_upper, 5),
   comparison = "SF_PF Contemp Meausure vs SF: SOFA Cat",
   p.value = test$p.value
 ))
@@ -4229,6 +4333,7 @@ ci_both_cat <- as.numeric(pROC::ci.auc(roc_both_o2_cat, method = "bootstrap", bo
 # Weighted Brier score + 95% CI via stratified multinomial bootstrap (aggregated df)
 brier_both_cat <- compute_weighted_brier(both_o2_cat, boot_n = BOOT_NUM)
 #For Now Compare to the Best Performing Individual Categorical Model
+vals <- bootstrap_val_prob_clustered(roc_both_df_o2_cat)
 test <- roc.test(roc_sf_o2_cat, roc_both_o2_cat, method='bootstrap', boot.n=BOOT_NUM)
 
 roc_table <- bind_rows(
@@ -4243,6 +4348,9 @@ roc_table <- bind_rows(
   brier       = round(brier_both_cat$value, 3),
   brier_low   = round(brier_both_cat$ci[1], 3),
   brier_hi    = round(brier_both_cat$ci[2], 3),
+  ici = round(vals$eavg, 5),
+  ici_low = round(vals$ci_lower, 5),
+  ici_hi = round(vals$ci_upper, 5),
   comparison = "SF and PF O2 Cat vs SF O2 Cat",
   p.value = test$p.value
 ))
@@ -4284,6 +4392,7 @@ auc_both_cat <- auc(roc_both_o2_cat_type)
 ci_both_cat <- as.numeric(pROC::ci.auc(roc_both_o2_cat_type, method = "bootstrap", boot.n = BOOT_NUM, boot.stratified = TRUE))
 # Weighted Brier score + 95% CI via stratified multinomial bootstrap (aggregated df)
 brier_both_cat <- compute_weighted_brier(both_o2_cat, boot_n = BOOT_NUM)
+vals <- bootstrap_val_prob_clustered(roc_both_df_o2_cat)
 #For Now Compare to the Best Performing Individual Categorical Model
 test <- roc.test(roc_both_o2_cat_type, roc_both_o2_cat, method='bootstrap', boot.n=BOOT_NUM)
 
@@ -4299,6 +4408,9 @@ roc_table <- bind_rows(
   brier       = round(brier_both_cat$value, 3),
   brier_low   = round(brier_both_cat$ci[1], 3),
   brier_hi    = round(brier_both_cat$ci[2], 3),
+  ici = round(vals$eavg, 5),
+  ici_low = round(vals$ci_lower, 5),
+  ici_hi = round(vals$ci_upper, 5),
   comparison = "SF and PF O2 Cat vs Adding Measure Type",
   p.value = test$p.value
 ))
@@ -4341,6 +4453,7 @@ auc_both_cat <- auc(roc_both_sofa_cat)
 ci_both_cat <- as.numeric(pROC::ci.auc(roc_both_sofa_cat, method = "bootstrap", boot.n = BOOT_NUM, boot.stratified = TRUE))
 # Weighted Brier score + 95% CI via stratified multinomial bootstrap (aggregated df)
 brier_both_cat <- compute_weighted_brier(both_sofa_cat, boot_n = BOOT_NUM)
+vals <- bootstrap_val_prob_clustered(roc_both_df_sofa_cat)
 #For Now Compare to the Best Performing Individual Categorical Model
 test <- roc.test(roc_sf_sofa_cat, roc_both_sofa_cat, method='bootstrap', boot.n=BOOT_NUM)
 
@@ -4356,6 +4469,9 @@ roc_table <- bind_rows(
   brier       = round(brier_both_cat$value, 3),
   brier_low   = round(brier_both_cat$ci[1], 3),
   brier_hi    = round(brier_both_cat$ci[2], 3),
+  ici = round(vals$eavg, 5),
+  ici_low = round(vals$ci_lower, 5),
+  ici_hi = round(vals$ci_upper, 5),
   comparison = "SF and PF SOFA vs SF SOFA",
   p.value = test$p.value
 ))
@@ -4397,6 +4513,7 @@ auc_both_cat <- auc(roc_both_sofa_cat_type)
 ci_both_cat <- as.numeric(pROC::ci.auc(roc_both_sofa_cat_type, method = "bootstrap", boot.n = BOOT_NUM, boot.stratified = TRUE))
 # Weighted Brier score + 95% CI via stratified multinomial bootstrap (aggregated df)
 brier_both_cat <- compute_weighted_brier(both_sofa_cat, boot_n = BOOT_NUM)
+vals <- bootstrap_val_prob_clustered(roc_both_df_sofa_cat_type)
 #For Now Compare to the Best Performing Individual Categorical Model
 test <- roc.test(roc_both_sofa_cat_type, roc_both_sofa_cat, method='bootstrap', boot.n=BOOT_NUM)
 
@@ -4412,6 +4529,9 @@ roc_table <- bind_rows(
   brier       = round(brier_both_cat$value, 3),
   brier_low   = round(brier_both_cat$ci[1], 3),
   brier_hi    = round(brier_both_cat$ci[2], 3),
+  ici = round(vals$eavg, 5),
+  ici_low = round(vals$ci_lower, 5),
+  ici_hi = round(vals$ci_upper, 5),
   comparison = "SF and PF O2 Cat vs Adding Measure Type",
   p.value = test$p.value
 ))
@@ -4555,6 +4675,7 @@ if (nrow(roc_df) == 0) {
     ci_val  <- as.numeric(pROC::ci.auc(roc_obj, method = "bootstrap", boot.n = BOOT_NUM, boot.stratified = TRUE))
     brier <- compute_weighted_brier(roc_df, cluster_col='site',
                                     boot_n = BOOT_NUM)
+    vals <- bootstrap_val_prob_clustered(roc_df)
     # Store both the ROC object and a small summary
     roc_models[[m]][[z]] <- list(
       roc = roc_obj,
@@ -4572,6 +4693,9 @@ if (nrow(roc_df) == 0) {
         brier       = round(brier$value, 2),
         brier_low   = round(brier$ci[1], 2),
         brier_hi    = round(brier$ci[2], 2),
+        ici = round(vals$eavg, 5),
+        ici_low = round(vals$ci_lower, 5),
+        ici_hi = round(vals$ci_upper, 5),
         comparison = NA_character_,
         p.value    = NA_real_
       ), fill=T
@@ -4762,6 +4886,7 @@ if (nrow(roc_df) == 0) {
     ci_val  <- as.numeric(pROC::ci.auc(roc_obj, method = "bootstrap", boot.n = BOOT_NUM, boot.stratified = TRUE))
     brier <- compute_weighted_brier(roc_df, cluster_col='site',
                                     boot_n = BOOT_NUM)
+    vals <- bootstrap_val_prob_clustered(roc_df)
     # Store both the ROC object and a small summary
     roc_models[[m]][[z]] <- list(
       roc = roc_obj,
@@ -4779,6 +4904,9 @@ if (nrow(roc_df) == 0) {
         brier       = round(brier$value, 2),
         brier_low   = round(brier$ci[1], 2),
         brier_hi    = round(brier$ci[2], 2),
+        ici = round(vals$eavg, 5),
+        ici_low = round(vals$ci_lower, 5),
+        ici_hi = round(vals$ci_upper, 5),
         comparison = NA_character_,
         p.value    = NA_real_
       ), fill=T
@@ -4944,7 +5072,8 @@ alive <- both_o2_cat |>
     died=0) |>
   uncount(weights=survivors) 
 roc_both_df_o2_cat <- roc_both_df_o2_cat |>
-  rowbind(alive, fill=T)
+  rowbind(alive, fill=T) |>
+  mutate(score=pred, label=died)
 rm(alive)
 
 roc_both_o2_cat <- roc(response = roc_both_df_o2_cat$died, 
@@ -4954,6 +5083,7 @@ auc_both_cat <- auc(roc_both_o2_cat)
 ci_both_cat <- as.numeric(pROC::ci.auc(roc_both_o2_cat, method = "bootstrap", boot.n = BOOT_NUM, boot.stratified = TRUE))
 # Weighted Brier score + 95% CI via stratified multinomial bootstrap (aggregated df)
 brier_both_cat <- compute_weighted_brier(both_o2_cat, boot_n = BOOT_NUM, cluster_col = 'site')
+vals <- bootstrap_val_prob_clustered(roc_both_df_o2_cat)
 #For Now Compare to the Best Performing Individual Categorical Model
 #test <- roc.test(roc_sf_o2_cat, roc_both_o2_cat, method='bootstrap', boot.n=BOOT_NUM)
 
@@ -4969,6 +5099,9 @@ roc_table <- bind_rows(
   brier       = round(brier_both_cat$value, 3),
   brier_low   = round(brier_both_cat$ci[1], 3),
   brier_hi    = round(brier_both_cat$ci[2], 3),
+  ici = round(vals$eavg, 5),
+  ici_low = round(vals$ci_lower, 5),
+  ici_hi = round(vals$ci_upper, 5),
   comparison = NA_character_,
   p.value = NA_real_
 ))
@@ -5011,16 +5144,19 @@ alive <- both_sofa |>
     died=0) |>
   uncount(weights=survivors) 
 roc_both_df_sofa <- roc_both_df_sofa |>
-  rowbind(alive, fill=T)
+  rowbind(alive, fill=T) |>
+  mutate(score=pred, label=died)
 rm(alive)
 
 roc_both_sofa <- roc(response = roc_both_df_sofa$died, 
                        predictor = roc_both_df_sofa$pred)
-rm(roc_both_df_sofa)
+
 auc_both_cat <- auc(roc_both_sofa)
 ci_both_cat <- as.numeric(pROC::ci.auc(roc_both_sofa, method = "bootstrap", boot.n = BOOT_NUM, boot.stratified = TRUE))
 # Weighted Brier score + 95% CI via stratified multinomial bootstrap (aggregated df)
 brier_both_cat <- compute_weighted_brier(both_sofa, boot_n = BOOT_NUM, cluster_col = 'site')
+vals <- bootstrap_val_prob_clustered(roc_both_df_sofa)
+rm(roc_both_df_sofa)
 #For Now Compare to the Best Performing Individual Categorical Model
 test <- roc.test(roc_both_sofa, roc_both_o2_cat, method='bootstrap', boot.n=BOOT_NUM)
 
@@ -5036,6 +5172,9 @@ roc_table <- bind_rows(
   brier       = round(brier_both_cat$value, 3),
   brier_low   = round(brier_both_cat$ci[1], 3),
   brier_hi    = round(brier_both_cat$ci[2], 3),
+  ici = round(vals$eavg, 5),
+  ici_low = round(vals$ci_lower, 5),
+  ici_hi = round(vals$ci_upper, 5),
   comparison = "SF Compared to PF SOFA vs O2 Cat",
   p.value = as.numeric(test$p.value)
 ))
@@ -5216,6 +5355,7 @@ auc_sf_all_o2 <- auc(roc_all_sf_o2)
 ci_sf_all_o2_cat <- as.numeric(pROC::ci.auc(roc_all_sf_o2, method = "bootstrap", boot.n = BOOT_NUM, boot.stratified = TRUE))
 # Weighted Brier score + 95% CI via stratified multinomial bootstrap (aggregated df)
 brier_sf_all_o2 <- compute_weighted_brier(dat_sf_all_o2, boot_n = BOOT_NUM, cluster_col='site')
+vals <- bootstrap_val_prob_clustered(roc_df_sf_all_o2)
 #test <- roc.test(roc_sf, roc_sf_median, method='bootstrap', boot.n=BOOT_NUM)
 
 roc_table <- bind_rows(
@@ -5230,6 +5370,9 @@ roc_table <- bind_rows(
   brier       = round(brier_sf_all_o2$value, 3),
   brier_low   = round(brier_sf_all_o2$ci[1], 3),
   brier_hi    = round(brier_sf_all_o2$ci[2], 3),
+  ici = round(vals$eavg, 5),
+  ici_low = round(vals$ci_lower, 5),
+  ici_hi = round(vals$ci_upper, 5),
   comparison = NA_character_,
   p.value = NA_real_
 ))
@@ -5257,6 +5400,7 @@ auc_sf_all_sofa <- auc(roc_all_sf_sofa)
 ci_sf_all_sofa <- as.numeric(pROC::ci.auc(roc_all_sf_sofa, method = "bootstrap", boot.n = BOOT_NUM, boot.stratified = TRUE))
 # Weighted Brier score + 95% CI via stratified multinomial bootstrap (aggregated df)
 brier_sf_all_sofa <- compute_weighted_brier(dat_sf_all_sofa, boot_n = BOOT_NUM, cluster_col='site')
+vals <- bootstrap_val_prob_clustered(roc_df_sf_all_sofa)
 test <- roc.test(roc_all_sf_sofa, roc_all_sf_o2, method='bootstrap', boot.n=BOOT_NUM)
 
 roc_table <- bind_rows(
@@ -5271,6 +5415,9 @@ roc_table <- bind_rows(
   brier       = round(brier_sf_all_sofa$value, 3),
   brier_low   = round(brier_sf_all_sofa$ci[1], 3),
   brier_hi    = round(brier_sf_all_sofa$ci[2], 3),
+  ici = round(vals$eavg, 5),
+  ici_low = round(vals$ci_lower, 5),
+  ici_hi = round(vals$ci_upper, 5),
   comparison = 'VS ALL SOFA o2 Cat',
   p.value = test$p.value
 ))

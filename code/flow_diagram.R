@@ -17,7 +17,7 @@ consort_labels <- consort_data %>%
       "Respiratory Support >24h In First 7 Days",
       "FiO2 Recorded in 1st 24 Hours",
       "No Tracheostomy at Vent Initiation",
-      "Not Do-Not-Intubate",
+      "Not DNR/DNI",
       "Eligible PF/SF Ratios",
       "Respiratory Failure Before 2025",
       "Final Cohort"
