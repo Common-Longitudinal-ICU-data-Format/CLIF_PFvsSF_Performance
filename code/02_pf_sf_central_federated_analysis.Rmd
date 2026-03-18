@@ -5078,12 +5078,13 @@ rm(alive)
 
 roc_both_o2_cat <- roc(response = roc_both_df_o2_cat$died, 
                        predictor = roc_both_df_o2_cat$pred)
-rm(roc_both_df_o2_cat)
+
 auc_both_cat <- auc(roc_both_o2_cat)
 ci_both_cat <- as.numeric(pROC::ci.auc(roc_both_o2_cat, method = "bootstrap", boot.n = BOOT_NUM, boot.stratified = TRUE))
 # Weighted Brier score + 95% CI via stratified multinomial bootstrap (aggregated df)
 brier_both_cat <- compute_weighted_brier(both_o2_cat, boot_n = BOOT_NUM, cluster_col = 'site')
 vals <- bootstrap_val_prob_clustered(roc_both_df_o2_cat)
+rm(roc_both_df_o2_cat)
 #For Now Compare to the Best Performing Individual Categorical Model
 #test <- roc.test(roc_sf_o2_cat, roc_both_o2_cat, method='bootstrap', boot.n=BOOT_NUM)
 
@@ -5298,6 +5299,95 @@ family = binomial(link = "logit")
 )
 tidy_models_list$'both_sofa_type_interaction' <- tidy_make(both_glm_sofa_type_interaction, "Both_SOFA-Type_Interaction")
 ```
+
+
+```{r Plot ABG Interaction}
+##O2 Cat
+pred_data <- expand.grid(
+  log_odds_abg = seq(qlogis(0.1), qlogis(0.8), by = 0.1),  # 10% to 80% ABG
+  new_strata = new_strata_o2,
+  site = 'hopkins',
+  measure_type = c("pf", "sf")  # assuming these are your measure types
+)
+
+preds <- predictions(both_glm_o2_cat_abg, newdata=pred_data, re.form=NA) |>
+  mutate(
+    probability_abg=plogis(log_odds_abg)
+  )
+preds <- as.data.frame(preds)
+
+df <- preds |> filter(new_strata=='severe_hypoxemia')
+
+severe <- ggplot(df, aes(x = probability_abg*100, y = estimate, 
+                            color = measure_type, fill = measure_type)) +
+  geom_line(linewidth = 1) +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = 0.2) +
+  #facet_wrap(~ new_strata, scales = "free_y") +
+  scale_y_continuous(labels = scales::percent_format(), limits=c(0,1)) +
+  scale_x_continuous(labels = scales::percent_format(scale = 1)) +
+  labs(
+    title = "Predicted 28-day Hospital Mortality by Hospital Use of ABGs",
+    subtitle = "Severe Hypoxemia",
+    x = "Percentage of ABG measurements (%)",
+    y = "Predicted Mortality (%)",
+    color = "Measure Type",
+    fill = "Measure Type"
+  ) +
+  theme_bw() +
+  theme(legend.position = "bottom")
+
+df <- preds |> filter(new_strata=='moderate_hypoxemia')
+
+moderate <- ggplot(df, aes(x = probability_abg*100, y = estimate, 
+                            color = measure_type, fill = measure_type)) +
+  geom_line(linewidth = 1) +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = 0.2) +
+  #facet_wrap(~ new_strata, scales = "free_y") +
+  scale_y_continuous(labels = scales::percent_format(), limits=c(0,1)) +
+  scale_x_continuous(labels = scales::percent_format(scale = 1)) +
+  labs(
+    title = "Predicted 28-day Hospital Mortality by Hospital Use of ABGs",
+    subtitle = "Moderate Hypoxemia",
+    x = "Percentage of ABG measurements (%)",
+    y = "Predicted Mortality (%)",
+    color = "Measure Type",
+    fill = "Measure Type"
+  ) +
+  theme_bw() +
+  theme(legend.position = "bottom")
+
+df <- preds |> filter(new_strata=='mild_hypoxemia')
+
+mild <- ggplot(df, aes(x = probability_abg*100, y = estimate, 
+                            color = measure_type, fill = measure_type)) +
+  geom_line(linewidth = 1) +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = 0.2) +
+  #facet_wrap(~ new_strata, scales = "free_y") +
+  scale_y_continuous(labels = scales::percent_format(), limits=c(0,1)) +
+  scale_x_continuous(labels = scales::percent_format(scale = 1)) +
+  labs(
+    title = "Predicted 28-day Hospital Mortality by Hospital Use of ABGs",
+    subtitle = "Mild Hypoxemia",
+    x = "Percentage of ABG measurements (%)",
+    y = "Predicted Mortality (%)",
+    color = "Measure Type",
+    fill = "Measure Type"
+  ) +
+  theme_bw() +
+  theme(legend.position = "bottom")
+
+graph <- (mild/moderate/severe)
+
+ggsave(
+  filename='interaction_w_abg_o2cat.pdf',
+  plot=last_plot(),
+  path = paste0(project_location, '/graphs/'),
+  device=cairo_pdf(),
+  height=12,
+  width=8,
+  units='in')
+```
+
 
 ```{r Models That Uses All SF Measures}
 all_sf_model <- combined_model_df |>
