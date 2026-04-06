@@ -11,7 +11,7 @@ project_location <- '~/Library/CloudStorage/OneDrive-JohnsHopkins/Research Proje
 #Which Sites Participated
 sites <- c("hopkins", "nu", "umn", "rush", 
            "ohsu", "ucmc", "emory", "penn",
-           "michigan", "mgb", "ucsf")
+           "michigan", "mgb", "ucsf", "sunnybrook")
 
 if (!dir.exists(paste0(project_location, "/tables"))) {
   dir.create(paste0(project_location, "/tables"))
@@ -300,7 +300,14 @@ write_csv(consort_table, paste0(project_location, '/tables/consort_overall.csv')
 ```{r Summary Data and Master Table 1}
 #For Purposes of this Study Will Use Exposure metric (PF defined vs SF Defined)
 
-table1_cat <- collate_tables("_table1_cat_by_exposure.csv")
+table1_cat <- collate_tables("_table1_cat_by_exposure.csv") |>
+  #Race is not Recorded at Sunnybrook per Policy
+  mutate(delete=fifelse(
+      site=='sunnybrook' & variable=='new_race_cat'
+    , 1L, 0L, 0L)) |>
+    filter(delete==0L) |>
+    select(-delete)
+
 table1_cont <- collate_tables("_table1_cont_by_exposure.csv")
 table_o2_hospital_cont <- collate_tables("_table2_o2metrics_cont_by_hospital_id.csv")
 table_o2_hospital_cat <- collate_tables("_table2_o2metrics_cat_by_hospital_id.csv")
@@ -355,6 +362,7 @@ order <- data.frame(
 aggregate_table1_cat <- aggregate_table1_cat |>
   left_join(order, by='variable') |>
   arrange(strata, order_number)
+
 ```
 
 ```{r Test For Difference in Distribution of Categorical Variables}
@@ -1005,6 +1013,14 @@ ggsave(
   height = 5,
   units ='in',
   path = paste0(project_location, '/graphs/'))
+ggsave(
+  filename='spo2_count_barchart.svg',
+  plot=last_plot(),
+  device=cairo_ps(),
+  width = 8,
+  height = 5,
+  units ='in',
+  path = paste0(project_location, '/graphs/'))
 
 #Now Per Patient Average
 #Prepare Data
@@ -1110,6 +1126,14 @@ ggsave(
   height = 5,
   units ='in',
   path = paste0(project_location, '/graphs/'))
+ggsave(
+  filename='admits_per_site_quarter.svg',
+  plot=last_plot(),
+  device=cairo_pdf(),
+  width = 8,
+  height = 5,
+  units ='in',
+  path = paste0(project_location, '/graphs/'))
 
 rm(quarter_admit_graph)
 ```
@@ -1174,23 +1198,31 @@ write_csv(hospital_types, paste0(project_location, '/tables/hospital_types.csv')
 
 ```{r Distribution of SF or PF Measures by Hour}
 aggregate_hours <- collate_tables('_aggregate_hours_to_measure.csv') |>
-  group_by(exposure_group, hour_measure, variable, strata) |>
+  group_by(exposure_group, hour_measure, variable) |>
   summarise(
     n_in_group=sum(n_in_group, na.rm=T),
   ) |>
   mutate(site='Overall') |>
-  filter(!is.na(hour_measure))
+  filter(!is.na(hour_measure)) |>
+  group_by(exposure_group, variable) |>
+  mutate(
+    max_per_exposure=sum(n_in_group, na.rm=T)) |>
+  ungroup()
 max_n <- max(aggregate_hours$n_in_group)
 
-plot <- ggplot(subset(aggregate_hours, variable %in% c('clock_hr_min_pf_dttm', 'clock_hr_min_sf_dttm')),
-       aes(x = hour_measure, y = n_in_group, fill = variable)) +
+plot <- ggplot(
+  aggregate_hours %>% filter(variable %in% c('clock_hr_min_pf_dttm', 'clock_hr_min_sf_dttm'),
+                             exposure_group %in% c('pf_only', 'sf_only')),
+  aes(x = hour_measure, y = n_in_group/max_per_exposure, fill = variable)) +
   geom_col(position = "dodge", alpha =0.50) +  # This uses `n_in_group` directly as heights for bars
   labs(
-       x = "Clock Hour",
-       y = "Count",
-       fill = "") +
+    x = "Clock Hour",
+    y = "% of Measures",
+    fill = "") +
   scale_x_continuous(breaks=seq(0,23, by =1)) +
-  theme_minimal()
+  scale_y_continuous(breaks=seq(0,1.0, by=0.01), labels=scales::percent) +
+  theme_minimal() +
+  theme(panel.grid.minor = element_blank())
 
 ggsave(
   filename='clock_hour_measures.pdf',
@@ -1200,16 +1232,27 @@ ggsave(
   height = 5,
   units ='in',
   path = paste0(project_location, '/graphs/'))
+ggsave(
+  filename='clock_hour_measures.svg',
+  plot=last_plot(),
+  device=cairo_ps(),
+  width = 8,
+  height = 5,
+  units ='in',
+  path = paste0(project_location, '/graphs/'))
 
-plot <- ggplot(subset(aggregate_hours, variable %in% c('hours_to_min_sf_dttm', 'hours_to_min_pf_dttm')),
-       aes(x = hour_measure, y = n_in_group, fill = variable)) +
+plot <- ggplot( aggregate_hours %>% filter(variable %in% c('hours_to_min_sf_dttm', 'hours_to_min_pf_dttm'),
+                exposure_group %in% c('pf_only', 'sf_only')),
+  aes(x = hour_measure, y = n_in_group/max_per_exposure, fill = variable)) +
   geom_col(position = "dodge", alpha =0.50) +  # This uses `n_in_group` directly as heights for bars
   labs(
-       x = "Hours from Respiratory Failure to Minimum SF or PF",
-       y = "Count",
-       fill = "") +
+    x = "Hours from Respiratory Failure to Minimum SF or PF",
+    y = "% of Measures",
+    fill = "") +
   scale_x_continuous(breaks=seq(0,23, by =1)) +
-  theme_minimal()
+  scale_y_continuous(breaks=seq(0,1.0, by=0.02), labels=scales::percent) +
+  theme_minimal() +
+  theme(panel.grid.minor = element_blank())
 
 ggsave(
   filename='hour_from_sf_measures.pdf',
@@ -1219,6 +1262,33 @@ ggsave(
   height = 5,
   units ='in',
   path = paste0(project_location, '/graphs/'))
+ggsave(
+  filename='hour_from_sf_measures.svg',
+  plot=last_plot(),
+  device=cairo_ps(),
+  width = 8,
+  height = 5,
+  units ='in',
+  path = paste0(project_location, '/graphs/'))
+
+
+########### Quantify PF vs SF in 1st Hour ##############
+test_hour0 <- aggregate_hours |>
+  filter(variable %in% c('hours_to_min_pf_dttm', 'hours_to_min_sf_dttm'),
+         exposure_group %in% c('sf_only', 'pf_only'),
+         hour_measure==0) |>
+  mutate(
+    not_in=max_per_exposure-n_in_group
+  )
+
+contingency_table <- test_hour0 %>%
+  select(exposure_group, n_in_group, not_in) %>%
+  column_to_rownames("exposure_group") %>%
+  as.matrix()
+
+chi_result <- chisq.test(contingency_table)
+print(prop.table(contingency_table, margin=1))
+print(chi_result)
 ```
 
 
@@ -1844,6 +1914,10 @@ ggsave(
   filename='o2_category_mortality.pdf',
   device=cairo_pdf(),
   path = paste0(project_location, '/graphs/'))
+ggsave(
+  filename='o2_category_mortality.svg',
+  device=cairo_ps(),
+  path = paste0(project_location, '/graphs/'))
 
 #Order Sofa Categories
 cat_levels <- c("0", "1", "2", "3", "4")
@@ -1879,6 +1953,12 @@ ggplot(heat_graph, aes(x = level, y = strata, fill = percent)) +
   theme_minimal()
 ggsave(
   filename='o2_sofa_mortality.pdf',
+  device = cairo_pdf(),
+  plot=last_plot(),
+  path = paste0(project_location, '/graphs/'))
+ggsave(
+  filename='o2_sofa_mortality.svg',
+  device = cairo_ps(),
   plot=last_plot(),
   path = paste0(project_location, '/graphs/'))
 
@@ -1910,6 +1990,12 @@ ggplot(heat_graph,
   theme_minimal()
 ggsave(
   filename='o2_category_mortality_sf_pf.pdf',
+  device=cairo_pdf(),
+  plot=last_plot(),
+  path = paste0(project_location, '/graphs/'))
+ggsave(
+  filename='o2_category_mortality_sf_pf.svg',
+  device=cairo_ps(),
   plot=last_plot(),
   path = paste0(project_location, '/graphs/'))
 
@@ -1941,6 +2027,12 @@ ggplot(heat_graph, aes(x = level, y = strata, fill = percent)) +
   theme_minimal()
 ggsave(
   filename='o2_sofa_mortality_sf_pf.pdf',
+  device=cairo_pdf(),
+  plot=last_plot(),
+  path = paste0(project_location, '/graphs/'))
+ggsave(
+  filename='o2_sofa_mortality_sf_pf.svg',
+  device=cairo_ps(),
   plot=last_plot(),
   path = paste0(project_location, '/graphs/'))
 
@@ -1972,6 +2064,12 @@ ggplot(heat_graph,
   theme_minimal()
 ggsave(
   filename='o2_category_mortality_sf_pf_contemp.pdf',
+  device=cairo_pdf(),
+  plot=last_plot(),
+  path = paste0(project_location, '/graphs/'))
+ggsave(
+  filename='o2_category_mortality_sf_pf_contemp.svg',
+  device=cairo_ps(),
   plot=last_plot(),
   path = paste0(project_location, '/graphs/'))
 
@@ -2004,6 +2102,12 @@ ggplot(heat_graph, aes(x = level, y = strata, fill = percent)) +
 ggsave(
   filename='o2_sofa_mortality_sf_pf_contemp.pdf',
   plot=last_plot(),
+  device=cairo_pdf(),
+  path = paste0(project_location, '/graphs/'))
+ggsave(
+  filename='o2_sofa_mortality_sf_pf_contemp.svg',
+  plot=last_plot(),
+  device=cairo_ps(),
   path = paste0(project_location, '/graphs/'))
 
 ```
@@ -2012,7 +2116,9 @@ ggsave(
 #Do this Once Other Sites Have Run
 mortality_by_o2_race <- collate_tables('_aggregate_by_o2cat_race.csv') |>
   #Fix strange Expanded Strata Name
-  mutate(strata = str_remove(strata, "sf_pf_contemp-sf_pf_contemp-sf_pf_contemp-"))
+  mutate(strata = str_remove(strata, "sf_pf_contemp-sf_pf_contemp-sf_pf_contemp-")) |>
+  #Remove Sunnybrook
+  filter(site!='sunnybrook')
 
 #Prepare Data for 
 aggregate_mortality_race <- mortality_by_o2_race |>
@@ -2187,6 +2293,12 @@ ggplot(heat_map_o2_cat, aes(x = rn, y = strata, fill = percent)) +
   theme_minimal()
 ggsave(
   filename='o2_category_mortality_race.pdf',
+  device=cairo_pdf(),
+  plot=last_plot(),
+  path = paste0(project_location, '/graphs/'))
+ggsave(
+  filename='o2_category_mortality_race.svg',
+  device=cairo_ps(),
   plot=last_plot(),
   path = paste0(project_location, '/graphs/'))
 
@@ -2238,6 +2350,11 @@ ggplot(heat_map_sofa, aes(x = rn, y = strata, fill = percent)) +
 ggsave(
   filename='o2_sofa_mortality_race.pdf',
   plot=last_plot(),
+  path = paste0(project_location, '/graphs/'))
+ggsave(
+  filename='o2_sofa_mortality_race.svg',
+  plot=last_plot(),
+  device=cairo_ps(),
   path = paste0(project_location, '/graphs/'))
 ```
 
@@ -2294,6 +2411,11 @@ ggsave(
   filename='o2_category_mortality_race_sf_pf.pdf',
   plot=last_plot(),
   path = paste0(project_location, '/graphs/'))
+ggsave(
+  filename='o2_category_mortality_race_sf_pf.svg',
+  plot=last_plot(),
+  device=cairo_ps(),
+  path = paste0(project_location, '/graphs/'))
 
 #Order Sofa Categories
 #Order Sofa Categories
@@ -2348,6 +2470,11 @@ ggsave(
   filename='o2_sofa_mortality_race_sf_pf.pdf',
   plot=last_plot(),
   path = paste0(project_location, '/graphs/'))
+ggsave(
+  filename='o2_sofa_mortality_race_sf_pf.svg',
+  plot=last_plot(),
+  device=cairo_ps(),
+  path = paste0(project_location, '/graphs/'))
 
 #Repeat for Contemporary SF-PF
 heat_graph <- heat_map_o2_cat |>
@@ -2379,6 +2506,11 @@ ggplot(heat_graph, aes(x = rn, y = strata, fill = percent)) +
 ggsave(
   filename='o2_category_mortality_race_sf_pf_contemp.pdf',
   plot=last_plot(),
+  path = paste0(project_location, '/graphs/'))
+ggsave(
+  filename='o2_category_mortality_race_sf_pf_contemp.svg',
+  plot=last_plot(),
+  device=cairo_ps(),
   path = paste0(project_location, '/graphs/'))
 
 #Order Sofa Categories
@@ -2412,6 +2544,11 @@ ggplot(heat_graph, aes(x = rn, y = strata, fill = percent)) +
 ggsave(
   filename='o2_sofa_mortality_race_sf_pf_contemp.pdf',
   plot=last_plot(),
+  path = paste0(project_location, '/graphs/'))
+ggsave(
+  filename='o2_sofa_mortality_race_sf_pf_contemp.svg',
+  plot=last_plot(),
+  device=cairo_ps(),
   path = paste0(project_location, '/graphs/'))
 ```
 
@@ -2656,6 +2793,14 @@ ggsave(
   height=12,
   width=8,
   units='in')
+ggsave(
+  filename='o2_category_mortality_resp_support.svg',
+  plot=last_plot(),
+  path = paste0(project_location, '/graphs/'),
+  device=cairo_ps(),
+  height=12,
+  width=8,
+  units='in')
 
 #Order Sofa Categories
 cat_levels <- c("0", "1", "2", "3", "4")
@@ -2761,6 +2906,14 @@ ggsave(
   plot=last_plot(),
   path = paste0(project_location, '/graphs/'),
   device=cairo_pdf(),
+  height=12,
+  width=8,
+  units='in')
+ggsave(
+  filename='o2_sofa_mortality_resp.svg',
+  plot=last_plot(),
+  path = paste0(project_location, '/graphs/'),
+  device=cairo_ps(),
   height=12,
   width=8,
   units='in')
@@ -2878,6 +3031,14 @@ ggsave(
   height=12,
   width=8,
   units='in')
+ggsave(
+  filename='o2_category_mortality_resp_support_sf_pf.svg',
+  plot=last_plot(),
+  path = paste0(project_location, '/graphs/'),
+  device=cairo_ps(),
+  height=12,
+  width=8,
+  units='in')
 
 #Order Sofa Categories
 cat_levels <- c("0", "1", "2", "3", "4")
@@ -2986,6 +3147,14 @@ ggsave(
   height=12,
   width=8,
   units='in')
+ggsave(
+  filename='o2_sofa_mortality_resp_sf_pf.svg',
+  plot=last_plot(),
+  path = paste0(project_location, '/graphs/'),
+   device=cairo_ps(),
+  height=12,
+  width=8,
+  units='in')
 
 #####
 # Repeat for SF Contemp to PF
@@ -3020,6 +3189,10 @@ ggsave(
   filename='o2_category_mortality_resp_support_sf_p_contemp.pdf',
   plot=last_plot(),
   path = paste0(project_location, '/graphs/'))
+ggsave(
+  filename='o2_category_mortality_resp_support_sf_p_contemp.svg',
+  plot=last_plot(),
+  path = paste0(project_location, '/graphs/'))
 
 heat_graph <- heat_map_sofa |>
   filter(
@@ -3049,6 +3222,10 @@ ggplot(heat_graph, aes(x = rn, y = strata, fill = percent)) +
   theme_minimal()
 ggsave(
   filename='o2_sofa_mortality_resp_sf_pf_contemp.pdf',
+  plot=last_plot(),
+  path = paste0(project_location, '/graphs/'))
+ggsave(
+  filename='o2_sofa_mortality_resp_sf_pf_contemp.svg',
   plot=last_plot(),
   path = paste0(project_location, '/graphs/'))
 ```
@@ -4549,6 +4726,8 @@ aggregate_categories_race <- collate_tables('_aggregate_by_o2cat_race.csv') |>
     black=fifelse(new_race_cat=='black', 'black', 'not_black')
   ) |>
  group_by(site, black, strata_type, strata, analysis) |>
+ #filter Out sunnybrook
+ filter(site!='sunnybrook') |>
  summarise(
    n_in_group=sum(n, na.rm=T), 
    n_deathhosp28=sum(freq, na.rm=T)
@@ -5546,6 +5725,11 @@ ggsave(
   filename='roc_overall_linear.pdf',
   plot=last_plot(),
   path = paste0(project_location, '/graphs/'))
+ggsave(
+  filename='roc_overall_linear.svg',
+  plot=last_plot(),
+  device=cairo_ps(),
+  path = paste0(project_location, '/graphs/'))
 
 race_stratified_roc <- list(
   'Black-P/F'=roc_models_by_race$pf_o2_cat$black$roc, 
@@ -5561,6 +5745,11 @@ ggroc(race_stratified_roc) +
 ggsave(
   filename='roc_race_o2_cat.pdf',
   plot=last_plot(),
+  path = paste0(project_location, '/graphs/'))
+ggsave(
+  filename='roc_race_o2_cat.svg',
+  plot=last_plot(),
+  device=cairo_ps(),
   path = paste0(project_location, '/graphs/'))
 
 #####Repeat RACE and SOFA ROC Curve
@@ -5578,6 +5767,11 @@ ggroc(race_stratified_roc) +
 ggsave(
   filename='roc_race_sofa.pdf',
   plot=last_plot(),
+  path = paste0(project_location, '/graphs/'))
+ggsave(
+  filename='roc_race_sofa.svg',
+  plot=last_plot(),
+  device=cairo_ps(),
   path = paste0(project_location, '/graphs/'))
 
 ####################
@@ -5597,6 +5791,11 @@ ggsave(
   filename='roc_resp_support_sf_o2_cat.pdf',
   plot=last_plot(),
   path = paste0(project_location, '/graphs/'))
+ggsave(
+  filename='roc_resp_support_sf_o2_cat.svg',
+  plot=last_plot(),
+  device=cairo_ps(),
+  path = paste0(project_location, '/graphs/'))
 
 resp_stratified_roc_pf <- list(
   'IMV-P/F'=roc_models_by_resp$pf_o2_cat$imv$roc, 
@@ -5610,6 +5809,11 @@ ggroc(resp_stratified_roc_pf) +
 ggsave(
   filename='roc_resp_support_pf_o2_cat.pdf',
   plot=last_plot(),
+  path = paste0(project_location, '/graphs/'))
+ggsave(
+  filename='roc_resp_support_pf_o2_cat.svg',
+  plot=last_plot(),
+  device=cairo_ps(),
   path = paste0(project_location, '/graphs/'))
 
 resp_stratified_roc_o2_all <- list(
@@ -5629,6 +5833,11 @@ ggsave(
   filename='roc_resp_support_o2_cat_all.pdf',
   plot=last_plot(),
   path = paste0(project_location, '/graphs/'))
+ggsave(
+  filename='roc_resp_support_o2_cat_all.svg',
+  plot=last_plot(),
+  device=cairo_ps(),
+  path = paste0(project_location, '/graphs/'))
 
 ################
 #Repeat for SOFA
@@ -5646,6 +5855,11 @@ ggsave(
   filename='roc_resp_support_sf_sofa.pdf',
   plot=last_plot(),
   path = paste0(project_location, '/graphs/'))
+ggsave(
+  filename='roc_resp_support_sf_sofa.svg',
+  plot=last_plot(),
+  device=cairo_ps(),
+  path = paste0(project_location, '/graphs/'))
 
 resp_stratified_roc_pf <- list(
   'IMV-P/F'=roc_models_by_resp$pf_sofa$imv$roc, 
@@ -5659,6 +5873,11 @@ ggroc(resp_stratified_roc_pf) +
 ggsave(
   filename='roc_resp_support_pf_sofa.pdf',
   plot=last_plot(),
+  path = paste0(project_location, '/graphs/'))
+ggsave(
+  filename='roc_resp_support_pf_sofa.svg',
+  plot=last_plot(),
+  device=cairo_ps(),
   path = paste0(project_location, '/graphs/'))
 
 resp_stratified_roc_sofa_all <- list(
@@ -5677,6 +5896,11 @@ ggroc(resp_stratified_roc_sofa_all) +
 ggsave(
   filename='roc_resp_support_sofa_all.pdf',
   plot=last_plot(),
+  path = paste0(project_location, '/graphs/'))
+ggsave(
+  filename='roc_resp_support_sofa_all.svg',
+  plot=last_plot(),
+  cairo_ps(),
   path = paste0(project_location, '/graphs/'))
 
 ```
@@ -5752,6 +5976,11 @@ ggsave(
   filename='calibration_pf_overall.pdf',
   plot=last_plot(),
   path = paste0(project_location, '/graphs/'))
+ggsave(
+  filename='calibration_pf_overall.svg',
+  plot=last_plot(),
+  device=cairo_ps(),
+  path = paste0(project_location, '/graphs/'))
 
 #SF Ratio
 cal_bin <- dat_sf %>%
@@ -5816,6 +6045,11 @@ ggplot(agg_df, aes(x = pred_mean, y = obs_rate, weight = total)) +
 ggsave(
   filename='calibration_sf_overall.pdf',
   plot=last_plot(),
+  path = paste0(project_location, '/graphs/'))
+ggsave(
+  filename='calibration_sf_overall.svg',
+  plot=last_plot(),
+  device=cairo_ps(),
   path = paste0(project_location, '/graphs/'))
 
 #####################################
@@ -5885,6 +6119,11 @@ ggsave(
   filename='calibration_pf_median_continuous.pdf',
   plot=last_plot(),
   path = paste0(project_location, '/graphs/'))
+ggsave(
+  filename='calibration_pf_median_continuous.svg',
+  plot=last_plot(),
+  device=cairo_ps(),
+  path = paste0(project_location, '/graphs/'))
 
 #SF Ratio
 cal_bin <- dat_sf_median %>%
@@ -5949,6 +6188,11 @@ ggplot(agg_df, aes(x = pred_mean, y = obs_rate, weight = total)) +
 ggsave(
   filename='calibration_sf_median_continuous.pdf',
   plot=last_plot(),
+  path = paste0(project_location, '/graphs/'))
+ggsave(
+  filename='calibration_sf_median_continuous.svg',
+  plot=last_plot(),
+  device=cairo_ps(),
   path = paste0(project_location, '/graphs/'))
 
 ```
