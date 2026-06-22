@@ -4319,8 +4319,7 @@ ci_sf_sofa_cat <- as.numeric(pROC::ci.auc(roc_sf_sofa_cat, method = "bootstrap",
 # Weighted Brier score + 95% CI via stratified multinomial bootstrap (aggregated df)
 brier_sf_sofa_cat <- compute_weighted_brier(dat_sf_sofa_cat, boot_n = BOOT_NUM)
 vals <- bootstrap_val_prob_clustered(roc_df_sf_sofa_cat)
-
-#test <- roc.test(roc_sf, roc_sf_median, method='bootstrap', boot.n=BOOT_NUM)
+test <- roc.test(roc_sf_sofa_cat, roc_sf_o2_cat, method='bootstrap', boot.n=BOOT_NUM)
 
 roc_table <- bind_rows(
   roc_table,
@@ -4337,8 +4336,8 @@ roc_table <- bind_rows(
   ici = round(vals$eavg, 5),
   ici_low = round(vals$ci_lower, 5),
   ici_hi = round(vals$ci_upper, 5),
-  comparison = NA_character_,
-  p.value = NA_real_
+  comparison = 'SF SOFA vs SF ARDS O2 Cat',
+  p.value = test$p.value
 ))
 rm(roc_df_sf_sofa_cat)
 
@@ -5832,8 +5831,15 @@ tidy_all <- bind_rows(tidy_models_list) |>
 write_csv(tidy_all, paste0(project_location, '/tables/tidy_logistic_models.csv'))
 rm(tidy_all)
 
+#1 Additional Test to Run is ARDS vs SOFA for PF
+test <- roc.test(roc_pf_o2_cat, roc_pf_sofa_cat, method='bootstrap', boot.n=BOOT_NUM)
 roc_final <- roc_table |>
-   mutate(
+  #In Response to Reviwers Adding Comparison of SOFA vs ARDS Cat for PF and for SF
+  mutate(
+    comparison=fifelse(
+      model=='Overall_SF_O2_Cat',  'ARDS Cat vs SOFA - PF', comparison),
+    p.value=fifelse(
+        model=='Overall_SF_O2_Cat', test$p.value, p.value),
     p.adjust=round(as.numeric(p.adjust(p.value, method='BH')), 3),
     p.value=round(p.value, digits=3)) |>
   relocate(p.adjust, .after=p.value)
