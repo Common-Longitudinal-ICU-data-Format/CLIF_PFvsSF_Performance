@@ -896,6 +896,100 @@ table2_paper <- readable_table(table2_paper, strata_values, has_continuous=T,has
 #Save Tables
 write_csv(table2_paper, paste0(project_location, '/tables/table2_metric_count_resp_support_no_undefined.csv'))
 ```
+
+```{r Describe SpO2/FiO2 and PaO2/FiO2 Availability - By Exposure Group}
+table2_metrics_exposure <- collate_tables('_table2_o2metrics_cont_by_exposure.csv') 
+table2_working <- cont_table_function(table2_metrics_exposure) 
+
+#Function for Weighted ANOVA from Summary Data
+
+group_p_values <- weighted_anova_pval(table2_working)
+
+table2 <- table2_working |>
+  left_join(group_p_values, by='variable') |>
+  select(strata, variable, weighted_mean, weighted_sd, f_stat, p.value, overall_n) |>
+  distinct() |>
+  rename(
+    n_total=overall_n,
+    count_mean=weighted_mean,
+    percent_sd=weighted_sd
+  ) |>
+  pivot_wider(
+    names_from=c(strata),
+    names_glue="{strata}_{.value}",
+    values_from=c(n_total, count_mean, percent_sd)) 
+
+#Vector For Reordering Columns
+strata_values <-c("Overall", "pf_only", "sf_only", "sf_pf", "undefined_oxygenation")
+relocate_vector <- c()
+# Loop through the strata values to generate names for those strata
+for (stratum in strata_values) {
+  relocate_vector <- c(relocate_vector,
+                       paste(stratum, c("n_total", "count_mean", "percent_sd"), sep = "_"))
+}
+
+#Reorder and Add Statistical Testing
+table2 <- table2 |>
+  relocate(all_of(relocate_vector), .after = variable) |>
+  mutate(level='placehold')
+
+#Now the Categorical Variables
+table_o2metric_cat <- collate_tables('_table2_o2metrics_cat_by_exposure.csv') |>
+  group_by(strata, variable, level) |>
+  dplyr::reframe(
+    n_total=sum(n),
+    n_miss=sum(miss, na.rm=T),
+    count=sum(freq,na.rm=T),
+    percent=count/(n_total-n_miss)
+  ) 
+vars <- c(
+  'abg_measured',
+  'any_sf',
+  'abg_and_sf')
+
+#Order of Variables
+order_vec <- table_o2metric_cat$variable
+order <- data.frame(
+  variable=unique(order_vec)) |>
+  mutate(order_number=dplyr::row_number())
+
+table_o2metric_cat <- table_o2metric_cat |>
+  left_join(order, by='variable') |>
+  arrange(strata, order_number)
+
+table_o2metric_cat_chi <- chisq_function(table_o2metric_cat) |>
+  mutate(rn=1)
+
+#Merge Back with Table 1 and COnvert to Wide
+table_o2metric_cat <- table_o2metric_cat |>
+  select(strata, variable, level, n_total, count, percent, order_number) |>
+  mutate(
+    percent=round((percent*100), digits = 2)
+  ) |>
+  rename(count_mean=count,
+         percent_sd=percent) |>
+  pivot_wider(
+    names_from=c(strata),
+    names_glue="{strata}_{.value}",
+    values_from=c(n_total, count_mean, percent_sd)) 
+
+#Reorder and Add Statistical Testing
+table_o2metric_cat  <- table_o2metric_cat  |>
+  relocate(all_of(relocate_vector), .after = level) |>
+  group_by(variable) |>
+  mutate(rn=dplyr::row_number()) |>
+  left_join(table_o2metric_cat_chi, by=c('variable', 'rn')) |>
+  arrange(order_number, variable) |>
+  select(-order_number, -rn)
+
+#Now For a Readable Table
+table2_paper <- rowbind(table2, table_o2metric_cat, fill=T) 
+table2_paper <- readable_table(table2_paper, strata_values, has_continuous=T,has_categorical=T) 
+
+#Save Tables
+write_csv(table2_paper, paste0(project_location, '/tables/table2_metric_count_by_exposure.csv'))
+```
+
 ```{r Spo2 and PaO2 Counts}
 #Evaluate Measure Counts Overall and By Respiratory Category
 sf_pf_counts_overall <- collate_tables('_pf_sf_count_table.csv') |>
