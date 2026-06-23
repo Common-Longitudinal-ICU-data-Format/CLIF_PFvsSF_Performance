@@ -311,6 +311,31 @@ analytic_cohort <- analytic_cohort |>
   mutate(site_n_hospitals=site_n_hospitals)
 ```
 
+```{r Extract First PF and First SF}
+#TIME from Spo2/Pao2 to Most Recent FiO2; 4 Hours
+TIME_TO_SF_PF <- 4
+first_pf_sf <- data_list$resp_first_24_long.parquet |>
+  semi_join(analytic_cohort, by='hospital_block_id') |>
+  filter(eligible_measure_by_time==1L | eligible_spo2==1L) |>
+  collect() |>
+  group_by(hospital_block_id) |>
+  arrange(hospital_block_id, recorded_dttm) |>
+  mutate(
+    first_sf=fifelse(
+      eligible_measure_by_time==1L & eligible_spo2==1L, spo2/fio2_carried, NA_real_),
+    first_pf=fifelse(
+      eligible_measure_by_time==1L, po2_arterial/fio2_carried, NA_real_)
+  ) |>
+  tidytable::fill(first_sf, first_pf, .by = 'hospital_block_id', .direction = 'up') |>
+  filter(dplyr::row_number()==1, .by = 'hospital_block_id') |>
+  ungroup() |>
+  select(hospital_block_id, first_sf, first_pf)
+
+analytic_cohort <- analytic_cohort |>
+  left_join(first_pf_sf, by='hospital_block_id')
+rm(first_pf_sf)
+```
+
 ```{r Define Severity Categories and Continuous Bins}
 #Define PF Oxygenation Categories Defined by Points or Ranges - Directly from Matthay Paper
 PF_NO_HYPOXEMIA <- 300
@@ -344,6 +369,18 @@ analytic_cohort <- analytic_cohort |>
     exposure_group %in% "sf_only" & sf_24_min > SF_MILD[1] & sf_24_min <= SF_MILD[2], 'mild_hypoxemia',
     exposure_group %in% "sf_only" & sf_24_min > SF_MOD[1] & sf_24_min <= SF_MOD[2], 'moderate_hypoxemia',
     exposure_group %in% "sf_only" & sf_24_min <= SF_SEV, 'severe_hypoxemia',
+    default='undefined'),
+     #Now Calculate With First Measure
+    oxygenation_category_first_measure=fcase(
+     exposure_group %in% c("pf_only", "sf_pf") & first_pf > PF_NO_HYPOXEMIA, 'not_hypoxemic',
+     exposure_group %in% c("pf_only", "sf_pf") & first_pf > PF_MILD[1] & first_pf <= PF_MILD[2], 'mild_hypoxemia',
+     exposure_group %in% c("pf_only", "sf_pf") & first_pf > PF_MOD[1] & first_pf <= PF_MOD[2], 'moderate_hypoxemia',
+     exposure_group %in% c("pf_only", "sf_pf") & first_pf <= PF_SEV, 'severe_hypoxemia',
+    # If you want to include SF severity ranges
+    exposure_group %in% "sf_only" & first_sf > SF_NO_HYPOXEMIA, 'not_hypoxemic',
+    exposure_group %in% "sf_only" & first_sf > SF_MILD[1] & first_sf <= SF_MILD[2], 'mild_hypoxemia',
+    exposure_group %in% "sf_only" & first_sf > SF_MOD[1] & first_sf <= SF_MOD[2], 'moderate_hypoxemia',
+    exposure_group %in% "sf_only" & first_sf <= SF_SEV, 'severe_hypoxemia',
     default='undefined'),
     #Now Include an Oxygenation Category SF for those with PF
   oxygenation_category_sf_both=fcase(
@@ -395,6 +432,21 @@ analytic_cohort <- analytic_cohort %>%
       exposure_group == "sf_only" & sf_24_min <= SF_SOFA_4, 4,
       default = NA_real_  # Assign NA if none of the conditions are met
     ),
+     #Repeat Now with First SF or PF
+    sofa2_resp_first_measure = fcase(
+      exposure_group %in% c("pf_only", "sf_pf") & first_pf > PF_SOFA_0, 0,
+      exposure_group %in% c("pf_only", "sf_pf") & first_pf > PF_SOFA_1[1] & first_pf <= PF_SOFA_1[2], 1,
+      exposure_group %in% c("pf_only", "sf_pf") & first_pf > PF_SOFA_2[1] & first_pf <= PF_SOFA_2[2], 2,
+      exposure_group %in% c("pf_only", "sf_pf") & first_pf > PF_SOFA_3[1] & first_pf <= PF_SOFA_3[2], 3,
+      exposure_group %in% c("pf_only", "sf_pf") & first_pf <= PF_SOFA_4, 4,
+      # For SF
+      exposure_group == "sf_only" & first_sf > SF_SOFA_0, 0,
+      exposure_group == "sf_only" & first_sf > SF_SOFA_1[1] & first_sf <= SF_SOFA_1[2], 1,
+      exposure_group == "sf_only" & first_sf > SF_SOFA_2[1] & first_sf <= SF_SOFA_2[2], 2,
+      exposure_group == "sf_only" & first_sf > SF_SOFA_3[1] & first_sf <= SF_SOFA_3[2], 3,
+      exposure_group == "sf_only" & first_sf <= SF_SOFA_4, 4,
+      default = NA_real_  # Assign NA if none of the conditions are met
+    ),
     #Now Repeat SOFA Definition for SF-PF group but with SF
     sofa2_cat_sf_both=fcase(
       # For SF
@@ -406,7 +458,7 @@ analytic_cohort <- analytic_cohort %>%
       default = NA_real_  # Assign NA if none of the conditions are met
     ),
     sofa2_cat = factor(sofa2_resp),  # Convert to factor
-    sofa2_cat = factor(sofa2_resp),
+    sofa2_cat_first_measure =factor(sofa2_resp_first_measure),
   #Repeat SOFA RESP score for SF Contemporary to PF
   sofa2_cat_sf_contemp_pf=fcase(
     exposure_group == "sf_pf" & sf_contemporary_to_pf > SF_SOFA_0, 0,
@@ -1242,7 +1294,7 @@ for (v in variables) {
 }
 
 # Define strata for detailed calculations
-strata <- c('resp_support_category', 'new_race_cat', 'hospital_id')
+strata <- c('resp_support_category', 'new_race_cat', 'hospital_id', 'primary_metric')
 
 # Calculate stratified statistics
 for (v in variables) {
@@ -1309,7 +1361,7 @@ for (v in variables) {
 }
 
 # Define strata for detailed calculations
-strata <- c('resp_support_category', 'new_race_cat', 'hospital_id')
+strata <- c('resp_support_category', 'new_race_cat', 'hospital_id', 'primary_metric')
 
 # Calculate stratified statistics
 for (v in variables) {
@@ -1385,12 +1437,16 @@ write_csv(aggregate_hours, paste0(project_location, '/proj_output/',site,'_aggre
 #First Table Stratified by Primary metric of Either PF or SF Defined Severity
 to_tab <- c(
   'oxygenation_category',
-  'sofa2_cat'
+  'sofa2_cat',
+  'oxygenation_category_first_measure',
+  'sofa2_cat_first_measure'
 )
 
 factors_tab <- c(
    'oxygenation_category',
-  'sofa2_cat'
+  'sofa2_cat',
+  'oxygenation_category_first_measure',
+  'sofa2_cat_first_measure'
 )
 
 table_agreement <- CreateTableOne(
@@ -1412,7 +1468,9 @@ contingency_cohort <- analytic_cohort |> filter(oxygenation_category!='undefined
 measures <- c('oxygenation_category', 
               'oxygenation_category_sf_both', 
               'o2_cat_sf_pf_contemporary',
-              'sofa2_cat', 'sofa2_cat_sf_both', 'sofa2_cat_sf_contemp_pf')
+              'sofa2_cat', 'sofa2_cat_sf_both', 'sofa2_cat_sf_contemp_pf', 
+              'oxygenation_category_first_measure', 
+              'sofa2_cat_first_measure')
 strata <- c('new_race_cat', 'resp_support_category', 'hospital_id')
 
 # Initialize a list to store contingency tables
@@ -1473,7 +1531,9 @@ to_tab <- c(
   'oxygenation_category_sf_both', 
   'o2_cat_sf_pf_contemporary',
   'sofa2_cat_sf_both', 
-  'sofa2_cat_sf_contemp_pf'
+  'sofa2_cat_sf_contemp_pf',
+  'oxygenation_category_first_measure',
+  'sofa2_cat_first_measure'
 )
 
 factors_tab <- c(
@@ -1482,7 +1542,9 @@ factors_tab <- c(
   'oxygenation_category_sf_both', 
   'o2_cat_sf_pf_contemporary',
   'sofa2_cat_sf_both', 
-  'sofa2_cat_sf_contemp_pf'
+  'sofa2_cat_sf_contemp_pf',
+  'oxygenation_category_first_measure',
+  'sofa2_cat_first_measure'
 )
 
 table_agreement <- CreateTableOne(
@@ -1502,12 +1564,16 @@ write_csv(table_agreement_list$categorical, paste0(project_location, '/proj_outp
 #First Table Stratified by Primary metric of Either PF or SF Defined Severity
 to_tab <- c(
   'oxygenation_category',
-  'sofa2_cat'
+  'sofa2_cat',
+  'oxygenation_category_first_measure',
+  'sofa2_cat_first_measure'
 )
 
 factors_tab <- c(
-   'oxygenation_category',
-  'sofa2_cat'
+  'oxygenation_category',
+  'sofa2_cat',
+  'oxygenation_category_first_measure',
+  'sofa2_cat_first_measure'
 )
 
 agreement_results <- list()
@@ -1548,7 +1614,9 @@ to_tab <- c(
   'oxygenation_category_sf_both', 
   'o2_cat_sf_pf_contemporary',
   'sofa2_cat_sf_both', 
-  'sofa2_cat_sf_contemp_pf'
+  'sofa2_cat_sf_contemp_pf',
+  'oxygenation_category_first_measure',
+  'sofa2_cat_first_measure'
 )
 
 factors_tab <- c(
@@ -1557,7 +1625,9 @@ factors_tab <- c(
   'oxygenation_category_sf_both', 
   'o2_cat_sf_pf_contemporary',
   'sofa2_cat_sf_both', 
-  'sofa2_cat_sf_contemp_pf'
+  'sofa2_cat_sf_contemp_pf',
+  'oxygenation_category_first_measure',
+  'sofa2_cat_first_measure'
 )
 
 for (resp in resp_cat) {
@@ -1594,12 +1664,16 @@ for (resp in resp_cat) {
 ```{r Confusion Matrices for SF-PF Both}
 to_tab <- c(
   'oxygenation_category_sf_both', 
-  'o2_cat_sf_pf_contemporary'
+  'o2_cat_sf_pf_contemporary',
+    'oxygenation_category_first_measure',
+  'sofa2_cat_first_measure'
 )
 
 factors_tab <- c(
   'oxygenation_category_sf_both', 
-  'o2_cat_sf_pf_contemporary'
+  'o2_cat_sf_pf_contemporary',
+  'oxygenation_category_first_measure',
+  'sofa2_cat_first_measure'
 )
 
 cm_df <- analytic_cohort |>
@@ -1717,11 +1791,14 @@ analytic_cohort <- analytic_cohort |>
     sofa_strata_sf_both=paste0('sf_pf_', '-', sofa2_cat_sf_both),
     #Now Contemporary
     o2_cat_sf_pf_contemporary=paste0('sf_pf_contemp', '-',o2_cat_sf_pf_contemporary),
-    sofa2_cat_sf_contemp_pf=paste0('sf_pf_contemp', '-', sofa2_cat_sf_contemp_pf)
+    sofa2_cat_sf_contemp_pf=paste0('sf_pf_contemp', '-', sofa2_cat_sf_contemp_pf),
+    #Now First Measure
+    o2_strata_first_measure=paste0(primary_metric, '-', oxygenation_category_first_measure),
+    sofa_strata_first_measure=paste0(primary_metric, '-', sofa2_resp_first_measure),
     ) 
 
 #1st Do For SF and PF Strata
-strata <- c('o2_strata', 'sofa_strata')
+strata <- c('o2_strata', 'sofa_strata', 'o2_strata_first_measure', 'sofa_strata_first_measure')
 table_mortality_list <- list()
 for (s in strata) {
 table_mortality <- CreateTableOne(
@@ -2009,13 +2086,18 @@ analytic_cohort <- analytic_cohort |>
       primary_metric=='pf', pf_24_median,
       default = NA_real_),
     median_measure_5=(floor(median_measure/5))*5,
+    first_measure=fcase(
+      primary_metric=='sf', first_sf,
+      primary_metric=='pf', first_pf,
+      default = NA_real_),
+    first_measure_5=(floor(first_measure/5))*5,
     )
   
 # Initialize a list to store aggregated outcomes
 aggregate_outcomes_list <- list()
 
-variables <- c('measure_value_5', 'median_measure_5') #These are for the primary sf and pf analyses
-variables2 <- c('measure_value_5', 'sf_min_both_5', 'sf_contemporary_5', 'median_measure_5') #This is ONLY when you have SF and PF
+variables <- c('measure_value_5', 'median_measure_5', 'first_measure_5') #These are for the primary sf and pf analyses
+variables2 <- c('measure_value_5', 'sf_min_both_5', 'sf_contemporary_5', 'median_measure_5', 'first_measure_5') #This is ONLY when you have SF and PF
 for (v in variables) {
   # Conduct aggregation for each variable
   aggregate_outcomes <- analytic_cohort |>
@@ -2163,6 +2245,7 @@ model_summary_table <- function(model) {
 #Uses Fixed Effects and loop through hospital  
 coef_table <- coeftest(model)
 conf_int <- coefci(model)
+p_col <- grep("^Pr\\(>\\|", colnames(coef_table), value = TRUE)
 
 model_table <- data.frame(
   'site' = site,
@@ -2170,7 +2253,7 @@ model_table <- data.frame(
   'term' = rownames(coef_table),
   'estimate' = coef_table[, "Estimate"],
   'std_error' = coef_table[, "Std. Error"],
-  'p_value' = coef_table[, "Pr(>|t|)"],
+  'p_value' = coef_table[, p_col],
   'odds_ratio' = round(exp(coef_table[, "Estimate"]), 3),  # Exponentiated coefficients as Odds Ratios
   'lower_bound' = exp(conf_int[, 1]),  # Lower bound of CI from coefci()
   'upper_bound' = exp(conf_int[, 2])   # Upper bound of CI from coefci()
@@ -2202,6 +2285,15 @@ model_df <- analytic_cohort |>
                                             'severe_hypoxemia', 'not_hypoxemic', 'undefined'),
                                  ordered = FALSE),
     sofa2_cat =factor(sofa2_cat,
+                                 levels = as.character(0:4),
+                                 ordered = FALSE),
+     oxygenation_category_first_measure =factor(oxygenation_category_first_measure,
+                                 levels = c('mild_hypoxemia', 'moderate_hypoxemia', 
+                                            'severe_hypoxemia', 'not_hypoxemic', 'undefined'),
+                                 labels =c('mild_hypoxemia', 'moderate_hypoxemia', 
+                                            'severe_hypoxemia', 'not_hypoxemic', 'undefined'),
+                                 ordered = FALSE),
+    sofa2_cat_first_measure =factor(sofa2_cat_first_measure,
                                  levels = as.character(0:4),
                                  ordered = FALSE),
     oxygenation_category_sf_both = factor(oxygenation_category_sf_both,
@@ -2397,6 +2489,95 @@ cat("Unique exposures:", length(unique(combined_table$exposure_variable)), "\n")
 write_csv(combined_table, paste0(project_location, '/proj_output/', site, '_proportional_odds_models.csv'))
 cat("\nResults saved to:", paste0(site, '_proportional_odds_models.csv\n'))
 ```
+```{r Logistic Regression Models - Explore Increase Risk When Moving from No PF to PF Available}
+df <- model_df |>
+  mutate(primary_metric=factor(model_df$primary_metric, levels = c("sf", "pf")),
+    max_nonresp_sofa=
+           rowSums(across(c(max_sofa_bili, max_sofa_cr, 
+                            max_sofa_plt, max_sofa_cv, max_sofa_cns)), na.rm = TRUE))
+  
+#Unadjusted
+unadjusted_logistic <- glm(
+  death_hospice28 ~ primary_metric, family=binomial, data=subset(df, primary_metric %in% c('sf', 'pf'))
+)
+
+unadjusted_table <- model_summary_table(unadjusted_logistic) |>
+  mutate(model='unadjusted_pf_vs_sf_death_hospice_28') |>
+  relocate(model, .before = site)
+
+#Adjusted
+if (length(hospital_id_all) > 1) {
+  adjusted_logistic <- glm(
+    death_hospice28 ~ primary_metric +
+      age_at_admission + female + vw_elixhauser + resp_support_category + 
+      max_nonresp_sofa + factor(year) + hospital_id,
+    family = binomial,
+    data = subset(df, primary_metric %in% c("sf", "pf"))
+  )
+} else {
+  adjusted_logistic <- glm(
+    death_hospice28 ~ primary_metric +
+      age_at_admission + female + vw_elixhauser + resp_support_category + 
+      max_nonresp_sofa + factor(year),
+    family = binomial,
+    data = subset(df, primary_metric %in% c("sf", "pf"))
+  )
+}
+adjusted_table <- model_summary_table(adjusted_logistic) |>
+  mutate(model='adjusted_pf_vs_sf_death_hospice_28') |>
+  relocate(model, .before = site)
+
+#Adjusted with Interaction
+if (length(hospital_id_all) > 1) {
+  adjusted_logistic <- glm(
+    death_hospice28 ~ primary_metric*oxygenation_category +
+      age_at_admission + female + vw_elixhauser + resp_support_category + 
+      max_nonresp_sofa + factor(year) + hospital_id,
+    family = binomial,
+    data = subset(df, primary_metric %in% c("sf", "pf"))
+  )
+} else {
+  adjusted_logistic <- glm(
+    death_hospice28 ~ primary_metric*oxygenation_category +
+      age_at_admission + female + vw_elixhauser + resp_support_category + 
+      max_nonresp_sofa + factor(year),
+    family = binomial,
+    data = subset(df, primary_metric %in% c("sf", "pf"))
+  )
+}
+adjusted_table_interaction <- 
+  model_summary_table(adjusted_logistic) |>
+  mutate(model='adjusted_pf_vs_sf_o2_cat_death_hospice_28') |>
+  relocate(model, .before = site)
+
+#Adjusted with Interaction
+if (length(hospital_id_all) > 1) {
+  adjusted_logistic <- glm(
+    death_hospice28 ~ primary_metric*sofa2_cat +
+      age_at_admission + female + vw_elixhauser + resp_support_category + 
+      max_nonresp_sofa + factor(year) + hospital_id,
+    family = binomial,
+    data = subset(df, primary_metric %in% c("sf", "pf"))
+  )
+} else {
+  adjusted_logistic <- glm(
+    death_hospice28 ~ primary_metric*sofa2_cat +
+      age_at_admission + female + vw_elixhauser + resp_support_category + 
+      max_nonresp_sofa + factor(year),
+    family = binomial,
+    data = subset(df, primary_metric %in% c("sf", "pf"))
+  )
+}
+adjusted_table_interaction_sofa <- 
+  model_summary_table(adjusted_logistic) |>
+  mutate(model='adjusted_pf_vs_sf_sofa_cat_death_hospice_28') |>
+  relocate(model, .before = site)
+  
+logistic_models <- rowbind(unadjusted_table, adjusted_table, 
+                           adjusted_table_interaction, adjusted_table_interaction_sofa)
+write_csv(logistic_models, paste0(project_location, '/proj_output/', site, '_logistic_models.csv'))
+
+```
 
 ```{r Export Hospital Category}
 hospital_category <- analytic_cohort |>
@@ -2406,6 +2587,86 @@ hospital_category <- analytic_cohort |>
 write_csv(hospital_category, paste0(project_location, '/proj_output/', site,'_hospital_categories.csv'))
 ```
 
+```{r Cumulative Logistic Regression With O2 Cat or SOFA cat as Outcome}
+df <- df |> 
+  mutate(
+    oxygenation_category =factor(oxygenation_category,
+                                 levels = c('not_hypoxemic', 'mild_hypoxemia', 'moderate_hypoxemia', 
+                                            'severe_hypoxemia', 'undefined'),
+                                 labels =c('not_hypoxemic', 'mild_hypoxemia', 'moderate_hypoxemia', 
+                                            'severe_hypoxemia', 'undefined'),
+                                 ordered = FALSE),
+    sofa2_cat =factor(sofa2_cat,
+                                 levels = as.character(0:4),
+                                 ordered = FALSE))
+    
+#Function to Run Cumulative Logistic Regression/Proportional Odds Model
+unadjusted_cumulative <- clm(
+  oxygenation_category ~ primary_metric,
+  data = subset(df, primary_metric %in% c('sf', 'pf')),
+  link='logit')
+unadjusted_cumulative_o2 <- model_summary_table(unadjusted_cumulative) |>
+  mutate(outcome='ards_o2_cat') |>
+  relocate(outcome, .before=site)
+#Now with SOFA
+unadjusted_cumulative <- clm(
+  sofa2_cat ~ primary_metric,
+  data = subset(df, primary_metric %in% c('sf', 'pf')),
+  link='logit')
+unadjusted_cumulative_sofa <- model_summary_table(unadjusted_cumulative) |>
+  mutate(outcome='sofa_cat') |>
+  relocate(outcome, .before=site)
+        
+#Adjusted Cumulative Regression
+#Adjusted O2 Cat
+if (length(hospital_id_all) > 1) {
+  adjusted_cumulative <- glm(
+    oxygenation_category ~ primary_metric +
+      age_at_admission + female + vw_elixhauser + resp_support_category + 
+      max_nonresp_sofa + factor(year) + hospital_id,
+    family = binomial,
+    data = subset(df, primary_metric %in% c("sf", "pf"))
+  )
+} else {
+  adjusted_cumulative <- glm(
+    oxygenation_category ~ primary_metric +
+      age_at_admission + female + vw_elixhauser + resp_support_category + 
+      max_nonresp_sofa + factor(year),
+    family = binomial,
+    data = subset(df, primary_metric %in% c("sf", "pf"))
+  )
+}
+adjusted_table_cumluative_o2 <- model_summary_table(adjusted_cumulative) |>
+  mutate(outcome='oxygenation_cat_adjusted') |>
+  relocate(outcome, .before=site)
+
+#Repeat with SOFA
+if (length(hospital_id_all) > 1) {
+  adjusted_cumulative <- glm(
+    sofa2_cat ~ primary_metric +
+      age_at_admission + female + vw_elixhauser + resp_support_category + 
+      max_nonresp_sofa + factor(year) + hospital_id,
+    family = binomial,
+    data = subset(df, primary_metric %in% c("sf", "pf"))
+  )
+} else {
+  adjusted_cumulative <- glm(
+    sofa2_cat ~ primary_metric +
+      age_at_admission + female + vw_elixhauser + resp_support_category + 
+      max_nonresp_sofa + factor(year),
+    family = binomial,
+    data = subset(df, primary_metric %in% c("sf", "pf"))
+  )
+}
+adjusted_cumulative_sofa <- model_summary_table(adjusted_cumulative) |>
+  mutate(outcome='sofa_cat_adjusted') |>
+  relocate(outcome, .before=site)
+
+cumulative_models_o2_outcome <- rowbind(unadjusted_cumulative_o2, unadjusted_cumulative_sofa,
+                                        adjusted_table_cumluative_o2, adjusted_cumulative_sofa)
+write_csv(cumulative_models_o2_outcome, 
+          paste0(project_location, '/proj_output/', site, '_cumulative_models_o2_outcome.csv'))
+```
 
 ```{r}
 cat('This code is DONE!!! Thank you for your support for this CLIF project!')

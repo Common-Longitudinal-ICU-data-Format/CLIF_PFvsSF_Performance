@@ -12,11 +12,14 @@ initialize_renv.R
 
 ## ignore filtered CLIF tables stored as Rdata
 *.RData
+*.html
 
 #ignore source CLIF_ files 
 CLIF_*.parquet
 CLIF_*.csv
 CLIF_*.fst
+Rplots.pdf
+Pplots.ps
 
 #ignore the identifier app
 CLIF_cohort_identifier*
@@ -30,6 +33,7 @@ initialize_renv.R
 # ignore proj_output and proj_tables
 proj_output/
 proj_tables/
+config/config.yaml
 
 #Ignore RENV Cache
 # Ignore renv cache

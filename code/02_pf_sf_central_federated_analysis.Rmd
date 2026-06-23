@@ -1487,6 +1487,7 @@ tab_o2_agreement_paper <- readable_table(tab_oxygenation_agreement, strata_value
 
 write_csv(tab_o2_agreement_paper, paste0(project_location, '/tables/table_o2cat_agreement.csv'))
 ```
+
 ```{r Agreement in Categories When Both SF and PF Available}
 oxygenation_agreement_sfpf <- collate_tables('_table_agreement_sf_pf.csv')
 
