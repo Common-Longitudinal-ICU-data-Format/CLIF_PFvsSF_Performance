@@ -9,7 +9,9 @@ output: html_document
 project_location <- '~/Library/CloudStorage/OneDrive-JohnsHopkins/Research Projects/CLIF/CLIF_Projects/CLIF_PF-to-SF/federated_summary_analysis'
 
 #Which Sites Participated
-sites <- c("hopkins")
+sites <- c("hopkins", "nu", "umn", "rush", 
+           "ohsu", "ucmc", "emory", "penn",
+           "michigan", "mgb", "ucsf", "sunnybrook")
 
 if (!dir.exists(paste0(project_location, "/tables"))) {
   dir.create(paste0(project_location, "/tables"))
@@ -120,7 +122,7 @@ tables <- c(
   "_table1_cont_by_exposure_imv.csv",          
   "_table1_cont_by_exposure_nippv.csv",   
   "_table1_cont_by_exposure_high_flow_ncno_undefined.csv", 
-  "_table1_cont_by_exposure_imvno_undefined.csv",          
+  "_table1_cont_by_exposure_imv.no_undefined",          
   "_table1_cont_by_exposure_nippvno_undefined.csv",   
   "_table1_cont_by_exposure.csv",               
   "_table1_cont_by_oxygenation.csv",           
@@ -137,8 +139,7 @@ tables <- c(
   "_table2_o2metrics_cont_by_resp_support.csv", 
   "_table2_o2metrics_cont_by_resp_support_noundefined.csv", 
   "_table2_o2metrics_cont_by_sofa.csv",
-  "_hospital_categories.csv",
-  "_logistic_models.csv"
+  "_hospital_categories.csv"
 )
 
 # Combine sites and tables to create full table names
@@ -998,7 +999,7 @@ sf_pf_counts_overall <- collate_tables('_pf_sf_count_table.csv') |>
     count = sum(count, na.rm=T),
     missing = sum(missing, na.rm=T),
   ) |>
-  filter(strata_cat %in% c('Overall', 'resp_support_category', 'primary_metric')) |>
+  filter(strata_cat %in% c('Overall', 'resp_support_category')) |>
   #To Wide Format
   pivot_wider(
     names_from = variable,
@@ -1011,10 +1012,10 @@ sf_pf_counts_overall <- collate_tables('_pf_sf_count_table.csv') |>
   relocate(site, .after = strata)
   
 sf_pf_counts <- collate_tables('_pf_sf_count_table.csv') |>
-  filter(strata_cat %in% c('Overall', 'resp_support_category', 'primary_metric')) |>
+  filter(strata_cat %in% c('Overall', 'resp_support_category')) |>
   #To Wide Format
   pivot_wider(
-    id_cols = c('strata', 'strata_cat', 'site'),
+    id_cols = c('strata', 'site'),
     names_from = variable,
     values_from = count
   ) |>
@@ -1031,10 +1032,6 @@ table2_working <- cont_table_function(table2_metrics_exposure)
 sf_pf_patient_level <- table2_working |>
   #Select the Overall N and Weighted Means
   distinct(strata, variable, overall_n, weighted_mean, weighted_sd) 
-
-#Add in the SF and PF Categories
-
-
 
 #Save Tables
 write_csv(sf_pf_counts, paste0(project_location, '/tables/sf_pf_counts.csv'))
