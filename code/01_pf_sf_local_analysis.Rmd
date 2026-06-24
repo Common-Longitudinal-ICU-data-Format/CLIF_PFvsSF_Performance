@@ -382,6 +382,18 @@ analytic_cohort <- analytic_cohort |>
     exposure_group %in% "sf_only" & first_sf > SF_MOD[1] & first_sf <= SF_MOD[2], 'moderate_hypoxemia',
     exposure_group %in% "sf_only" & first_sf <= SF_SEV, 'severe_hypoxemia',
     default='undefined'),
+    #Now Calculate With Median Measure
+    oxygenation_category_median_measure=fcase(
+     exposure_group %in% c("pf_only", "sf_pf") & pf_24_median > PF_NO_HYPOXEMIA, 'not_hypoxemic',
+     exposure_group %in% c("pf_only", "sf_pf") & pf_24_median > PF_MILD[1] & pf_24_median <= PF_MILD[2], 'mild_hypoxemia',
+     exposure_group %in% c("pf_only", "sf_pf") & pf_24_median > PF_MOD[1] & pf_24_median <= PF_MOD[2], 'moderate_hypoxemia',
+     exposure_group %in% c("pf_only", "sf_pf") & pf_24_median <= PF_SEV, 'severe_hypoxemia',
+    # If you want to include SF severity ranges
+    exposure_group %in% "sf_only" & sf_24_median > SF_NO_HYPOXEMIA, 'not_hypoxemic',
+    exposure_group %in% "sf_only" & sf_24_median > SF_MILD[1] & sf_24_median <= SF_MILD[2], 'mild_hypoxemia',
+    exposure_group %in% "sf_only" & sf_24_median > SF_MOD[1] & sf_24_median <= SF_MOD[2], 'moderate_hypoxemia',
+    exposure_group %in% "sf_only" & sf_24_median <= SF_SEV, 'severe_hypoxemia',
+    default='undefined'),
     #Now Include an Oxygenation Category SF for those with PF
   oxygenation_category_sf_both=fcase(
     exposure_group %in% c("sf_pf") & sf_24_min > SF_NO_HYPOXEMIA, 'not_hypoxemic',
@@ -447,6 +459,21 @@ analytic_cohort <- analytic_cohort %>%
       exposure_group == "sf_only" & first_sf <= SF_SOFA_4, 4,
       default = NA_real_  # Assign NA if none of the conditions are met
     ),
+    #Repeat Now with Median Measure
+    sofa2_resp_median_measure = fcase(
+      exposure_group %in% c("pf_only", "sf_pf") & pf_24_median > PF_SOFA_0, 0,
+      exposure_group %in% c("pf_only", "sf_pf") & pf_24_median > PF_SOFA_1[1] & pf_24_median <= PF_SOFA_1[2], 1,
+      exposure_group %in% c("pf_only", "sf_pf") & pf_24_median > PF_SOFA_2[1] & pf_24_median <= PF_SOFA_2[2], 2,
+      exposure_group %in% c("pf_only", "sf_pf") & pf_24_median > PF_SOFA_3[1] & pf_24_median <= PF_SOFA_3[2], 3,
+      exposure_group %in% c("pf_only", "sf_pf") & pf_24_median <= PF_SOFA_4, 4,
+      # For SF
+      exposure_group == "sf_only" & sf_24_median > SF_SOFA_0, 0,
+      exposure_group == "sf_only" & sf_24_median > SF_SOFA_1[1] & sf_24_median <= SF_SOFA_1[2], 1,
+      exposure_group == "sf_only" & sf_24_median > SF_SOFA_2[1] & sf_24_median <= SF_SOFA_2[2], 2,
+      exposure_group == "sf_only" & sf_24_median > SF_SOFA_3[1] & sf_24_median <= SF_SOFA_3[2], 3,
+      exposure_group == "sf_only" & sf_24_median <= SF_SOFA_4, 4,
+      default = NA_real_  # Assign NA if none of the conditions are met
+    ),
     #Now Repeat SOFA Definition for SF-PF group but with SF
     sofa2_cat_sf_both=fcase(
       # For SF
@@ -459,6 +486,7 @@ analytic_cohort <- analytic_cohort %>%
     ),
     sofa2_cat = factor(sofa2_resp),  # Convert to factor
     sofa2_cat_first_measure =factor(sofa2_resp_first_measure),
+    sofa2_resp_median_measure=factor(sofa2_resp_median_measure),
   #Repeat SOFA RESP score for SF Contemporary to PF
   sofa2_cat_sf_contemp_pf=fcase(
     exposure_group == "sf_pf" & sf_contemporary_to_pf > SF_SOFA_0, 0,
@@ -1795,10 +1823,15 @@ analytic_cohort <- analytic_cohort |>
     #Now First Measure
     o2_strata_first_measure=paste0(primary_metric, '-', oxygenation_category_first_measure),
     sofa_strata_first_measure=paste0(primary_metric, '-', sofa2_resp_first_measure),
+    #Now Median Measure
+    o2_strata_median_measure=paste0(primary_metric, '-', oxygenation_category_median_measure),
+    sofa_strata_median_measure=paste0(primary_metric, '-', sofa2_resp_median_measure)
     ) 
 
 #1st Do For SF and PF Strata
-strata <- c('o2_strata', 'sofa_strata', 'o2_strata_first_measure', 'sofa_strata_first_measure')
+strata <- c('o2_strata', 'sofa_strata', 
+            'o2_strata_first_measure', 'sofa_strata_first_measure',
+            'o2_strata_median_measure', 'sofa_strata_median_measure')
 table_mortality_list <- list()
 for (s in strata) {
 table_mortality <- CreateTableOne(
@@ -1811,10 +1844,10 @@ table_mortality <- CreateTableOne(
 #Output 'Full' Statistics on Agreement by Oxygenation Criteria and SOFA Criteria Here
 tab <- tab_decomp(table_mortality)
 tab$categorical$analysis <- 'overall'
+tab$categorical$strata_type <- s
 
 table_mortality_list[[s]] <- tab
 }
-
 
 strata2 <- c('o2_strata', 'sofa_strata', 
             'o2_strata_sf_both', 'sofa_strata_sf_both',
@@ -1832,6 +1865,7 @@ names <- paste0('both', "_", s2)
 #Output 'Full' Statistics on Agreement by Oxygenation Criteria and SOFA Criteria Here
 tab <- tab_decomp(table_mortality)
 tab$categorical$analysis <- 'sf_pf'
+tab$categorical$strata_type <- s
 
 table_mortality_list[[names]] <- tab
 }
