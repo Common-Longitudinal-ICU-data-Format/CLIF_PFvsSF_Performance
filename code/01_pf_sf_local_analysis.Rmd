@@ -1057,6 +1057,20 @@ table2_list <- tab_decomp(table2)
 write_csv(table2_list$continuous, paste0(project_location, '/proj_output/', site, '_table2_o2metrics_cont_by_exposure.csv'))
 write_csv(table2_list$categorical, paste0(project_location, '/proj_output/', site, '_table2_o2metrics_cat_by_exposure.csv'))
 
+#By Primary Metric
+table2 <- CreateTableOne(
+  data=analytic_cohort, 
+  vars=to_tab, 
+  factorVars = factors_tab,
+  strata='primary_metric', 
+  addOverall = T)
+
+summary(table2)
+
+table2_list <- tab_decomp(table2)
+write_csv(table2_list$continuous, paste0(project_location, '/proj_output/', site, '_table2_o2metrics_cont_by_primary_metric.csv'))
+write_csv(table2_list$categorical, paste0(project_location, '/proj_output/', site, '_table2_o2metrics_cat_by_primary_metric.csv'))
+
 #By Respiratory Support
 table2 <- CreateTableOne(
   data=analytic_cohort, 
