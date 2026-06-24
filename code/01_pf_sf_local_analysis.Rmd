@@ -1879,7 +1879,7 @@ names <- paste0('both', "_", s2)
 #Output 'Full' Statistics on Agreement by Oxygenation Criteria and SOFA Criteria Here
 tab <- tab_decomp(table_mortality)
 tab$categorical$analysis <- 'sf_pf'
-tab$categorical$strata_type <- s
+tab$categorical$strata_type <- s2
 
 table_mortality_list[[names]] <- tab
 }
