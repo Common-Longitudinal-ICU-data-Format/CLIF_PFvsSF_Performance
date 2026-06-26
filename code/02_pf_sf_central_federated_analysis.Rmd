@@ -38,7 +38,8 @@ packages_to_install =
     "broom.mixed",
     "marginaleffects",
     "pROC",
-    "rms")
+    "rms",
+    "metafor")
 
 #Can Load For Each Individual RMarkdown
 packages_to_load =
@@ -57,7 +58,8 @@ packages_to_load =
     "pROC",
     "rms",
     "marginaleffects",
-    "patchwork")
+    "patchwork",
+    "metafor")
 options(dplyr.summarise.inform = FALSE)
 
 fn_install_if_mi = function(p) {
@@ -2435,12 +2437,8 @@ table_mh_tests <- rowbind(table_mh_tests,
 write_csv(table_mh_tests, paste0(project_location, '/tables/table_mh_tests.csv'))
 ```
 
-```
-
-
 
 ```{r Mortality by O2 Category HeatMap}
---LEFT OFF HERE
 heat_map_o2_mortality <- aggregate_table_mortality %>%
   filter(strata %in% strata_values,
          strata!='Overall', 
@@ -2460,7 +2458,8 @@ heat_map_o2_cat <- heat_map_o2_mortality |>
 heat_graph <- heat_map_o2_cat |>
   filter(
     strata %in% c('sf', 'pf'),
-    analysis=='overall')
+    analysis=='overall',
+    !grepl('first|median', strata_type))
 ggplot(heat_graph,
               aes(x = level, y = strata, fill = percent)) +
   geom_tile(color = "white", width = 0.95, height = 0.95) +
@@ -2501,7 +2500,8 @@ heat_map_sofa <- heat_map_o2_mortality |>
 
 heat_graph <- heat_map_sofa |>
   filter(strata %in% c('sf', 'pf'),
-         analysis=='overall')
+         analysis=='overall',
+         !grepl('first|median', strata_type))
 ggplot(heat_graph, aes(x = level, y = strata, fill = percent)) +
   geom_tile(color = "white", width = 0.95, height = 0.95) +
   scale_fill_gradient2(name="",
@@ -2538,7 +2538,8 @@ ggsave(
 heat_graph <- heat_map_o2_cat |>
   filter(
     strata %in% c('sf_pf_', 'pf'),
-    analysis=='sf_pf')
+    analysis=='sf_pf',
+    !grepl('first|median', strata_type))
 ggplot(heat_graph,
               aes(x = level, y = strata, fill = percent)) +
   geom_tile(color = "white", width = 0.95, height = 0.95) +
@@ -2575,7 +2576,8 @@ ggsave(
 heat_graph <- heat_map_sofa |>
   filter( 
     strata %in% c('sf_pf_', 'pf'),
-    analysis=='sf_pf')
+    analysis=='sf_pf',
+    !grepl('first|median', strata_type))
 ggplot(heat_graph, aes(x = level, y = strata, fill = percent)) +
   geom_tile(color = "white", width = 0.95, height = 0.95) +
   scale_fill_gradient2(name="",
@@ -2612,7 +2614,8 @@ ggsave(
 heat_graph <- heat_map_o2_cat |>
   filter(
     strata %in% c('sf_pf_contemp', 'pf'),
-    analysis=='sf_pf')
+    analysis=='sf_pf',
+    !grepl('first|median', strata_type))
 ggplot(heat_graph,
               aes(x = level, y = strata, fill = percent)) +
   geom_tile(color = "white", width = 0.95, height = 0.95) +
@@ -2649,7 +2652,8 @@ ggsave(
 heat_graph <- heat_map_sofa |>
   filter( 
     strata %in% c('sf_pf_contemp', 'pf'),
-    analysis=='sf_pf')
+    analysis=='sf_pf',
+    !grepl('first|median', strata_type))
 ggplot(heat_graph, aes(x = level, y = strata, fill = percent)) +
   geom_tile(color = "white", width = 0.95, height = 0.95) +
   scale_fill_gradient2(name="",
@@ -2680,6 +2684,152 @@ ggsave(
   filename='o2_sofa_mortality_sf_pf_contemp.svg',
   plot=last_plot(),
   device=cairo_ps(),
+  path = paste0(project_location, '/graphs/'))
+
+#Repeat For O2 Cat for First Measure
+heat_graph <- heat_map_o2_cat |>
+  filter(
+    strata %in% c('sf', 'pf'),
+    analysis=='overall',
+    grepl('first', strata_type))
+ggplot(heat_graph,
+              aes(x = level, y = strata, fill = percent)) +
+  geom_tile(color = "white", width = 0.95, height = 0.95) +
+  scale_fill_gradient2(name="",
+    low = 'dodgerblue4',
+    mid = 'white',
+    high = 'firebrick2',
+    limits = c(0, max(heat_graph$percent)),
+    midpoint = (max(heat_graph$percent)/2),
+    breaks = c(0, max(heat_graph$percent)),
+    labels = c('Lower', 'Higher')      # no labels on colorbar
+  ) +
+  scale_y_discrete(name='', labels = c('PaO2/FiO2 Defined', 'SpO2/FiO2 Defined')) +
+  scale_x_discrete(name='',
+                   labels = c('Not\nHypoxemic', 'Mild\nHypoxemia', 'Moderate\nHypoxemia', 'Severe\nHypoxemia')) +
+  geom_text(aes(label = label), size = 3, fontface='bold') +
+  coord_equal() +
+  labs(x = "Hypoxemia Severity Category", 
+       title = paste0("Death or Hospice by Day 28, (n=",sum(heat_graph$n_total, na.rm=T), ')'),
+       size=4) +
+  theme_minimal()
+ggsave(
+  filename='o2_category_mortality_first_measure.pdf',
+  device=cairo_pdf(),
+  path = paste0(project_location, '/graphs/'))
+ggsave(
+  filename='o2_category_mortality_first_measure.svg',
+  device=cairo_ps(),
+  path = paste0(project_location, '/graphs/'))
+
+#Repeat for O2 Cat for Median Measure
+heat_graph <- heat_map_o2_cat |>
+  filter(
+    strata %in% c('sf', 'pf'),
+    analysis=='overall',
+    grepl('median', strata_type))
+ggplot(heat_graph,
+              aes(x = level, y = strata, fill = percent)) +
+  geom_tile(color = "white", width = 0.95, height = 0.95) +
+  scale_fill_gradient2(name="",
+    low = 'dodgerblue4',
+    mid = 'white',
+    high = 'firebrick2',
+    limits = c(0, max(heat_graph$percent)),
+    midpoint = (max(heat_graph$percent)/2),
+    breaks = c(0, max(heat_graph$percent)),
+    labels = c('Lower', 'Higher')      # no labels on colorbar
+  ) +
+  scale_y_discrete(name='', labels = c('PaO2/FiO2 Defined', 'SpO2/FiO2 Defined')) +
+  scale_x_discrete(name='',
+                   labels = c('Not\nHypoxemic', 'Mild\nHypoxemia', 'Moderate\nHypoxemia', 'Severe\nHypoxemia')) +
+  geom_text(aes(label = label), size = 3, fontface='bold') +
+  coord_equal() +
+  labs(x = "Hypoxemia Severity Category", 
+       title = paste0("Death or Hospice by Day 28, (n=",sum(heat_graph$n_total, na.rm=T), ')'),
+       size=4) +
+  theme_minimal()
+ggsave(
+  filename='o2_category_mortality_median_measure.pdf',
+  device=cairo_pdf(),
+  path = paste0(project_location, '/graphs/'))
+ggsave(
+  filename='o2_category_mortality_median_measure.svg',
+  device=cairo_ps(),
+  path = paste0(project_location, '/graphs/'))
+
+#Repeat for SOFA for First Measure
+heat_graph <- heat_map_sofa |>
+  filter(strata %in% c('sf', 'pf'),
+         analysis=='overall',
+         grepl('first', strata_type))
+ggplot(heat_graph, aes(x = level, y = strata, fill = percent)) +
+  geom_tile(color = "white", width = 0.95, height = 0.95) +
+  scale_fill_gradient2(name="",
+    low = 'dodgerblue4',
+    mid = 'white',
+    high = 'firebrick2',
+    limits = c(0, max(heat_graph$percent)),
+    midpoint = (max(heat_graph$percent)/2),
+    breaks = c(0, max(heat_graph$percent)),
+    labels = c('Lower', 'Higher')      # no labels on colorbar
+  ) +
+  scale_y_discrete(name='', labels = c('PaO2/FiO2 Defined', 'SpO2/FiO2 Defined')) +
+  scale_x_discrete(name='SOFA-2 Respiratory Score',
+                   labels = c('0', '1', '2', '3', '4')) +
+  geom_text(aes(label = label), size = 3, fontface='bold') +
+  coord_equal() +
+  labs(x = "Hypoxemia Severity Category", 
+       title = paste0("Death or Hospice by Day 28, (n=",sum(heat_graph$n_total, na.rm=T), ')'),
+       fontface='bold',
+       size=4) +
+  theme_minimal()
+ggsave(
+  filename='o2_sofa_mortality_first_measure.pdf',
+  device = cairo_pdf(),
+  plot=last_plot(),
+  path = paste0(project_location, '/graphs/'))
+ggsave(
+  filename='o2_sofa_mortality_first_measure.svg',
+  device = cairo_ps(),
+  plot=last_plot(),
+  path = paste0(project_location, '/graphs/'))
+
+#Repeat for SOFA for Median Measure
+heat_graph <- heat_map_sofa |>
+  filter(strata %in% c('sf', 'pf'),
+         analysis=='overall',
+         grepl('median', strata_type))
+ggplot(heat_graph, aes(x = level, y = strata, fill = percent)) +
+  geom_tile(color = "white", width = 0.95, height = 0.95) +
+  scale_fill_gradient2(name="",
+    low = 'dodgerblue4',
+    mid = 'white',
+    high = 'firebrick2',
+    limits = c(0, max(heat_graph$percent)),
+    midpoint = (max(heat_graph$percent)/2),
+    breaks = c(0, max(heat_graph$percent)),
+    labels = c('Lower', 'Higher')      # no labels on colorbar
+  ) +
+  scale_y_discrete(name='', labels = c('PaO2/FiO2 Defined', 'SpO2/FiO2 Defined')) +
+  scale_x_discrete(name='SOFA-2 Respiratory Score',
+                   labels = c('0', '1', '2', '3', '4')) +
+  geom_text(aes(label = label), size = 3, fontface='bold') +
+  coord_equal() +
+  labs(x = "Hypoxemia Severity Category", 
+       title = paste0("Death or Hospice by Day 28, (n=",sum(heat_graph$n_total, na.rm=T), ')'),
+       fontface='bold',
+       size=4) +
+  theme_minimal()
+ggsave(
+  filename='o2_sofa_mortality_median_measure.pdf',
+  device = cairo_pdf(),
+  plot=last_plot(),
+  path = paste0(project_location, '/graphs/'))
+ggsave(
+  filename='o2_sofa_mortality_median_measure.svg',
+  device = cairo_ps(),
+  plot=last_plot(),
   path = paste0(project_location, '/graphs/'))
 
 ```
@@ -3128,7 +3278,7 @@ ggsave(
 #Collate Table Stratified by Respitatory
 mortality_by_o2_resp <- collate_tables('_aggregate_by_o2cat_resp_support.csv') |>
   #Fix strange Expanded Strata Name
-  mutate(strata = str_remove(strata, "sf_pf_contemp-sf_pf_contemp-sf_pf_contemp-"))
+  mutate(strata = str_remove(strata, "sf_pf_contemp-sf_pf_contemp-sf_pf_contemp-sf_pf_contemp-sf_pf_contemp-")) 
 
 #Prepare Data for Table
 aggregate_mortality_resp <- mortality_by_o2_resp |>
@@ -3264,7 +3414,8 @@ heat_map_o2_cat <- heat_map_o2_mortality |>
   filter(
     variable=='death_hospice28',
     grepl('hypox', level)==T,
-    analysis=='overall') |>
+    analysis=='overall',
+    !grepl('first|median', strata_type)) |>
   mutate(
     level = factor(level, 
                    levels = cat_levels),
@@ -3383,7 +3534,8 @@ rn <- data.frame(
 heat_map_sofa <- heat_map_o2_mortality |>
   filter(
     variable=='death_hospice28',
-    grepl('hypox', level)==F) |>
+    grepl('hypox', level)==F,
+    grepl('first|median', strata_type)==F) |>
   mutate(
     level = factor(level, levels = cat_levels),
     resp_support_category  = factor(resp_support_category, 
@@ -3503,7 +3655,8 @@ rn <- data.frame(
 heat_map_o2_cat <- heat_map_o2_mortality |>
   filter(
     variable=='death_hospice28',
-    grepl('hypox', level)==T) |>
+    grepl('hypox', level)==T,
+    grepl('first|median', strata_type)==F) |>
   mutate(
     level = factor(level, levels = cat_levels),
     resp_support_category  = factor(resp_support_category, 
@@ -3621,7 +3774,8 @@ rn <- data.frame(
 heat_map_sofa <- heat_map_o2_mortality |>
   filter(
     variable=='death_hospice28',
-    grepl('hypox', level)==F) |>
+    grepl('hypox', level)==F,
+    grepl('first|median', strata_type)==F) |>
   mutate(
     level = factor(level, levels = cat_levels),
     resp_support_category  = factor(resp_support_category, 
@@ -3734,7 +3888,8 @@ ggsave(
 heat_graph <- heat_map_o2_cat |>
   filter(
     analysis=='sf_pf',
-    strata %in% c('sf_pf_contemp', 'pf'))
+    strata %in% c('sf_pf_contemp', 'pf'),
+    grepl('first|median', strata_type)==F)
 ggplot(heat_graph, aes(x = rn, y = strata, fill = percent)) +
   geom_tile(color = "white", width = 0.95, height = 0.95) +
   scale_fill_gradient2(name="",
@@ -3769,7 +3924,8 @@ ggsave(
 heat_graph <- heat_map_sofa |>
   filter(
     analysis=='sf_pf',
-    strata %in% c('sf_pf_contemp', 'pf'))
+    strata %in% c('sf_pf_contemp', 'pf'),
+    grepl('first|median', strata_type)==F)
 ggplot(heat_graph, aes(x = rn, y = strata, fill = percent)) +
   geom_tile(color = "white", width = 0.95, height = 0.95) +
   scale_fill_gradient2(name="",
@@ -3966,6 +4122,18 @@ ggsave(
   plot=last_plot(),
   path = paste0(project_location, '/graphs/'))
 
+#Now First Value in 1st 24 Hours
+ggplot(data=
+         subset(aggregate_continuous_hospital, 
+                primary_metric=='pf' & variable=='first_measure_5'), 
+       aes(x=value, y=prob_death28)) +
+  geom_point() +
+  geom_smooth()
+ggsave(
+  filename='first_pf_deathhospice28_raw.pdf',
+  plot=last_plot(),
+  path = paste0(project_location, '/graphs/'))
+
 #Run Random Effects Aggregate Logistic Regression for Death/Hospice by Day 28
 #Note Proportion with Weights Gives Equivalent Results to the cbind method
 #Start with Univariable and Hospital Random Effect
@@ -3988,7 +4156,17 @@ data   = dplyr::filter(aggregate_continuous_hospital,
                        variable=='median_measure_5'),
 family = binomial(link = "logit")
 )
-tidy_models_list[['pf_median']] <- tidy_make(pf_glm_linear, "Median PF - Continuous")
+tidy_models_list[['pf_median']] <- tidy_make(pf_glm_median, "Median PF - Continuous")
+
+pf_glm_first <- glmmTMB(
+ cbind(n_deathhosp28, n_in_group - n_deathhosp28) ~ 
+    rms::rcs(value, 4) + (1 | site),
+data   = dplyr::filter(aggregate_continuous_hospital, 
+                       primary_metric == "pf" & 
+                       variable=='first_measure_5'),
+family = binomial(link = "logit")
+)
+tidy_models_list[['pf_first']] <- tidy_make(pf_glm_first, "First PF - Continuous")
 
 #Visualize COntinuous Lowest Measure
 grid <- aggregate_continuous_hospital |>
@@ -4062,6 +4240,42 @@ ggsave(
   plot=last_plot(),
   path = paste0(project_location, '/graphs/'))
 
+#First
+grid <- aggregate_continuous_hospital |>
+  filter(primary_metric=='pf',
+         variable=='first_measure_5') |>
+  group_by(value) |>
+  summarise(
+    n_in_group=sum(n_in_group, na.rm=T)
+  )
+predicted_pf_first <- as_tibble(predictions(pf_glm_first, new_data=grid, re.form=NA)) |>
+  select(value, n_in_group, estimate, conf.low, conf.high) |>
+  group_by(value) |>
+  mutate(
+    n_in_group=sum(n_in_group, na.rm=T)
+  ) |>
+  distinct()
+
+ggplot(predicted_pf_first, aes(x = value, y = estimate)) +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high),
+              fill = "grey80", alpha = 0.5) +
+  geom_line(color = "firebrick2", linewidth = 1) +
+  geom_point(aes(size = n_in_group), alpha = 0.6) +
+  scale_size(range = c(0.25, 2), guide = "none") +
+  scale_y_continuous(
+    limits = c(0, 1),
+    breaks = seq(0, 1, by = 0.1),
+    labels = scales::label_percent(accuracy = 1)
+) +
+  labs(x = "First PaO2/FiO2",
+       y = "Predicted probability",
+       title = "Predicted probability with 95% CI band") +
+theme_minimal()
+ggsave(
+  filename='predicted_deathhospice28_pf_first.pdf',
+  plot=last_plot(),
+  path = paste0(project_location, '/graphs/'))
+
 ##################
 ### SF Ratio
 #################
@@ -4089,6 +4303,17 @@ ggsave(
   plot=last_plot(),
   path = paste0(project_location, '/graphs/'))
 
+ggplot(data=
+         subset(aggregate_continuous_hospital, 
+                primary_metric=='sf' & variable=='first_measure_5'), 
+       aes(x=value, y=prob_death28)) +
+  geom_point() +
+  geom_smooth()
+ggsave(
+  filename='first_sf_deathhospice28_raw.pdf',
+  plot=last_plot(),
+  path = paste0(project_location, '/graphs/'))
+
 #Run Random Effects Aggregate Logistic Regression for Death/Hospice by Day 28
 sf_glm_linear <- glmmTMB(
   cbind(n_deathhosp28, n_in_group - n_deathhosp28) ~ 
@@ -4100,7 +4325,6 @@ family = binomial(link = "logit")
 )
 tidy_models_list$sf_only <- tidy_make(sf_glm_linear, 'SF-Continuous')
 
-
 #Now Median
 sf_glm_median <- glmmTMB(
   cbind(n_deathhosp28, n_in_group - n_deathhosp28) ~ 
@@ -4111,6 +4335,17 @@ data   = dplyr::filter(aggregate_continuous_hospital,
 family = binomial(link = "logit")
 )
 tidy_models_list$sf_median <- tidy_make(sf_glm_median, 'SF_Median_Continuous')
+
+#Now First
+sf_glm_first <- glmmTMB(
+  cbind(n_deathhosp28, n_in_group - n_deathhosp28) ~ 
+    rms::rcs(value, 4) + (1 | site),
+data   = dplyr::filter(aggregate_continuous_hospital, 
+                       primary_metric == "sf" &
+                       variable=='first_measure_5'),
+family = binomial(link = "logit")
+)
+tidy_models_list$sf_first <- tidy_make(sf_glm_first, 'SF_First_Continuous')
 
 #Visualize SF Lowest
 grid <- aggregate_continuous_hospital |>
@@ -4183,6 +4418,43 @@ theme_minimal()
 
 ggsave(
   filename='predicted_deathhospice28_sf_median.pdf',
+  plot=last_plot(),
+  path = paste0(project_location, '/graphs/'))
+
+#Visualize SF First
+grid <- aggregate_continuous_hospital |>
+  filter(primary_metric=='sf',
+         variable=='first_measure_5') |>
+  group_by(value) |>
+  summarise(
+    n_in_group=sum(n_in_group, na.rm=T)
+  )
+predicted_sf_first <- as_tibble(predictions(sf_glm_first, new_data=grid, re.form=NA)) |>
+  select(value, n_in_group, estimate, conf.low, conf.high) |>
+  group_by(value) |>
+  mutate(
+    n_in_group=sum(n_in_group, na.rm=T)
+  ) |>
+  distinct()
+
+ggplot(predicted_sf_first, aes(x = value, y = estimate)) +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high),
+              fill = "grey80", alpha = 0.5) +
+  geom_line(color = "firebrick2", linewidth = 1) +
+  geom_point(aes(size = n_in_group), alpha = 0.6) +
+  scale_size(range = c(0.5, 3), guide = "none") +
+  scale_y_continuous(
+    limits = c(0, 1),
+    breaks = seq(0, 1, by = 0.1),
+    labels = scales::label_percent(accuracy = 1)
+) +
+  labs(x = "First SpO2/FiO2",
+       y = "Predicted probability",
+       title = "Predicted probability with 95% CI band") +
+theme_minimal()
+
+ggsave(
+  filename='predicted_deathhospice28_sf_first.pdf',
   plot=last_plot(),
   path = paste0(project_location, '/graphs/'))
 ```
@@ -4434,7 +4706,7 @@ rm(roc_df_pf)
 ```
 
 
-```{r  AUROC and ROC Curves - Continuous Medians}
+```{r  AUROC and ROC Curves - Continuous Medians and Firsts}
 set.seed(3982)
 BOOT_NUM <- 2500 #Number of Bootstrap Replicates
 #SF Ratio
@@ -4479,6 +4751,49 @@ roc_table <- bind_rows(
 ))
 rm(roc_df_sf_median)
 
+#SF First Measure
+#SF Ratio
+dat_sf_first <- aggregate_continuous_hospital %>%
+  filter(primary_metric=='sf',
+         variable=='first_measure_5') 
+dat_sf_first <- dat_sf_first |>
+  mutate(pred = predict(sf_glm_first, newdata = dat_sf_first, type = "response", re.form = NA),
+         deaths = n_deathhosp28,
+         survivors = n_in_group - deaths,
+         model_n=sum(n_in_group, na.rm=T),
+         model_hospitals=length(unique(hospital_id))) |>
+  filter(!is.na(pred), (deaths + survivors) > 0)
+
+roc_df_sf_first <- expand_to_patients(dat_sf_first)
+
+roc_sf_first <- roc(response = roc_df_sf_first$label, predictor = roc_df_sf_first$score)
+auc_sf_first <- auc(roc_sf_first)
+ci_sf_first <- as.numeric(pROC::ci.auc(roc_sf_first, method = "bootstrap", boot.n = BOOT_NUM, boot.stratified = TRUE))
+# Weighted Brier score + 95% CI via stratified multinomial bootstrap (aggregated df)
+brier_sf_first <- compute_weighted_brier(dat_sf_first, boot_n = BOOT_NUM)
+vals <- bootstrap_val_prob_clustered(roc_df_sf_first)
+test <- roc.test(roc_sf, roc_sf_first, method='bootstrap', boot.n=BOOT_NUM)
+
+roc_table <- bind_rows(
+  roc_table,
+  data.frame(
+  model = "Overall_SF_Ratio_first",
+  model_n_patients = dat_sf_first$model_n[1],
+  model_n_hospitals = dat_sf_first$model_hospitals[1],
+  auc = round(auc_sf_first, digits=3),
+  ci_low = round(ci_sf_first[1], digits=3),
+  ci_hi = round(ci_sf_first[3], digits=3),
+  brier       = round(brier_sf_first$value, 3),
+  brier_low   = round(brier_sf_first$ci[1], 3),
+  brier_hi    = round(brier_sf_first$ci[2], 3),
+  ici = round(vals$eavg, 5),
+  ici_low = round(vals$ci_lower, 5),
+  ici_hi = round(vals$ci_upper, 5),
+  comparison = "Overall_SF_Lowest_v_first",
+  p.value = test$p.value
+))
+rm(roc_df_sf_first)
+
 #PF Ratio Median
 dat_pf_median <- aggregate_continuous_hospital %>%
   filter(primary_metric=='pf',
@@ -4493,13 +4808,12 @@ dat_pf_median <- dat_pf_median |>
 
 roc_df_pf <- expand_to_patients(dat_pf_median)
 
-roc_pf <- roc(response = roc_df_pf$label, predictor = roc_df_pf$score)
-auc_pf <- auc(roc_pf)
-ci_pf <- as.numeric(pROC::ci.auc(roc_pf, method = "bootstrap", boot.n = BOOT_NUM, boot.stratified = TRUE))
+roc_pf_median <- roc(response = roc_df_pf$label, predictor = roc_df_pf$score)
+auc_pf <- auc(roc_pf_median)
+ci_pf <- as.numeric(pROC::ci.auc(roc_pf_median, method = "bootstrap", boot.n = BOOT_NUM, boot.stratified = TRUE))
 # Weighted Brier score + 95% CI via stratified multinomial bootstrap (aggregated df)
 brier_pf <- compute_weighted_brier(dat_pf_median, boot_n = BOOT_NUM)
 vals <- bootstrap_val_prob_clustered(roc_df_pf)
-
 
 roc_table <- bind_rows(
   roc_table,
@@ -4516,8 +4830,53 @@ roc_table <- bind_rows(
     ici = round(vals$eavg, 5),
     ici_low = round(vals$ci_lower, 5),
     ici_hi = round(vals$ci_upper, 5),
-    comparison = NA_character_,
-    p.value = NA_real_
+    comparison ="Overall_PF_Lowest_v_Median",
+    p.value = test$p.value
+  )
+) |>
+  arrange(model, comparison)
+rm(roc_df_pf)
+
+#First PF Ratio Measure
+dat_pf_first <- aggregate_continuous_hospital %>%
+  filter(primary_metric=='pf',
+         variable == 'first_measure_5') 
+dat_pf_first <- dat_pf_first |>
+  mutate(pred = predict(pf_glm_first, newdata = dat_pf_first, type = "response", re.form = NULL),
+         deaths = n_deathhosp28,
+         survivors = n_in_group - deaths,
+         model_n=sum(n_in_group, na.rm=T),
+         model_hospitals=length(unique(hospital_id))) |>
+  filter(!is.na(pred), (deaths + survivors) > 0)
+
+roc_df_pf <- expand_to_patients(dat_pf_first)
+
+roc_pf_first <- roc(response = roc_df_pf$label, predictor = roc_df_pf$score)
+auc_pf <- auc(roc_pf_first)
+ci_pf <- as.numeric(pROC::ci.auc(roc_pf_first, method = "bootstrap", boot.n = BOOT_NUM, boot.stratified = TRUE))
+# Weighted Brier score + 95% CI via stratified multinomial bootstrap (aggregated df)
+brier_pf <- compute_weighted_brier(dat_pf_first, boot_n = BOOT_NUM)
+vals <- bootstrap_val_prob_clustered(roc_df_pf)
+test <- roc.test(roc_pf, roc_pf_first, method='bootstrap', boot.n=BOOT_NUM)
+
+
+roc_table <- bind_rows(
+  roc_table,
+  data.frame(
+    model = "Overall_PF_Ratio_first",
+    model_n_patients = dat_pf_first$model_n[1],
+    model_n_hospitals = dat_pf_first$model_hospitals[1],
+    auc = round(auc_pf, 3),
+    ci_low = round(ci_pf[1], 3),
+    ci_hi = round(ci_pf[3], 3),
+    brier       = round(brier_pf$value, 3),
+    brier_low   = round(brier_pf$ci[1], 3),
+    brier_hi    = round(brier_pf$ci[2], 3),
+    ici = round(vals$eavg, 5),
+    ici_low = round(vals$ci_lower, 5),
+    ici_hi = round(vals$ci_upper, 5),
+    comparison = "Overall_PF_Lowest_v_first",
+    p.value = test$p.value
   )
 ) |>
   arrange(model, comparison)
@@ -4547,7 +4906,9 @@ aggregate_mortality_hospital <- collate_tables('_aggregate_by_o2cat_hospital.csv
   mutate(
     prob_death28=n_deathhosp28/n_in_group) |>
   #Bring in ABG and Hospital Data
-  left_join(abgs_by_hospital, by=c('site', 'hospital_id'))
+  left_join(abgs_by_hospital, by=c('site', 'hospital_id')) |>
+   #Fix strange Expanded Strata Name
+  mutate(strata = gsub("^(sf_pf_contemp-)+", "sf_pf_contemp-", strata)) 
 
 ##PF RATIO MODELS 
 #Categorical
@@ -4556,11 +4917,38 @@ pf_glm_o2_cat <- glmmTMB(
     strata + (1 | site),
 data   = aggregate_mortality_hospital |> 
   dplyr::filter(strata %in%  pf_o2_cat,
-                analysis=='overall') |>
+                analysis=='overall',
+                grepl('first|median', strata_type)==F) |>
   mutate(strata = factor(strata, levels = pf_o2_cat, ordered = F)),
 family = binomial(link = "logit")
 )
 tidy_models_list[['pf_o2_cat']] <- tidy_make(pf_glm_o2_cat, "PF - O2Cat")
+
+#Median Measure
+pf_glm_o2_cat_median <- glmmTMB(
+  cbind(n_deathhosp28, n_in_group - n_deathhosp28) ~
+    strata + (1 | site),
+data   = aggregate_mortality_hospital |> 
+  dplyr::filter(strata %in%  pf_o2_cat,
+                analysis=='overall',
+                grepl('median', strata_type)==T) |>
+  mutate(strata = factor(strata, levels = pf_o2_cat, ordered = F)),
+family = binomial(link = "logit")
+)
+tidy_models_list[['pf_o2_cat_median']] <- tidy_make(pf_glm_o2_cat_median, "PF - O2Cat_Median")
+
+#First Measure
+pf_glm_o2_cat_first <- glmmTMB(
+  cbind(n_deathhosp28, n_in_group - n_deathhosp28) ~
+    strata + (1 | site),
+data   = aggregate_mortality_hospital |> 
+  dplyr::filter(strata %in%  pf_o2_cat,
+                analysis=='overall',
+                grepl('first', strata_type)==T) |>
+  mutate(strata = factor(strata, levels = pf_o2_cat, ordered = F)),
+family = binomial(link = "logit")
+)
+tidy_models_list[['pf_o2_cat_first']] <- tidy_make(pf_glm_o2_cat_first, "PF - O2Cat_First")
 
 
 #SOFA
@@ -4569,12 +4957,41 @@ pf_glm_sofa_cat <- glmmTMB(
     strata + (1 | site),
 data   = aggregate_mortality_hospital |> 
   dplyr::filter(strata %in%  pf_sofa,
-                analysis=='overall') |>
+                analysis=='overall',
+                grepl('first|median', strata_type)==F) |>
   mutate(strata = factor(strata, levels = pf_sofa, ordered = F)),
 family = binomial(link = "logit")
 )
 
 tidy_models_list[['pf_sofa_cat']] <- tidy_make(pf_glm_sofa_cat, "PF - SOFA")
+
+#Median
+pf_glm_sofa_cat_median <- glmmTMB(
+  cbind(n_deathhosp28, n_in_group - n_deathhosp28) ~ 
+    strata + (1 | site),
+data   = aggregate_mortality_hospital |> 
+  dplyr::filter(strata %in%  pf_sofa,
+                analysis=='overall',
+                grepl('median', strata_type)==T) |>
+  mutate(strata = factor(strata, levels = pf_sofa, ordered = F)),
+family = binomial(link = "logit")
+)
+
+tidy_models_list[['pf_sofa_cat_median']] <- tidy_make(pf_glm_sofa_cat_median, "PF - SOFA_median")
+
+#First
+pf_glm_sofa_cat_first <- glmmTMB(
+  cbind(n_deathhosp28, n_in_group - n_deathhosp28) ~ 
+    strata + (1 | site),
+data   = aggregate_mortality_hospital |> 
+  dplyr::filter(strata %in%  pf_sofa,
+                analysis=='overall',
+                grepl('first', strata_type)==T) |>
+  mutate(strata = factor(strata, levels = pf_sofa, ordered = F)),
+family = binomial(link = "logit")
+)
+
+tidy_models_list[['pf_sofa_cat_first']] <- tidy_make(pf_glm_sofa_cat_first, "PF - SOFA_first")
 
 #SF RATIO MODELS 
 #SF Categories
@@ -4583,11 +5000,38 @@ sf_glm_o2_cat <- glmmTMB(
     strata + (1 | site),
 data   = aggregate_mortality_hospital |> 
   dplyr::filter(strata %in%  sf_o2_cat,
-                analysis == 'overall') |>
+                analysis == 'overall',
+                grepl('first|median', strata_type)==F) |>
   mutate(strata = factor(strata, levels = sf_o2_cat, ordered = F)),
 family = binomial(link = "logit")
 )
 tidy_models_list[['sf_o2_cat']] <- tidy_make(sf_glm_o2_cat, "SF - O2Cat")
+
+#SF Categories - Median Measure
+sf_glm_o2_cat_median <- glmmTMB(
+  cbind(n_deathhosp28, n_in_group - n_deathhosp28) ~ 
+    strata + (1 | site),
+data   = aggregate_mortality_hospital |> 
+  dplyr::filter(strata %in%  sf_o2_cat,
+                analysis == 'overall',
+                 grepl('median', strata_type)==T) |>
+  mutate(strata = factor(strata, levels = sf_o2_cat, ordered = F)),
+family = binomial(link = "logit")
+)
+tidy_models_list[['sf_o2_cat_median']] <- tidy_make(sf_glm_o2_cat_median, "SF - O2Cat_Median")
+
+#SF Categories - First Measure
+sf_glm_o2_cat_first <- glmmTMB(
+  cbind(n_deathhosp28, n_in_group - n_deathhosp28) ~ 
+    strata + (1 | site),
+data   = aggregate_mortality_hospital |> 
+  dplyr::filter(strata %in%  sf_o2_cat,
+                analysis == 'overall',
+                 grepl('first', strata_type)==T) |>
+  mutate(strata = factor(strata, levels = sf_o2_cat, ordered = F)),
+family = binomial(link = "logit")
+)
+tidy_models_list[['sf_o2_cat_first']] <- tidy_make(sf_glm_o2_cat_first, "SF - O2Cat_First")
 
 
 #SF SOFA
@@ -4597,18 +5041,46 @@ sf_glm_sofa_cat <- glmmTMB(
     strata + (1 | site),
 data   = aggregate_mortality_hospital |> 
   dplyr::filter(strata %in%  sf_sofa,
-                analysis=='overall') |>
+                analysis=='overall',
+                grepl('first|median', strata_type)==F) |>
   mutate(strata = factor(strata, levels = sf_sofa, ordered = F)),
 family = binomial(link = "logit")
 )
 tidy_models_list[['sf_sofa']] <- tidy_make(sf_glm_sofa_cat, "SF - SOFA")
+
+#Sofa Median
+sf_glm_sofa_cat_median <- glmmTMB(
+  cbind(n_deathhosp28, n_in_group - n_deathhosp28) ~ 
+    strata + (1 | site),
+data   = aggregate_mortality_hospital |> 
+  dplyr::filter(strata %in%  sf_sofa,
+                analysis=='overall',
+                grepl('median', strata_type)==T) |>
+  mutate(strata = factor(strata, levels = sf_sofa, ordered = F)),
+family = binomial(link = "logit")
+)
+tidy_models_list[['sf_sofa_median']] <- tidy_make(sf_glm_sofa_cat_median, "SF - SOFA_median")
+
+#Sofa First
+sf_glm_sofa_cat_first <- glmmTMB(
+  cbind(n_deathhosp28, n_in_group - n_deathhosp28) ~ 
+    strata + (1 | site),
+data   = aggregate_mortality_hospital |> 
+  dplyr::filter(strata %in%  sf_sofa,
+                analysis=='overall',
+                grepl('first', strata_type)==T) |>
+  mutate(strata = factor(strata, levels = sf_sofa, ordered = F)),
+family = binomial(link = "logit")
+)
+tidy_models_list[['sf_sofa_first']] <- tidy_make(sf_glm_sofa_cat_first, "SF - SOFA_first")
 
 #SF_and_PF O2 Cat
 sf_pf_glm_cat <- glmmTMB(
   cbind(n_deathhosp28, n_in_group - n_deathhosp28) ~  strata + (1 | site),
 data   = aggregate_mortality_hospital |> 
   dplyr::filter(strata %in%  sf_pf_o2_cat,
-                analysis=='sf_pf') |>
+                analysis=='sf_pf',
+                grepl('first|median', strata_type)==F) |>
   mutate(strata = factor(strata, levels = sf_pf_o2_cat, ordered = F)),
 family = binomial(link = "logit")
 )
@@ -4620,7 +5092,8 @@ sf_pf_glm_cat_contemp <- glmmTMB(
   cbind(n_deathhosp28, n_in_group - n_deathhosp28) ~ strata + (1 | site),
 data   = aggregate_mortality_hospital |> 
   dplyr::filter(strata %in% sf_pf_o2_contemp_cat,
-                analysis=='sf_pf') |>
+                analysis=='sf_pf',
+                grepl('first|median', strata_type)==F) |>
   mutate(strata = factor(strata, levels = sf_pf_o2_contemp_cat, ordered = F)),
 family = binomial(link = "logit")
 )
@@ -4632,7 +5105,8 @@ sf_pf_glm_sofa <- glmmTMB(
   cbind(n_deathhosp28, n_in_group - n_deathhosp28) ~ strata + (1 | site),
 data   = aggregate_mortality_hospital |> 
   dplyr::filter(strata %in% sf_pf_sofa,
-                analysis=='sf_pf') |>
+                analysis=='sf_pf',
+                grepl('first|median', strata_type)==F) |>
   mutate(strata = factor(strata, levels = sf_pf_sofa, ordered = F)),
 family = binomial(link = "logit")
 )
@@ -4645,7 +5119,8 @@ sf_pf_glm_sofa_contemp <- glmmTMB(
   cbind(n_deathhosp28, n_in_group - n_deathhosp28) ~ strata + (1 | site),
 data   = aggregate_mortality_hospital |> 
   dplyr::filter(strata %in% sf_pf_sofa_contemp,
-                analysis=='sf_pf') |>
+                analysis=='sf_pf',
+                grepl('first|median', strata_type)==F) |>
   mutate(strata = factor(strata, levels = sf_pf_sofa_contemp, ordered = F)),
 family = binomial(link = "logit")
 )
@@ -4660,7 +5135,8 @@ BOOT_NUM <- 2500 #Number of Bootstrap Replicates
 #SF Ratio O2 Cat
 dat_sf_o2_cat <- aggregate_mortality_hospital %>%
   filter(strata %in% sf_o2_cat,
-         analysis=='overall') |>
+         analysis=='overall',
+         grepl('first|median', strata_type)==F) |>
   distinct()
 dat_sf_o2_cat <- dat_sf_o2_cat |>
   mutate(pred = predict(sf_glm_o2_cat, newdata = dat_sf_o2_cat, type = "response", re.form = NA),
@@ -4703,7 +5179,8 @@ rm(roc_df_sf_o2_cat)
 #PF O2 Cat
 dat_pf_o2_cat <- aggregate_mortality_hospital %>%
   filter(strata %in% pf_o2_cat,
-         analysis=='overall') 
+         analysis=='overall',
+         grepl('first|median', strata_type)==F) 
 dat_pf_o2_cat <- dat_pf_o2_cat |>
   mutate(pred = predict(pf_glm_o2_cat, newdata = dat_pf_o2_cat, type = "response", re.form = NA),
          deaths = n_deathhosp28,
@@ -4745,7 +5222,8 @@ rm(roc_df_pf_o2_cat)
 #SF SOFA Category
 dat_sf_sofa_cat <- aggregate_mortality_hospital %>%
   filter(strata %in% sf_sofa,
-         analysis=='overall') 
+         analysis=='overall',
+         grepl('first|median', strata_type)==F) 
 dat_sf_sofa_cat <- dat_sf_sofa_cat |>
   mutate(pred = predict(sf_glm_sofa_cat, newdata = dat_sf_sofa_cat, type = "response", re.form = NA),
          deaths = n_deathhosp28,
@@ -4788,7 +5266,8 @@ rm(roc_df_sf_sofa_cat)
 #PF SOFA Cat
 dat_pf_sofa_cat <- aggregate_mortality_hospital %>%
   filter(strata %in% pf_sofa,
-         analysis=='overall') 
+         analysis=='overall',
+         grepl('first|median', strata_type)==F) 
 dat_pf_sofa_cat <- dat_pf_sofa_cat |>
   mutate(pred = predict(pf_glm_sofa_cat, newdata = dat_pf_sofa_cat, type = "response", re.form = NA),
          deaths = n_deathhosp28,
@@ -4833,7 +5312,8 @@ rm(roc_df_pf_sofa_cat)
 #SF Ratio O2 Cat
 dat_sf_pf_o2_cat <- aggregate_mortality_hospital %>%
   filter(strata %in% sf_pf_o2_cat,
-         analysis=='sf_pf') 
+         analysis=='sf_pf',
+         grepl('first|median', strata_type)==F) 
 dat_sf_pf_o2_cat <- dat_sf_pf_o2_cat |>
   mutate(pred = predict(sf_pf_glm_cat, newdata = dat_sf_pf_o2_cat, type = "response", re.form = NA),
          deaths = n_deathhosp28,
@@ -4877,7 +5357,8 @@ rm(roc_df_sf_pf_o2_cat)
 #SF O2 Cat
 dat_sf_pf_o2_contemp_cat <- aggregate_mortality_hospital %>%
   filter(strata %in% sf_pf_o2_contemp_cat,
-         analysis=='sf_pf') 
+         analysis=='sf_pf',
+         grepl('first|median', strata_type)==F) 
 dat_sf_pf_o2_contemp_cat <- dat_sf_pf_o2_contemp_cat |>
   mutate(pred = predict(sf_pf_glm_cat_contemp, newdata = dat_sf_pf_o2_contemp_cat, type = "response", re.form = NA),
          deaths = n_deathhosp28,
@@ -4921,7 +5402,8 @@ rm(roc_df_sf_pf_o2_contemp_cat)
 #SOFA
 dat_sf_pf_sofa <- aggregate_mortality_hospital %>%
   filter(strata %in% sf_pf_sofa,
-         analysis=='sf_pf') 
+         analysis=='sf_pf',
+         grepl('first|median', strata_type)==F) 
 dat_sf_pf_sofa <- dat_sf_pf_sofa |>
   mutate(pred = predict(sf_pf_glm_sofa, newdata = dat_sf_pf_sofa, type = "response", re.form = NA),
          deaths = n_deathhosp28,
@@ -4965,7 +5447,8 @@ rm(roc_df_sf_pf_sofa)
 #SOFA
 dat_sf_pf_sofa_contemp <- aggregate_mortality_hospital %>%
   filter(strata %in% sf_pf_sofa_contemp,
-         analysis=='sf_pf') 
+         analysis=='sf_pf',
+         grepl('first|median', strata_type)==F) 
 dat_sf_pf_sofa_contemp <- dat_sf_pf_sofa_contemp |>
   mutate(pred = predict(sf_pf_glm_sofa_contemp, newdata = dat_sf_pf_sofa_contemp, type = "response", re.form = NA),
          deaths = n_deathhosp28,
@@ -5005,6 +5488,362 @@ roc_table <- bind_rows(
 ))
 ```
 
+```{r PF and SF Categories Defined by First or Median Measures}
+set.seed(3982)
+BOOT_NUM <- 2500 #Number of Bootstrap Replicates
+
+#SF Ratio O2 Cat - first
+dat_sf_o2_cat <- aggregate_mortality_hospital %>%
+  filter(strata %in% sf_o2_cat,
+         analysis=='overall',
+         grepl('first', strata_type)==T) |>
+  distinct()
+dat_sf_o2_cat <- dat_sf_o2_cat |>
+  mutate(pred = predict(sf_glm_o2_cat_first, newdata = dat_sf_o2_cat, type = "response", re.form = NA),
+         deaths = n_deathhosp28,
+         survivors = n_in_group - deaths,
+         model_n=sum(n_in_group, na.rm=T),
+         model_hospitals=length(unique(hospital_id))) |>
+  filter(!is.na(pred), (deaths + survivors) > 0)
+
+roc_df_sf_o2_cat <- expand_to_patients(dat_sf_o2_cat)
+
+roc_sf_o2_cat_first <- roc(response = roc_df_sf_o2_cat$label, predictor = roc_df_sf_o2_cat$score)
+auc_sf_o2_cat <- auc(roc_sf_o2_cat_first)
+ci_sf_o2_cat <- as.numeric(pROC::ci.auc(roc_sf_o2_cat_first, method = "bootstrap", boot.n = BOOT_NUM, boot.stratified = TRUE))
+# Weighted Brier score + 95% CI via stratified multinomial bootstrap (aggregated df)
+brier_sf_o2_cat <- compute_weighted_brier(dat_sf_o2_cat, boot_n = BOOT_NUM)
+vals <- bootstrap_val_prob_clustered(roc_df_sf_o2_cat)
+test <- roc.test(roc_sf_o2_cat, roc_sf_o2_cat_first, method='bootstrap', boot.n=BOOT_NUM)
+
+roc_table <- bind_rows(
+  roc_table,
+  data.frame(
+  model = "Overall_SF_O2_Cat_First",
+  model_n_patients = dat_sf_o2_cat$model_n[1],
+  model_n_hospitals = dat_sf_o2_cat$model_hospitals[1],
+  auc = round(auc_sf_o2_cat, digits=3),
+  ci_low = round(ci_sf_o2_cat[1], digits=3),
+  ci_hi = round(ci_sf_o2_cat[3], digits=3),
+  brier       = round(brier_sf_o2_cat$value, 3),
+  brier_low   = round(brier_sf_o2_cat$ci[1], 3),
+  brier_hi    = round(brier_sf_o2_cat$ci[2], 3),
+  ici = round(vals$eavg, 5),
+  ici_low = round(vals$ci_lower, 5),
+  ici_hi = round(vals$ci_upper, 5),
+  comparison = "Overall_SF_O2_Cat_LowestvFirst",
+  p.value = test$p.value
+))
+rm(roc_df_sf_o2_cat)
+
+#SF Ratio O2 Cat - Median
+dat_sf_o2_cat <- aggregate_mortality_hospital %>%
+  filter(strata %in% sf_o2_cat,
+         analysis=='overall',
+         grepl('median', strata_type)==T) |>
+  distinct()
+dat_sf_o2_cat <- dat_sf_o2_cat |>
+  mutate(pred = predict(sf_glm_o2_cat_median, newdata = dat_sf_o2_cat, type = "response", re.form = NA),
+         deaths = n_deathhosp28,
+         survivors = n_in_group - deaths,
+         model_n=sum(n_in_group, na.rm=T),
+         model_hospitals=length(unique(hospital_id))) |>
+  filter(!is.na(pred), (deaths + survivors) > 0)
+
+roc_df_sf_o2_cat <- expand_to_patients(dat_sf_o2_cat)
+
+roc_sf_o2_cat_median <- roc(response = roc_df_sf_o2_cat$label, predictor = roc_df_sf_o2_cat$score)
+auc_sf_o2_cat <- auc(roc_sf_o2_cat_median)
+ci_sf_o2_cat <- as.numeric(pROC::ci.auc(roc_sf_o2_cat_median, method = "bootstrap", boot.n = BOOT_NUM, boot.stratified = TRUE))
+# Weighted Brier score + 95% CI via stratified multinomial bootstrap (aggregated df)
+brier_sf_o2_cat <- compute_weighted_brier(dat_sf_o2_cat, boot_n = BOOT_NUM)
+vals <- bootstrap_val_prob_clustered(roc_df_sf_o2_cat)
+test <- roc.test(roc_sf_o2_cat, roc_sf_o2_cat_median, method='bootstrap', boot.n=BOOT_NUM)
+
+roc_table <- bind_rows(
+  roc_table,
+  data.frame(
+  model = "Overall_SF_O2_Cat_Median",
+  model_n_patients = dat_sf_o2_cat$model_n[1],
+  model_n_hospitals = dat_sf_o2_cat$model_hospitals[1],
+  auc = round(auc_sf_o2_cat, digits=3),
+  ci_low = round(ci_sf_o2_cat[1], digits=3),
+  ci_hi = round(ci_sf_o2_cat[3], digits=3),
+  brier       = round(brier_sf_o2_cat$value, 3),
+  brier_low   = round(brier_sf_o2_cat$ci[1], 3),
+  brier_hi    = round(brier_sf_o2_cat$ci[2], 3),
+  ici = round(vals$eavg, 5),
+  ici_low = round(vals$ci_lower, 5),
+  ici_hi = round(vals$ci_upper, 5),
+  comparison = "Overall_SF_O2_Cat_LowestvMedian",
+  p.value = test$p.value
+))
+rm(roc_df_sf_o2_cat)
+
+#PF O2 Cat First
+dat_pf_o2_cat <- aggregate_mortality_hospital %>%
+  filter(strata %in% pf_o2_cat,
+         analysis=='overall',
+         grepl('first', strata_type)==T) 
+dat_pf_o2_cat <- dat_pf_o2_cat |>
+  mutate(pred = predict(pf_glm_o2_cat_first, newdata = dat_pf_o2_cat, type = "response", re.form = NA),
+         deaths = n_deathhosp28,
+         survivors = n_in_group - deaths,
+         model_n=sum(n_in_group, na.rm=T),
+         model_hospitals=length(unique(hospital_id))) |>
+  filter(!is.na(pred), (deaths + survivors) > 0)
+
+roc_df_pf_o2_cat <- expand_to_patients(dat_pf_o2_cat)
+
+roc_pf_o2_cat_first <- roc(response = roc_df_pf_o2_cat$label, predictor = roc_df_pf_o2_cat$score)
+auc_pf_o2_cat <- auc(roc_pf_o2_cat_first)
+ci_pf_o2_cat <- as.numeric(pROC::ci.auc(roc_pf_o2_cat_first, method = "bootstrap", boot.n = BOOT_NUM, boot.stratified = TRUE))
+# Weighted Brier score + 95% CI via stratified multinomial bootstrap (aggregated df)
+brier_pf_o2_cat <- compute_weighted_brier(dat_pf_o2_cat, boot_n = BOOT_NUM)
+vals <- bootstrap_val_prob_clustered(roc_df_pf_o2_cat)
+test <- roc.test(roc_pf_o2_cat, roc_pf_o2_cat_first, method='bootstrap', boot.n=BOOT_NUM)
+
+roc_table <- bind_rows(
+  roc_table,
+  data.frame(
+  model = "Overall_PF_O2_Cat_First",
+  model_n_patients = dat_pf_o2_cat$model_n[1],
+  model_n_hospitals = dat_pf_o2_cat$model_hospitals[1],
+  auc = round(auc_pf_o2_cat, digits=3),
+  ci_low = round(ci_pf_o2_cat[1], digits=3),
+  ci_hi = round(ci_pf_o2_cat[3], digits=3),
+  brier       = round(brier_pf_o2_cat$value, 3),
+  brier_low   = round(brier_pf_o2_cat$ci[1], 3),
+  brier_hi    = round(brier_pf_o2_cat$ci[2], 3),
+  ici = round(vals$eavg, 5),
+  ici_low = round(vals$ci_lower, 5),
+  ici_hi = round(vals$ci_upper, 5),
+  comparison = "PF vs SF: O2Cat LowestvFirst",
+  p.value = test$p.value
+))
+rm(roc_df_pf_o2_cat)
+
+#PF O2 Cat Median
+dat_pf_o2_cat <- aggregate_mortality_hospital %>%
+  filter(strata %in% pf_o2_cat,
+         analysis=='overall',
+         grepl('median', strata_type)==T) 
+dat_pf_o2_cat <- dat_pf_o2_cat |>
+  mutate(pred = predict(pf_glm_o2_cat_median, newdata = dat_pf_o2_cat, type = "response", re.form = NA),
+         deaths = n_deathhosp28,
+         survivors = n_in_group - deaths,
+         model_n=sum(n_in_group, na.rm=T),
+         model_hospitals=length(unique(hospital_id))) |>
+  filter(!is.na(pred), (deaths + survivors) > 0)
+
+roc_df_pf_o2_cat <- expand_to_patients(dat_pf_o2_cat)
+
+roc_pf_o2_cat_median <- roc(response = roc_df_pf_o2_cat$label, predictor = roc_df_pf_o2_cat$score)
+auc_pf_o2_cat <- auc(roc_pf_o2_cat_median)
+ci_pf_o2_cat <- as.numeric(pROC::ci.auc(roc_pf_o2_cat_median, method = "bootstrap", boot.n = BOOT_NUM, boot.stratified = TRUE))
+# Weighted Brier score + 95% CI via stratified multinomial bootstrap (aggregated df)
+brier_pf_o2_cat <- compute_weighted_brier(dat_pf_o2_cat, boot_n = BOOT_NUM)
+vals <- bootstrap_val_prob_clustered(roc_df_pf_o2_cat)
+test <- roc.test(roc_pf_o2_cat, roc_pf_o2_cat_median, method='bootstrap', boot.n=BOOT_NUM)
+
+roc_table <- bind_rows(
+  roc_table,
+  data.frame(
+  model = "Overall_PF_O2_Cat_Median",
+  model_n_patients = dat_pf_o2_cat$model_n[1],
+  model_n_hospitals = dat_pf_o2_cat$model_hospitals[1],
+  auc = round(auc_pf_o2_cat, digits=3),
+  ci_low = round(ci_pf_o2_cat[1], digits=3),
+  ci_hi = round(ci_pf_o2_cat[3], digits=3),
+  brier       = round(brier_pf_o2_cat$value, 3),
+  brier_low   = round(brier_pf_o2_cat$ci[1], 3),
+  brier_hi    = round(brier_pf_o2_cat$ci[2], 3),
+  ici = round(vals$eavg, 5),
+  ici_low = round(vals$ci_lower, 5),
+  ici_hi = round(vals$ci_upper, 5),
+  comparison = "PF vs SF: O2Cat Lowest V Median",
+  p.value = test$p.value
+))
+rm(roc_df_pf_o2_cat)
+
+#SF SOFA Category - First
+dat_sf_sofa_cat <- aggregate_mortality_hospital %>%
+  filter(strata %in% sf_sofa,
+         analysis=='overall',
+         grepl('first', strata_type)==F) 
+dat_sf_sofa_cat <- dat_sf_sofa_cat |>
+  mutate(pred = predict(sf_glm_sofa_cat_first, newdata = dat_sf_sofa_cat, type = "response", re.form = NA),
+         deaths = n_deathhosp28,
+         survivors = n_in_group - deaths,
+         model_n=sum(n_in_group, na.rm=T),
+         model_hospitals=length(unique(hospital_id))) |>
+  filter(!is.na(pred), (deaths + survivors) > 0)
+
+roc_df_sf_sofa_cat <- expand_to_patients(dat_sf_sofa_cat)
+
+roc_sf_sofa_cat_first <- roc(response = roc_df_sf_sofa_cat$label, 
+                       predictor = roc_df_sf_sofa_cat$score)
+auc_sf_sofa_cat <- auc(roc_sf_sofa_cat_first)
+ci_sf_sofa_cat <- as.numeric(pROC::ci.auc(roc_sf_sofa_cat_first, method = "bootstrap", boot.n = BOOT_NUM, boot.stratified = TRUE))
+# Weighted Brier score + 95% CI via stratified multinomial bootstrap (aggregated df)
+brier_sf_sofa_cat <- compute_weighted_brier(dat_sf_sofa_cat, boot_n = BOOT_NUM)
+vals <- bootstrap_val_prob_clustered(roc_df_sf_sofa_cat)
+test <- roc.test(roc_sf_sofa_cat, roc_sf_sofa_cat_first, method='bootstrap', boot.n=BOOT_NUM)
+
+roc_table <- bind_rows(
+  roc_table,
+  data.frame(
+  model = "Overall_SF_SOFA_Cat_First",
+  model_n_patients = dat_sf_sofa_cat$model_n[1],
+  model_n_hospitals = dat_sf_sofa_cat$model_hospitals[1],
+  auc = round(auc_sf_sofa_cat, digits=3),
+  ci_low = round(ci_sf_sofa_cat[1], digits=3),
+  ci_hi = round(ci_sf_sofa_cat[3], digits=3),
+  brier       = round(brier_sf_sofa_cat$value, 3),
+  brier_low   = round(brier_sf_sofa_cat$ci[1], 3),
+  brier_hi    = round(brier_sf_sofa_cat$ci[2], 3),
+  ici = round(vals$eavg, 5),
+  ici_low = round(vals$ci_lower, 5),
+  ici_hi = round(vals$ci_upper, 5),
+  comparison = 'SF SOFA vs SF ARDS O2 Cat - Lowest V First',
+  p.value = test$p.value
+))
+rm(roc_df_sf_sofa_cat)
+
+#SF SOFA Category - Median
+dat_sf_sofa_cat <- aggregate_mortality_hospital %>%
+  filter(strata %in% sf_sofa,
+         analysis=='overall',
+         grepl('median', strata_type)==F) 
+dat_sf_sofa_cat <- dat_sf_sofa_cat |>
+  mutate(pred = predict(sf_glm_sofa_cat_median, newdata = dat_sf_sofa_cat, type = "response", re.form = NA),
+         deaths = n_deathhosp28,
+         survivors = n_in_group - deaths,
+         model_n=sum(n_in_group, na.rm=T),
+         model_hospitals=length(unique(hospital_id))) |>
+  filter(!is.na(pred), (deaths + survivors) > 0)
+
+roc_df_sf_sofa_cat <- expand_to_patients(dat_sf_sofa_cat)
+
+roc_sf_sofa_cat_median <- roc(response = roc_df_sf_sofa_cat$label, 
+                       predictor = roc_df_sf_sofa_cat$score)
+auc_sf_sofa_cat <- auc(roc_sf_sofa_cat_median)
+ci_sf_sofa_cat <- as.numeric(pROC::ci.auc(roc_sf_sofa_cat_median, method = "bootstrap", boot.n = BOOT_NUM, boot.stratified = TRUE))
+# Weighted Brier score + 95% CI via stratified multinomial bootstrap (aggregated df)
+brier_sf_sofa_cat <- compute_weighted_brier(dat_sf_sofa_cat, boot_n = BOOT_NUM)
+vals <- bootstrap_val_prob_clustered(roc_df_sf_sofa_cat)
+test <- roc.test(roc_sf_sofa_cat, roc_sf_sofa_cat_median, method='bootstrap', boot.n=BOOT_NUM)
+
+roc_table <- bind_rows(
+  roc_table,
+  data.frame(
+  model = "Overall_SF_SOFA_Cat_Median",
+  model_n_patients = dat_sf_sofa_cat$model_n[1],
+  model_n_hospitals = dat_sf_sofa_cat$model_hospitals[1],
+  auc = round(auc_sf_sofa_cat, digits=3),
+  ci_low = round(ci_sf_sofa_cat[1], digits=3),
+  ci_hi = round(ci_sf_sofa_cat[3], digits=3),
+  brier       = round(brier_sf_sofa_cat$value, 3),
+  brier_low   = round(brier_sf_sofa_cat$ci[1], 3),
+  brier_hi    = round(brier_sf_sofa_cat$ci[2], 3),
+  ici = round(vals$eavg, 5),
+  ici_low = round(vals$ci_lower, 5),
+  ici_hi = round(vals$ci_upper, 5),
+  comparison = 'SF SOFA vs SF ARDS O2 Cat - Lowest V Median',
+  p.value = test$p.value
+))
+rm(roc_df_sf_sofa_cat)
+
+#PF SOFA Cat - First
+dat_pf_sofa_cat <- aggregate_mortality_hospital %>%
+  filter(strata %in% pf_sofa,
+         analysis=='overall',
+         grepl('first', strata_type)==F) 
+dat_pf_sofa_cat <- dat_pf_sofa_cat |>
+  mutate(pred = predict(pf_glm_sofa_cat_first, newdata = dat_pf_sofa_cat, type = "response", re.form = NA),
+         deaths = n_deathhosp28,
+         survivors = n_in_group - deaths,
+           model_n=sum(n_in_group, na.rm=T),
+         model_hospitals=length(unique(hospital_id))) |>
+  filter(!is.na(pred), (deaths + survivors) > 0)
+
+roc_df_pf_sofa_cat <- expand_to_patients(dat_pf_sofa_cat)
+
+roc_pf_sofa_cat_first <- roc(response = roc_df_pf_sofa_cat$label, 
+                       predictor = roc_df_pf_sofa_cat$score)
+auc_pf_sofa_cat <- auc(roc_pf_sofa_cat_first)
+ci_pf_sofa_cat <- as.numeric(pROC::ci.auc(roc_pf_sofa_cat_first, method = "bootstrap", boot.n = BOOT_NUM, boot.stratified = TRUE))
+# Weighted Brier score + 95% CI via stratified multinomial bootstrap (aggregated df)
+brier_pf_sofa_cat <- compute_weighted_brier(dat_pf_sofa_cat, boot_n = BOOT_NUM)
+vals <- bootstrap_val_prob_clustered(roc_df_pf_sofa_cat)
+test <- roc.test(roc_pf_sofa_cat, roc_pf_sofa_cat_first, method='bootstrap', boot.n=BOOT_NUM)
+
+roc_table <- bind_rows(
+  roc_table,
+  data.frame(
+  model = "Overall_PF_SOFA_Cat_First",
+  model_n_patients = dat_pf_sofa_cat$model_n[1],
+  model_n_hospitals = dat_pf_sofa_cat$model_hospitals[1],
+  auc = round(auc_pf_sofa_cat, digits=3),
+  ci_low = round(ci_pf_sofa_cat[1], digits=3),
+  ci_hi = round(ci_pf_sofa_cat[3], digits=3),
+  brier       = round(brier_pf_sofa_cat$value, 3),
+  brier_low   = round(brier_pf_sofa_cat$ci[1], 3),
+  brier_hi    = round(brier_pf_sofa_cat$ci[2], 3),
+  ici = round(vals$eavg, 5),
+  ici_low = round(vals$ci_lower, 5),
+  ici_hi = round(vals$ci_upper, 5),
+  comparison = "PF_vs_SF SOFA Comparison: LowestvFirst",
+  p.value = test$p.value
+))
+rm(roc_df_pf_sofa_cat)
+
+#PF SOFA Cat - Median
+dat_pf_sofa_cat <- aggregate_mortality_hospital %>%
+  filter(strata %in% pf_sofa,
+         analysis=='overall',
+         grepl('median', strata_type)==F) 
+dat_pf_sofa_cat <- dat_pf_sofa_cat |>
+  mutate(pred = predict(pf_glm_sofa_cat_median, newdata = dat_pf_sofa_cat, type = "response", re.form = NA),
+         deaths = n_deathhosp28,
+         survivors = n_in_group - deaths,
+           model_n=sum(n_in_group, na.rm=T),
+         model_hospitals=length(unique(hospital_id))) |>
+  filter(!is.na(pred), (deaths + survivors) > 0)
+
+roc_df_pf_sofa_cat <- expand_to_patients(dat_pf_sofa_cat)
+
+roc_pf_sofa_cat_median <- roc(response = roc_df_pf_sofa_cat$label, 
+                       predictor = roc_df_pf_sofa_cat$score)
+auc_pf_sofa_cat <- auc(roc_pf_sofa_cat_median)
+ci_pf_sofa_cat <- as.numeric(pROC::ci.auc(roc_pf_sofa_cat_median, method = "bootstrap", boot.n = BOOT_NUM, boot.stratified = TRUE))
+# Weighted Brier score + 95% CI via stratified multinomial bootstrap (aggregated df)
+brier_pf_sofa_cat <- compute_weighted_brier(dat_pf_sofa_cat, boot_n = BOOT_NUM)
+vals <- bootstrap_val_prob_clustered(roc_df_pf_sofa_cat)
+test <- roc.test(roc_pf_sofa_cat, roc_pf_sofa_cat_median, method='bootstrap', boot.n=BOOT_NUM)
+
+roc_table <- bind_rows(
+  roc_table,
+  data.frame(
+  model = "Overall_PF_SOFA_Cat_Median",
+  model_n_patients = dat_pf_sofa_cat$model_n[1],
+  model_n_hospitals = dat_pf_sofa_cat$model_hospitals[1],
+  auc = round(auc_pf_sofa_cat, digits=3),
+  ci_low = round(ci_pf_sofa_cat[1], digits=3),
+  ci_hi = round(ci_pf_sofa_cat[3], digits=3),
+  brier       = round(brier_pf_sofa_cat$value, 3),
+  brier_low   = round(brier_pf_sofa_cat$ci[1], 3),
+  brier_hi    = round(brier_pf_sofa_cat$ci[2], 3),
+  ici = round(vals$eavg, 5),
+  ici_low = round(vals$ci_lower, 5),
+  ici_hi = round(vals$ci_upper, 5),
+  comparison = "PF_vs_SF SOFA Comparison: LowestvMedian",
+  p.value = test$p.value
+))
+rm(roc_df_pf_sofa_cat)
+```
+
+
 ```{r Assess Combined Categorical Models with Both SF and PF Included}
 set.seed(3982)
 combined_model_df <- aggregate_mortality_hospital |>
@@ -5029,7 +5868,8 @@ combined_model_df <- aggregate_mortality_hospital |>
     )
   ) |>
   filter(!is.na(new_strata),
-         !is.na(measure_type)) 
+         !is.na(measure_type),
+         !grepl('first|median', strata_type)) 
 new_strata_sofa <- c(
   'sofa0',
   'sofa1',
@@ -5304,7 +6144,8 @@ aggregate_categories_race <- collate_tables('_aggregate_by_o2cat_race.csv') |>
    n_deathhosp28=sum(freq, na.rm=T)
  ) |>
   filter(!(strata_type=='o2_strata' & analysis=='sf_pf'),
-         !(strata_type=='sofa_strata' & analysis=='sf_pf')) |>
+         !(strata_type=='sofa_strata' & analysis=='sf_pf'),
+         !grepl('first|median', strata_type)) |>
   ungroup()
 
 race_strata  <- c("black", "not_black")
@@ -5509,7 +6350,8 @@ set.seed(32284)
 aggregate_categories_resp <- collate_tables('_aggregate_by_o2cat_resp_support.csv') |>
   filter(!is.na(resp_support_category),
          level==1,
-         variable=='death_hospice28') |> #only need One Row per Outcome) 
+         variable=='death_hospice28', 
+         !grepl('first|median', strata_type)) |> #only need One Row per Outcome) 
  group_by(site, resp_support_category, strata_type, strata, analysis) |>
  summarise(
    n_in_group=sum(n, na.rm=T), 
@@ -5767,7 +6609,8 @@ combined_model_df <- collate_tables('_aggregate_by_o2cat_resp_support.csv') |>
   filter(!is.na(new_strata),
          !is.na(measure_type),
          variable=='death_hospice28',
-         level==1) |>
+         level==1,
+         !grepl('first|median', strata_type)) |>
   mutate(
     n_in_group=n,
     n_deathhosp28=freq
@@ -5976,7 +6819,8 @@ mortality_with_abg <- aggregate_mortality_hospital |>
   ) |>
   mutate(measure_type=factor(measure_type)) |>
   filter(!is.na(new_strata),
-         !is.na(measure_type)) |>
+         !is.na(measure_type),
+         !grepl('first|median', strata_type)) |>
   mutate(log_odds_abg=qlogis(percent_with_abg))
 
 new_strata_sofa <- c(
@@ -6773,7 +7617,196 @@ ggsave(
   device=cairo_ps(),
   path = paste0(project_location, '/graphs/'))
 
+#####################################
+### SENSITIVITY MEASURE - FIRST MEASURE in 1st 24
+#####################################
+#PF Ratio
+cal_bin <- dat_pf_first %>%
+  mutate(bin = ntile(pred, N_BINS)) %>%
+  group_by(bin) %>%
+  summarise(
+    pred_mean = weighted.mean(pred, n_in_group),
+    events = sum(deaths),
+    total = sum(n_in_group),
+    obs_rate = events / total,
+    .groups = "drop"
+  ) %>%
+  rowwise() %>%
+  mutate(
+    ci_low = binom::binom.confint(events, total, method = "wilson")$lower,
+    ci_high = binom::binom.confint(events, total, method = "wilson")$upper
+  ) %>%
+  ungroup()
+
+ggplot(cal_bin, aes(x = pred_mean, y = obs_rate)) +
+  geom_smooth(color="firebrick2", se=F) +
+  geom_point(size = 2) +
+  geom_errorbar(aes(ymin = ci_low, ymax = ci_high), width = 0.015) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "gray40") +
+  scale_x_continuous(limits=c(0.1,0.5)) +
+  scale_y_continuous(limits=c(0.1,0.5)) +
+  coord_equal() +
+  labs(x = "Mean predicted probability (bin)",
+       y = "Observed Event Probability",
+       title = "Calibration plot for PaO2/FiO2 (first value)") +
+  theme_minimal()
+
+agg_df <- dat_pf_first |>
+  filter(variable=='first_measure_5') |>
+  group_by(value) |>
+  summarise(
+    pred_mean = weighted.mean(pred, n_in_group),
+    events = sum(deaths),
+    total = sum(n_in_group),
+    obs_rate = events / total,
+    .groups = "drop"
+  ) %>%
+  rowwise() %>%
+  mutate(
+    ci_low = binom::binom.confint(events, total, method = "wilson")$lower,
+    ci_high = binom::binom.confint(events, total, method = "wilson")$upper
+  ) %>%
+  ungroup()
+
+ggplot(agg_df, aes(x = pred_mean, y = obs_rate, weight = total)) +
+  geom_point(aes(size=total), alpha = 0.3) +
+  geom_smooth(method = "loess", formula = y ~ x, se = TRUE, color = "dodgerblue4") +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "gray40") +
+  scale_size(range = c(0.25, 1.75), guide = "none") +
+  scale_y_continuous(labels = scales::label_percent()) +
+  scale_x_continuous(labels = scales::label_percent()) +
+  coord_equal(xlim = c(0, 0.5), ylim = c(0, 0.5)) +
+  labs(x = "Predicted probability (Death/Hospice at Day 28)",
+       y = "Observed Probability",
+       title = "Calibration: First PaO2/FiO2") +
+  theme_minimal()
+ggsave(
+  filename='calibration_pf_first_continuous.pdf',
+  plot=last_plot(),
+  path = paste0(project_location, '/graphs/'))
+ggsave(
+  filename='calibration_pf_first_continuous.svg',
+  plot=last_plot(),
+  device=cairo_ps(),
+  path = paste0(project_location, '/graphs/'))
+
+#SF Ratio
+cal_bin <- dat_sf_first %>%
+  mutate(bin = ntile(pred, N_BINS)) %>%
+  group_by(bin) %>%
+  summarise(
+    pred_mean = weighted.mean(pred, n_in_group),
+    events = sum(deaths),
+    total = sum(n_in_group),
+    obs_rate = events / total,
+    .groups = "drop"
+  ) %>%
+  rowwise() %>%
+  mutate(
+    ci_low = binom::binom.confint(events, total, method = "wilson")$lower,
+    ci_high = binom::binom.confint(events, total, method = "wilson")$upper
+  ) %>%
+  ungroup()
+
+ggplot(cal_bin, aes(x = pred_mean, y = obs_rate)) +
+  geom_smooth(color="firebrick2", se=F) +
+  geom_point(size = 2) +
+  geom_errorbar(aes(ymin = ci_low, ymax = ci_high), width = 0.015) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "gray40") +
+  scale_x_continuous(limits=c(0.1,0.5)) +
+  scale_y_continuous(limits=c(0.1,0.5)) +
+  coord_equal() +
+  labs(x = "Mean predicted probability (bin)",
+       y = "Observed Event Probability",
+       title = "Calibration plot for SpO2/FiO2 (binned deciles)") +
+  theme_minimal()
+
+agg_df <- dat_sf_first |>
+  group_by(value) |>
+  filter(variable=='first_measure_5') |>
+  summarise(
+    pred_mean = weighted.mean(pred, n_in_group),
+    events = sum(deaths),
+    total = sum(n_in_group),
+    obs_rate = events / total,
+    .groups = "drop"
+  ) %>%
+  rowwise() %>%
+  mutate(
+    ci_low = binom::binom.confint(events, total, method = "wilson")$lower,
+    ci_high = binom::binom.confint(events, total, method = "wilson")$upper
+  ) %>%
+  ungroup()
+
+ggplot(agg_df, aes(x = pred_mean, y = obs_rate, weight = total)) +
+  geom_point(aes(size=total), alpha = 0.3) +
+  geom_smooth(method = "loess", formula = y ~ x, se = TRUE, color = "dodgerblue4") +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "gray40") +
+  scale_size(range = c(0.25, 1.75), guide = "none") +
+  scale_y_continuous(labels = scales::label_percent()) +
+  scale_x_continuous(labels = scales::label_percent()) +
+  coord_equal(xlim = c(0, 0.5), ylim = c(0, 0.5)) +
+  labs(x = "Predicted probability (Death/Hospice at Day 28)",
+       y = "Observed Probability",
+       title = "Calibration: SpO2/FiO2 (First)") +
+  theme_minimal()
+ggsave(
+  filename='calibration_sf_First_continuous.pdf',
+  plot=last_plot(),
+  path = paste0(project_location, '/graphs/'))
+ggsave(
+  filename='calibration_sf_first_continuous.svg',
+  plot=last_plot(),
+  device=cairo_ps(),
+  path = paste0(project_location, '/graphs/'))
+
+```
+```{r Export Tidy Models}
+federated_logistic <- rowbind(tidy_models_list)
+write_csv(federated_logistic, paste0(project_location, '/tables/federated_logistic_models.csv'))
 ```
 
 
+```{r Univariable Meta-Analysis of Moving from SF to PF}
+logistic_site_models <- collate_tables('_logistic_models.csv')
+
+#Meta-Analysis: Unadjusted Estimates
+df <- logistic_site_models |>
+  filter(
+    grepl('unadjusted', model),
+    grepl('primary_metricpf', term)
+  )
+unadjusted_meta <- rma(yi=df$estimate, sei=df$std_error, method = "REML")
+
+#Tidy Table
+meta_list <- list()
+meta_list$univariable <- broom::tidy(unadjusted_meta, exponentiate=T, conf.int = T) |>
+  mutate(
+    term='pf_vs_sf',
+    total_n=sum(df$n_observations))
+
+#Forest Plot
+pdf(paste0(project_location, "/graphs/unadjusted_meta_analysis.pdf"), width = 8.5, height = 12)
+unadjusted_meta_plot <- forest(unadjusted_meta)
+dev.off()
+
+#Meta-Analysis: Adjusted Estimates
+df <- logistic_site_models |>
+  filter(
+    !grepl('unadjusted|cat', model),
+    term=='primary_metricpf'
+  )
+adjusted_meta <- rma(yi=df$estimate, sei=df$std_error, method = "REML")
+
+#Tidy Table
+meta_list$multivariable <- broom::tidy(adjusted_meta, exponentiate=T, conf.int = T) |>
+  mutate(
+    term='pf_vs_sf',
+    total_n=sum(df$n_observations))
+
+#Forest Plot
+pdf(paste0(project_location, "/graphs/adjusted_meta_analysis.pdf"), width = 8.5, height = 12)
+adjusted_meta_plot <- forest(adjusted_meta)
+dev.off()
+```
 
