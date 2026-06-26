@@ -1844,7 +1844,8 @@ ggsave(
 #Do this Once Other Sites Have Run
 mortality_by_o2 <- collate_tables('_aggregate_by_o2cat.csv') |>
   #Fix strange Expanded Strata Name
-  mutate(strata = str_remove(strata, "sf_pf_contemp-sf_pf_contemp-sf_pf_contemp-"))
+  mutate(strata = str_remove(strata,
+                             "sf_pf_contemp-sf_pf_contemp-sf_pf_contemp-sf_pf_contemp-sf_pf_contemp-sf_pf_contemp-sf_pf_contemp-"))
 
 #Prepare Data for 
 aggregate_table_mortality <- mortality_by_o2 |>
@@ -1881,10 +1882,9 @@ mortality_tab_chi_sf_pf <- chisq_function(sf_pf) |>
          analysis='sf_pf')
 mortality_tab_chi <- rbind(mortality_tab_chi, mortality_tab_chi_sf_pf)
 
-
 #Merge Back with Table 1 and COnvert to Wide
 table_mortality_paper <- aggregate_table_mortality |>
-  select(analysis, strata, variable, level, n_total, count, percent, order_number) |>
+  select(analysis, strata, strata_type, variable, level, n_total, count, percent, order_number) |>
   mutate(
     percent=round((percent*100), digits = 2)
   ) |>
@@ -1937,7 +1937,8 @@ strata_values <- c(
 #Keep Long Form Table
 table_mortality_long <- table_mortality_paper |>
   filter(level==1,
-         strata %in% strata_values) |>
+         strata %in% strata_values, 
+         !grepl('first|median', strata_type, ignore.case=T)) |>
   select(-level, -order_number) |>
   left_join(mortality_tab_chi)
   
@@ -1961,7 +1962,7 @@ table_mortality_paper <- table_mortality_paper |>
   group_by(analysis, variable) |>
   mutate(rn=dplyr::row_number()) |>
   ungroup() |>
-  left_join(tab1_chi, by=c('variable', 'rn')) |>
+  left_join(mortality_tab_chi, by=c('variable', 'rn')) |>
   arrange(order_number, variable) |>
   select(-order_number, -rn) |>
   filter(level==1)
@@ -1971,9 +1972,119 @@ table_mortality_paper <- readable_table(table_mortality_paper, strata_values, ha
 write_csv(table_mortality_paper, paste0(project_location, '/tables/table_o2cat_mortality.csv'))
 write_csv(table_mortality_long, paste0(project_location, '/tables/table_o2cat_mortality_long.csv'))
 ```
+
+```{r Mortality by SF vs PF Oxygenation Category For FIrst and Median Measures}
+vars <- c(
+  'death_hospice28',
+  'death_hospice60'
+)
+overall <- aggregate_table_mortality |> filter(analysis=='overall',
+                                               grepl('first', strata_type, ignore.case=T),
+                                               strata!='NA-NA')
+mortality_tab_chi <- chisq_function(overall) |>
+  mutate(rn=1,
+         analysis='overall_first')
+sf_pf <- aggregate_table_mortality |> filter(analysis=='sf_pf' & !grepl('first', strata_type, ignore.case=T))
+mortality_tab_chi_sf_pf <- chisq_function(sf_pf) |>
+  mutate(rn=1,
+         analysis='sf_pf_first')
+mortality_tab_chi_first <- rbind(mortality_tab_chi, mortality_tab_chi_sf_pf)
+
+#Repeat for Median
+overall <- aggregate_table_mortality |> filter(analysis=='overall',
+                                               grepl('median', strata_type, ignore.case=T),
+                                               strata!='NA-NA')
+mortality_tab_chi <- chisq_function(overall) |>
+  mutate(rn=1,
+         analysis='overall_median')
+sf_pf <- aggregate_table_mortality |> filter(analysis=='sf_pf' & !grepl('median', strata_type, ignore.case=T))
+mortality_tab_chi_sf_pf <- chisq_function(sf_pf) |>
+  mutate(rn=1,
+         analysis='sf_pf_median')
+mortality_tab_chi_median <- rbind(mortality_tab_chi, mortality_tab_chi_sf_pf)
+mortality_tab_chi_median_first <- rowbind(mortality_tab_chi_median, mortality_tab_chi_first)
+
+#Merge Back with Table 1 and COnvert to Wide
+table_mortality_paper_first <- aggregate_table_mortality |>
+  select(analysis, strata, strata_type, variable, level, n_total, count, percent, order_number) |>
+  filter(grepl('first|median', strata_type, ignore.case=T)) |>
+  mutate(
+    analysis=fcase(
+      grepl('first', strata_type), paste0(analysis,'_','first'),
+      grepl('median', strata_type), paste0(analysis,'_','median')),
+    percent=round((percent*100), digits = 2)
+  ) |>
+  rename(count_mean=count,
+         percent_sd=percent) |>
+  distinct() 
+
+#Vector For Reordering Columns
+strata_values <- c(
+  'Overall', 
+  'pf-mild_hypoxemia', 
+  'pf-moderate_hypoxemia', 
+  'pf-severe_hypoxemia',
+  'pf-not_hypoxemic',
+  'sf-mild_hypoxemia', 
+  'sf-moderate_hypoxemia', 
+  'sf-severe_hypoxemia',
+  'sf-not_hypoxemic',
+  'pf-0',
+  'pf-1',
+  'pf-2',
+  'pf-3',
+  'pf-4',
+  'sf-0',
+  'sf-1',
+  'sf-2',
+  'sf-3',
+  'sf-4',
+  'NA-undefined'
+  )
+
+#Keep Long Form Table
+table_mortality_long_first <- table_mortality_paper_first |>
+  filter(level==1,
+         strata %in% strata_values) |>
+  select(-level, -order_number) |>
+  left_join(mortality_tab_chi_median_first) 
+  
+table_mortality_paper_first <- table_mortality_paper_first |>
+  pivot_wider(
+    names_from=c(strata),
+    names_glue="{strata}_{.value}",
+    values_from=c(n_total, count_mean, percent_sd)) 
+
+
+relocate_vector <- c()
+# Loop through the strata values to generate names for those strata
+for (stratum in strata_values) {
+  relocate_vector <- c(relocate_vector,
+                       paste(stratum, c("n_total", "count_mean", "percent_sd"), sep = "_"))
+}
+
+#Reorder and Add Statistical Testing
+table_mortality_paper_first <- table_mortality_paper_first |>
+  relocate(all_of(relocate_vector), .after = level) |>
+  group_by(analysis, variable) |>
+  mutate(rn=dplyr::row_number()) |>
+  ungroup() |>
+  left_join(mortality_tab_chi_median_first, by=c('variable', 'rn')) |>
+  arrange(order_number, variable) |>
+  select(-order_number, -rn) |>
+  filter(level==1)
+
+table_mortality_paper_first <- readable_table(table_mortality_paper_first, strata_values, has_continuous=F,has_categorical=T)
+
+write_csv(table_mortality_paper_first, paste0(project_location, '/tables/table_o2cat_mortality_first-median.csv'))
+write_csv(table_mortality_long_first, paste0(project_location, '/tables/table_o2cat_mortality_long_first-median.csv'))
+```
+
+
 ```{r Mortality for PF and SF Groups Overall}
 table_mortality_overall <- table_mortality_long |>
-  filter(analysis=='overall') |>
+  filter(analysis=='overall' & 
+           !grepl('first|median', strata_type, ignore.case=T)) |>
   mutate(group=fcase(
     grepl('sf-', strata), 'sf',
     grepl('pf-', strata), 'pf',
@@ -2005,7 +2116,48 @@ table_mortality_overall <- table_mortality_overall |>
 write_csv(table_mortality_overall, paste0(project_location, '/tables/table_mortality_overall.csv'))
 ```
 
-```{r MH Test Across Strata}
+```{r MH Test Across Strata - O2 Cat}
+#Redefine the Desired Strata Values Here 
+strata_values <- c(
+  'Overall', 
+  'pf-mild_hypoxemia', 
+  'pf-moderate_hypoxemia', 
+  'pf-severe_hypoxemia',
+  'pf-not_hypoxemic',
+  'sf-mild_hypoxemia', 
+  'sf-moderate_hypoxemia', 
+  'sf-severe_hypoxemia',
+  'sf-not_hypoxemic',
+  'sf_pf_-mild_hypoxemia', 
+  'sf_pf_-moderate_hypoxemia', 
+  'sf_pf_-severe_hypoxemia',
+  'sf_pf_-not_hypoxemic',
+  'sf_pf_contemp-mild_hypoxemia', 
+  'sf_pf_contemp-moderate_hypoxemia', 
+  'sf_pf_contemp-severe_hypoxemia',
+  'sf_pf_contemp-not_hypoxemic',
+  'pf-0',
+  'pf-1',
+  'pf-2',
+  'pf-3',
+  'pf-4',
+  'sf-0',
+  'sf-1',
+  'sf-2',
+  'sf-3',
+  'sf-4',
+  'sf_pf_-0',
+  'sf_pf_-1',
+  'sf_pf_-2',
+  'sf_pf_-3',
+  'sf_pf_-4',
+  'sf_pf_contemp-0',
+  'sf_pf_contemp-1',
+  'sf_pf_contemp-2',
+  'sf_pf_contemp-3',
+  'sf_pf_contemp-4',
+  'NA-undefined'
+  )
 tidy_table <- aggregate_table_mortality %>%
   filter(strata %in% strata_values,
          strata!='Overall', 
@@ -2023,7 +2175,8 @@ tidy_table <- tidy_table |>
 
 #SF vs PF O2 Cat
 chi_data <- tidy_table %>%
-  filter(analysis=='overall') |>
+  filter(analysis=='overall',
+         !grepl('first|median', strata_type, ignore.case=T)) |>
   mutate(survived = n_total - count) %>%
   pivot_longer(cols = c(count, survived), 
                names_to = "outcome", 
@@ -2046,7 +2199,8 @@ table_mh_tests <- data.frame(
 chi_data <- tidy_table %>%
   filter(
     analysis=='sf_pf',
-    strata %in% c('pf', 'sf_pf_')) |>
+    strata %in% c('pf', 'sf_pf_'),
+    !grepl('first|median', strata_type, ignore.case=T)) |>
   mutate(survived = n_total - count) %>%
   pivot_longer(cols = c(count, survived), 
                names_to = "outcome", 
@@ -2070,7 +2224,8 @@ table_mh_tests <- rowbind(table_mh_tests,
 chi_data <- tidy_table %>%
   filter(
     analysis=='sf_pf',
-    strata %in% c('pf', 'sf_pf_contemp')) |>
+    strata %in% c('pf', 'sf_pf_contemp'),
+    !grepl('first|median', strata_type, ignore.case=T)) |>
   mutate(survived = n_total - count) %>%
   pivot_longer(cols = c(count, survived), 
                names_to = "outcome", 
@@ -2090,12 +2245,202 @@ table_mh_tests <- rowbind(table_mh_tests,
   p.value=round(mh_result$p.value, 5)
 ))
 
+#Now for First Measured
+#SF vs PF O2 Cat When SF Contemporaneously Measured with PF
+chi_data <- tidy_table %>%
+  filter(
+    analysis=='overall',
+    grepl('first', strata_type)) |>
+  mutate(survived = n_total - count) %>%
+  pivot_longer(cols = c(count, survived), 
+               names_to = "outcome", 
+               values_to = "n")
+
+# 3-way table: strata × level × outcome
+cont_array <- xtabs(n ~ strata + level + outcome, data = chi_data)
+
+# Mantel-Haenszel test (tests for interaction/homogeneity)
+mh_result <- mantelhaen.test(cont_array)
+print(mh_result)
+
+table_mh_tests <- rowbind(table_mh_tests,
+  data.frame(
+  comparison='SFvsPF_O2Cat_FirstMeasure',
+  MH2=as.numeric(mh_result$statistic),
+  p.value=round(mh_result$p.value, 5)
+))
+
+#O2 Cat Median Measure
+chi_data <- tidy_table %>%
+  filter(
+    analysis=='overall',
+    grepl('median', strata_type)) |>
+  mutate(survived = n_total - count) %>%
+  pivot_longer(cols = c(count, survived), 
+               names_to = "outcome", 
+               values_to = "n")
+
+# 3-way table: strata × level × outcome
+cont_array <- xtabs(n ~ strata + level + outcome, data = chi_data)
+
+# Mantel-Haenszel test (tests for interaction/homogeneity)
+mh_result <- mantelhaen.test(cont_array)
+print(mh_result)
+
+table_mh_tests <- rowbind(table_mh_tests,
+  data.frame(
+  comparison='SFvsPF_O2Cat_MedianMeasure',
+  MH2=as.numeric(mh_result$statistic),
+  p.value=round(mh_result$p.value, 5)
+))
+```
+```{r MH Tests Across STrata for SOFA}
+tidy_table <- aggregate_table_mortality %>%
+  filter(strata %in% strata_values,
+         strata!='Overall', 
+         level==1) |> #Only Need 1 Level) 
+  mutate(label = paste0(percent(percent, accuracy = 0.1))) |>
+  separate(strata, into = c("strata","level"), sep = "-", remove = FALSE)
+
+
+cat_levels <- c("0", "1", "2", "3", "4")
+tidy_table <- tidy_table |>
+  filter(
+    variable=='death_hospice28',
+    !grepl('hypox|undefined', level)==T) |>
+  mutate(level = factor(level, levels = cat_levels))
+
+#SF vs PF O2 Cat
+chi_data <- tidy_table %>%
+  filter(analysis=='overall',
+         !grepl('first|median', strata_type, ignore.case=T)) |>
+  mutate(survived = n_total - count) %>%
+  pivot_longer(cols = c(count, survived), 
+               names_to = "outcome", 
+               values_to = "n")
+
+# 3-way table: strata × level × outcome
+cont_array <- xtabs(n ~ strata + level + outcome, data = chi_data)
+
+# Mantel-Haenszel test (tests for interaction/homogeneity)
+mh_result <- mantelhaen.test(cont_array)
+print(mh_result)
+
+table_mh_tests <- rowbind(table_mh_tests,
+  data.frame(
+   comparison='SFvsPF_SOFA',
+   MH2=as.numeric(mh_result$statistic),
+   p.value=round(mh_result$p.value, 5)
+))
+
+#SF vs PF O2 Cat When Both SF and PF Measured
+chi_data <- tidy_table %>%
+  filter(
+    analysis=='sf_pf',
+    strata %in% c('pf', 'sf_pf_'),
+    !grepl('first|median', strata_type, ignore.case=T)) |>
+  mutate(survived = n_total - count) %>%
+  pivot_longer(cols = c(count, survived), 
+               names_to = "outcome", 
+               values_to = "n")
+
+# 3-way table: strata × level × outcome
+cont_array <- xtabs(n ~ strata + level + outcome, data = chi_data)
+
+# Mantel-Haenszel test (tests for interaction/homogeneity)
+mh_result <- mantelhaen.test(cont_array)
+print(mh_result)
+
+table_mh_tests <- rowbind(table_mh_tests,
+  data.frame(
+  comparison='SFvsPF_SOFA_BothMeasured',
+  MH2=as.numeric(mh_result$statistic),
+  p.value=round(mh_result$p.value, 5)
+))
+
+#SF vs PF O2 Cat When SF Contemporaneously Measured with PF
+chi_data <- tidy_table %>%
+  filter(
+    analysis=='sf_pf',
+    strata %in% c('pf', 'sf_pf_contemp'),
+    !grepl('first|median', strata_type, ignore.case=T)) |>
+  mutate(survived = n_total - count) %>%
+  pivot_longer(cols = c(count, survived), 
+               names_to = "outcome", 
+               values_to = "n")
+
+# 3-way table: strata × level × outcome
+cont_array <- xtabs(n ~ strata + level + outcome, data = chi_data)
+
+# Mantel-Haenszel test (tests for interaction/homogeneity)
+mh_result <- mantelhaen.test(cont_array)
+print(mh_result)
+
+table_mh_tests <- rowbind(table_mh_tests,
+  data.frame(
+  comparison='SFvsPF_SOFA_Contemporaneously_Measured',
+  MH2=as.numeric(mh_result$statistic),
+  p.value=round(mh_result$p.value, 5)
+))
+
+#Now for First Measured
+#SF vs PF O2 Cat When SF Contemporaneously Measured with PF
+chi_data <- tidy_table %>%
+  filter(
+    analysis=='overall',
+    grepl('first', strata_type)) |>
+  mutate(survived = n_total - count) %>%
+  pivot_longer(cols = c(count, survived), 
+               names_to = "outcome", 
+               values_to = "n")
+
+# 3-way table: strata × level × outcome
+cont_array <- xtabs(n ~ strata + level + outcome, data = chi_data)
+
+# Mantel-Haenszel test (tests for interaction/homogeneity)
+mh_result <- mantelhaen.test(cont_array)
+print(mh_result)
+
+table_mh_tests <- rowbind(table_mh_tests,
+  data.frame(
+  comparison='SFvsPF_SOFA_FirstMeasure',
+  MH2=as.numeric(mh_result$statistic),
+  p.value=round(mh_result$p.value, 5)
+))
+
+#O2 Cat Median Measure
+chi_data <- tidy_table %>%
+  filter(
+    analysis=='overall',
+    grepl('median', strata_type)) |>
+  mutate(survived = n_total - count) %>%
+  pivot_longer(cols = c(count, survived), 
+               names_to = "outcome", 
+               values_to = "n")
+
+# 3-way table: strata × level × outcome
+cont_array <- xtabs(n ~ strata + level + outcome, data = chi_data)
+
+# Mantel-Haenszel test (tests for interaction/homogeneity)
+mh_result <- mantelhaen.test(cont_array)
+print(mh_result)
+
+table_mh_tests <- rowbind(table_mh_tests,
+  data.frame(
+  comparison='SFvsPF_SOFA_MedianMeasure',
+  MH2=as.numeric(mh_result$statistic),
+  p.value=round(mh_result$p.value, 5)
+))
+
 write_csv(table_mh_tests, paste0(project_location, '/tables/table_mh_tests.csv'))
+```
+
 ```
 
 
 
 ```{r Mortality by O2 Category HeatMap}
+--LEFT OFF HERE
 heat_map_o2_mortality <- aggregate_table_mortality %>%
   filter(strata %in% strata_values,
          strata!='Overall', 
