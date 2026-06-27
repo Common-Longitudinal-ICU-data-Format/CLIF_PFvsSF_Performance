@@ -1846,8 +1846,7 @@ ggsave(
 #Do this Once Other Sites Have Run
 mortality_by_o2 <- collate_tables('_aggregate_by_o2cat.csv') |>
   #Fix strange Expanded Strata Name
-  mutate(strata = str_remove(strata,
-                             "sf_pf_contemp-sf_pf_contemp-sf_pf_contemp-sf_pf_contemp-sf_pf_contemp-sf_pf_contemp-sf_pf_contemp-"))
+  mutate(strata =gsub("^(sf_pf_contemp-)+", "sf_pf_contemp-", strata))
 
 #Prepare Data for 
 aggregate_table_mortality <- mortality_by_o2 |>
@@ -2838,7 +2837,7 @@ ggsave(
 #Do this Once Other Sites Have Run
 mortality_by_o2_race <- collate_tables('_aggregate_by_o2cat_race.csv') |>
   #Fix strange Expanded Strata Name
-  mutate(strata = str_remove(strata, "sf_pf_contemp-sf_pf_contemp-sf_pf_contemp-")) |>
+  mutate(strata = gsub("^(sf_pf_contemp-)+", "sf_pf_contemp-", strata)) |>
   #Remove Sunnybrook
   filter(site!='sunnybrook')
 
@@ -3278,7 +3277,7 @@ ggsave(
 #Collate Table Stratified by Respitatory
 mortality_by_o2_resp <- collate_tables('_aggregate_by_o2cat_resp_support.csv') |>
   #Fix strange Expanded Strata Name
-  mutate(strata = str_remove(strata, "sf_pf_contemp-sf_pf_contemp-sf_pf_contemp-sf_pf_contemp-sf_pf_contemp-")) 
+  mutate(strata = gsub("^(sf_pf_contemp-)+", "sf_pf_contemp-", strata)) 
 
 #Prepare Data for Table
 aggregate_mortality_resp <- mortality_by_o2_resp |>
