@@ -7761,7 +7761,7 @@ ggsave(
 
 ```
 ```{r Export Tidy Models}
-federated_logistic <- rowbind(tidy_models_list)
+federated_logistic <- rowbind(tidy_models_list, fill=T)
 write_csv(federated_logistic, paste0(project_location, '/tables/federated_logistic_models.csv'))
 ```
 
