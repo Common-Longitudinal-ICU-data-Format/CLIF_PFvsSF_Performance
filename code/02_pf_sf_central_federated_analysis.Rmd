@@ -7781,7 +7781,7 @@ unadjusted_meta <- rma(yi=df$estimate, sei=df$std_error, method = "REML")
 meta_list <- list()
 meta_list$univariable <- broom::tidy(unadjusted_meta, exponentiate=T, conf.int = T) |>
   mutate(
-    term='pf_vs_sf',
+    term='pf_vs_sf_unadjusted',
     total_n=sum(df$n_observations))
 
 #Forest Plot
@@ -7800,12 +7800,16 @@ adjusted_meta <- rma(yi=df$estimate, sei=df$std_error, method = "REML")
 #Tidy Table
 meta_list$multivariable <- broom::tidy(adjusted_meta, exponentiate=T, conf.int = T) |>
   mutate(
-    term='pf_vs_sf',
+    term='pf_vs_sf_adjusted',
     total_n=sum(df$n_observations))
 
 #Forest Plot
 pdf(paste0(project_location, "/graphs/adjusted_meta_analysis.pdf"), width = 8.5, height = 12)
 adjusted_meta_plot <- forest(adjusted_meta)
 dev.off()
+
+#Meta Analysis
+meta_analyses <- rowbind(meta_list, fill=T)
+write_csv(meta_analyses, paste0(project_location, '/tables/meta_analyses.csv'))
 ```
 
