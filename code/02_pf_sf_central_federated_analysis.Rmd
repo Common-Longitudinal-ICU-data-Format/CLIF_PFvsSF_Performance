@@ -5757,7 +5757,7 @@ rm(roc_df_sf_sofa_cat)
 dat_pf_sofa_cat <- aggregate_mortality_hospital %>%
   filter(strata %in% pf_sofa,
          analysis=='overall',
-         grepl('first', strata_type)==F) 
+         grepl('first', strata_type)==T) 
 dat_pf_sofa_cat <- dat_pf_sofa_cat |>
   mutate(pred = predict(pf_glm_sofa_cat_first, newdata = dat_pf_sofa_cat, type = "response", re.form = NA),
          deaths = n_deathhosp28,
@@ -5801,7 +5801,7 @@ rm(roc_df_pf_sofa_cat)
 dat_pf_sofa_cat <- aggregate_mortality_hospital %>%
   filter(strata %in% pf_sofa,
          analysis=='overall',
-         grepl('median', strata_type)==F) 
+         grepl('median', strata_type)==T) 
 dat_pf_sofa_cat <- dat_pf_sofa_cat |>
   mutate(pred = predict(pf_glm_sofa_cat_median, newdata = dat_pf_sofa_cat, type = "response", re.form = NA),
          deaths = n_deathhosp28,
