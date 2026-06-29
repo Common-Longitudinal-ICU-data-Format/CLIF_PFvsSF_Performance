@@ -1296,6 +1296,10 @@ ggsave(
 ```
 
 ```{r PF and SF Summary Table}
+#Primary Metric with Undefined
+analytic_cohort <- analytic_cohort |>
+  mutate(primary_metric_ud=fifelse(exposure_group=='undefined_oxygenation', 'undefined', primary_metric))
+
 # Initialize an empty list to store results
 pf_sf_tables <- list()
 
@@ -1315,7 +1319,7 @@ variables <- c(
 # Calculate overall statistics for each variable
 for (v in variables) {
   pf_sf_table <- analytic_cohort |>
-    filter(!is.na(primary_metric)) |>
+    filter(!is.na(primary_metric_ud)) |>
     reframe(
       variable = v,  # Store the name of the variable
       strata = 'Overall',
@@ -1336,13 +1340,13 @@ for (v in variables) {
 }
 
 # Define strata for detailed calculations
-strata <- c('resp_support_category', 'new_race_cat', 'hospital_id', 'primary_metric')
+strata <- c('resp_support_category', 'new_race_cat', 'hospital_id', 'primary_metric_ud')
 
 # Calculate stratified statistics
 for (v in variables) {
   for (z in strata) {
     pf_sf_table <- analytic_cohort |>
-      filter(!is.na(primary_metric)) |>
+      filter(!is.na(primary_metric_ud)) |>
       group_by(.data[[z]]) |>  # Group by the stratum
       reframe(
         variable = v,
@@ -1403,13 +1407,13 @@ for (v in variables) {
 }
 
 # Define strata for detailed calculations
-strata <- c('resp_support_category', 'new_race_cat', 'hospital_id', 'primary_metric')
+strata <- c('resp_support_category', 'new_race_cat', 'hospital_id', 'primary_metric_ud')
 
 # Calculate stratified statistics
 for (v in variables) {
   for (z in strata) {
     pf_sf_count_table <- analytic_cohort |>
-      filter(!is.na(primary_metric)) |>
+      filter(!is.na(primary_metric_ud)) |>
       group_by(.data[[z]]) |>  # Group by the stratum
       reframe(
         variable = v,
