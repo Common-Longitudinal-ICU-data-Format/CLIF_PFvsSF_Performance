@@ -1132,7 +1132,7 @@ sf_pf_patient_level <- table2_working |>
 #Add in the SF and PF Categories
 #Now Do This at the Patient Level
 table2_metrics_primary <- collate_tables('_table2_o2metrics_cont_by_primary_metric.csv') 
-table2_working <- cont_table_function(table2_metrics_exposure) 
+table2_working <- cont_table_function(table2_metrics_primary) 
 sf_pf_patient_level_primary <- table2_working |>
   #Select the Overall N and Weighted Means
   distinct(strata, variable, overall_n, weighted_mean, weighted_sd) 
