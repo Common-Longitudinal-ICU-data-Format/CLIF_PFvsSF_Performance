@@ -1095,7 +1095,7 @@ sf_pf_counts_overall <- collate_tables('_pf_sf_count_table.csv') |>
     count = sum(count, na.rm=T),
     missing = sum(missing, na.rm=T),
   ) |>
-  filter(strata_cat %in% c('Overall', 'resp_support_category', 'primary_metric')) |>
+  filter(strata_cat %in% c('Overall', 'resp_support_category', 'primary_metric_ud')) |>
   #To Wide Format
   pivot_wider(
     names_from = variable,
@@ -1108,7 +1108,7 @@ sf_pf_counts_overall <- collate_tables('_pf_sf_count_table.csv') |>
   relocate(site, .after = strata)
   
 sf_pf_counts <- collate_tables('_pf_sf_count_table.csv') |>
-  filter(strata_cat %in% c('Overall', 'resp_support_category', 'primary_metric')) |>
+  filter(strata_cat %in% c('Overall', 'resp_support_category', 'primary_metric_ud')) |>
   #To Wide Format
   pivot_wider(
     id_cols = c('strata', 'strata_cat', 'site'),
