@@ -1021,8 +1021,8 @@ analytic_cohort <- analytic_cohort |>
     #Any PaO2 and/or Any Calculatable SF
     abg_measured=fifelse(n_pao2>0, 1L, 0L, 0L),
     any_sf=fifelse(n_eligible_sf_spo2_lt98>0, 1L, 0L, 0L),
-    abg_and_sf=fifelse(abg_measured==1 & any_sf==1, 1L, 0L)
-  )
+    abg_and_sf=fifelse(abg_measured==1 & any_sf==1, 1L, 0L),
+    primary_metric_ud=fifelse(exposure_group=='undefined_oxygenation', 'undefined', primary_metric))
 
 to_tab <- c(
   'n_spo2',
@@ -1062,7 +1062,7 @@ table2 <- CreateTableOne(
   data=analytic_cohort, 
   vars=to_tab, 
   factorVars = factors_tab,
-  strata='primary_metric', 
+  strata='primary_metric_ud', 
   addOverall = T)
 
 summary(table2)
