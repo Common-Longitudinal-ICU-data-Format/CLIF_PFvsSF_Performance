@@ -9,7 +9,7 @@ output: html_document
 project_location <- '~/Library/CloudStorage/OneDrive-JohnsHopkins/Research Projects/CLIF/CLIF_Projects/CLIF_PF-to-SF/federated_summary_analysis'
 
 #Which Sites Participated
-sites <- c("hopkins")
+sites <- c("hopkins", "umn")
 
 if (!dir.exists(paste0(project_location, "/tables"))) {
   dir.create(paste0(project_location, "/tables"))
