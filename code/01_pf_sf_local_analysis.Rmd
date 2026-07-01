@@ -1943,9 +1943,16 @@ for (h in hospital_id) {
 for (h in hospital_id) {
   df <- dplyr::filter(analytic_cohort, hospital_id == h) |>
     dplyr::filter(exposure_group=='sf_pf')
+  
   if (nrow(df) == 0) next
   
   for (s in strata2) {
+    # skip if strata variable doesn't exist
+    if (!s %in% names(df)) next
+    
+    # skip if strata has fewer than 2 non-missing levels
+    n_lvls <- length(unique(na.omit(df[[s]])))
+    if (n_lvls < 2) next
     tm <- CreateTableOne(
       data = df,
       vars = to_tab,
