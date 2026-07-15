@@ -922,7 +922,7 @@ resp_first_24_long <- resp_first_24 |>
        .direction='downup',
        .by=hospital_block_id) |>
   #Select ph_venous and pco2_venous that is closest to min_sf_dttm
-  tidytable::group_by(hospital_block_id) |>
+  dplyr::group_by(hospital_block_id) |>
   mutate(
      #Compute time difference in hours - In absolute Terms
     temp_sf_difftime = fifelse(
@@ -949,7 +949,7 @@ resp_first_24_long <- resp_first_24 |>
    #Now Extract Any SF Ratios That are Within 1 Hour of PF
     #Compute time difference in hours - In absolute Terms
     temp_sf_difftime = fifelse(
-      !is.na(pf_24_min), 
+      !is.na(min_pf_dttm) & eligible_spo2 == 1L & !is.na(sf_ratio), 
       abs(as.numeric(difftime(recorded_dttm, min_pf_dttm, units = "hours"))),
       99 # THis allows for any value with missing ph_venous is labeled as 99 hours different
     ),
@@ -976,7 +976,8 @@ resp_first_24_long <- resp_first_24 |>
     ) |>
   ungroup() |>
   tidytable::fill(sf_ph_venous, sf_pco2_venous, vbg_dttm, 
-       sf_contemporary_to_pf, sf_contemporary_to_pf_fio2, sf_contemporary_dttm,
+       sf_contemporary_to_pf, sf_contemporary_to_pf_spo2, 
+       sf_contemporary_to_pf_fio2, sf_contemporary_dttm,
        .direction='downup', 
        .by=hospital_block_id) |>
   ungroup() |>
@@ -1727,8 +1728,7 @@ rm(location_data); gc()
 ```{r Complete Analytic Cohort}
 analytic_cohort <- cohort_build |>
   left_join(resp_episodes_on_study, by='hospital_block_id') |>
-  left_join(resp_first_24_summary, by='hospital_block_id') |>
-  distinct()
+  left_join(resp_first_24_summary, by='hospital_block_id')
 ```
 
 ```{r Save Analytic Datasets}
