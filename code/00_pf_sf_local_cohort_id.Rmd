@@ -868,7 +868,8 @@ resp_first_24_long <- resp_first_24 |>
   #Can Use SF if SpO2 <=97%
   mutate(
     eligible_measure_by_time=fifelse(
-         as.numeric(difftime(recorded_dttm, fio2_dttm, units = "hours"))<=TIME_TO_SF_PF, 1L, 0L, 0L),
+         abs(as.numeric(difftime(recorded_dttm, fio2_dttm, units = "hours")))<=
+           TIME_TO_SF_PF, 1L, 0L, 0L),
     eligible_sf_by_spo2=fifelse(
       spo2<=97, 1L, 0L, 0L),
     eligible_spo2=fifelse(eligible_measure_by_time==1L & eligible_sf_by_spo2==1L, 1L, 0L, 0L)) |>
@@ -921,6 +922,7 @@ resp_first_24_long <- resp_first_24 |>
        .direction='downup',
        .by=hospital_block_id) |>
   #Select ph_venous and pco2_venous that is closest to min_sf_dttm
+  tidytable::group_by(hospital_block_id) |>
   mutate(
      #Compute time difference in hours - In absolute Terms
     temp_sf_difftime = fifelse(
@@ -948,7 +950,7 @@ resp_first_24_long <- resp_first_24 |>
     #Compute time difference in hours - In absolute Terms
     temp_sf_difftime = fifelse(
       !is.na(pf_24_min), 
-      abs(as.numeric(difftime(recorded_dttm, min_sf_dttm, units = "hours"))),
+      abs(as.numeric(difftime(recorded_dttm, min_pf_dttm, units = "hours"))),
       99 # THis allows for any value with missing ph_venous is labeled as 99 hours different
     ),
     # Find the minimum non-zero difference flag
@@ -972,6 +974,7 @@ resp_first_24_long <- resp_first_24 |>
     ),
    sf_contemporary_dttm  = fifelse(!is.na(sf_contemporary_to_pf), recorded_dttm, as.POSIXct(NA))
     ) |>
+  ungroup() |>
   tidytable::fill(sf_ph_venous, sf_pco2_venous, vbg_dttm, 
        sf_contemporary_to_pf, sf_contemporary_to_pf_fio2, sf_contemporary_dttm,
        .direction='downup', 
@@ -1147,8 +1150,8 @@ demos_outcomes <- hospitalizations |>
   select(patient_id, hospital_block_id, final_admission_dttm, final_discharge_dttm, age_at_admission, discharge_category, discharge_location, admit_hospital_id=admit_hospital, discharge_hospital_id=discharge_hospital) |>
   #Define Hospital Outcomes
   mutate(
-    inhosp_death=fifelse(tolower(discharge_category)=='expired', 1L, 0L),
-    hospice_discharge=fifelse(tolower(discharge_category)=='hospice', 1L, 0L),
+    inhosp_death=fifelse(tolower(discharge_location)=='expired', 1L, 0L),
+    hospice_discharge=fifelse(tolower(discharge_location)=='hospice', 1L, 0L),
     inhosp_death_hospice=fifelse(inhosp_death==1 | hospice_discharge==1, 1L, 0L))
 
 
@@ -1724,7 +1727,8 @@ rm(location_data); gc()
 ```{r Complete Analytic Cohort}
 analytic_cohort <- cohort_build |>
   left_join(resp_episodes_on_study, by='hospital_block_id') |>
-  left_join(resp_first_24_summary, by='hospital_block_id')
+  left_join(resp_first_24_summary, by='hospital_block_id') |>
+  distinct()
 ```
 
 ```{r Save Analytic Datasets}
