@@ -922,8 +922,7 @@ resp_first_24_long <- resp_first_24 |>
        .direction='downup',
        .by=hospital_block_id) |>
   #Select ph_venous and pco2_venous that is closest to min_sf_dttm
-  tidytable::group_by(hospital_block_id) |>
-  mutate(
+  tidytable::mutate(
      #Compute time difference in hours - In absolute Terms
     temp_sf_difftime = fifelse(
       !is.na(ph_venous), 
@@ -972,7 +971,8 @@ resp_first_24_long <- resp_first_24 |>
       fio2_carried, 
       NA_real_
     ),
-   sf_contemporary_dttm  = fifelse(!is.na(sf_contemporary_to_pf), recorded_dttm, as.POSIXct(NA))
+   sf_contemporary_dttm  = fifelse(!is.na(sf_contemporary_to_pf), recorded_dttm, as.POSIXct(NA)),
+   .by = 'hospital_block_id'
     ) |>
   ungroup() |>
   tidytable::fill(sf_ph_venous, sf_pco2_venous, vbg_dttm, 
