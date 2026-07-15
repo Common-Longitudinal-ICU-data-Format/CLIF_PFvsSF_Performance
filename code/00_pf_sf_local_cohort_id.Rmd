@@ -922,7 +922,7 @@ resp_first_24_long <- resp_first_24 |>
        .direction='downup',
        .by=hospital_block_id) |>
   #Select ph_venous and pco2_venous that is closest to min_sf_dttm
-  dplyr::group_by(hospital_block_id) |>
+  tidytable::group_by(hospital_block_id) |>
   mutate(
      #Compute time difference in hours - In absolute Terms
     temp_sf_difftime = fifelse(
@@ -1728,7 +1728,8 @@ rm(location_data); gc()
 ```{r Complete Analytic Cohort}
 analytic_cohort <- cohort_build |>
   left_join(resp_episodes_on_study, by='hospital_block_id') |>
-  left_join(resp_first_24_summary, by='hospital_block_id')
+  left_join(resp_first_24_summary, by='hospital_block_id') |>
+  funique()
 ```
 
 ```{r Save Analytic Datasets}
