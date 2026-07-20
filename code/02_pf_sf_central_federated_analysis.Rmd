@@ -244,7 +244,7 @@ collate_tables <- function(table_suffix) {
   table_list <- Filter(Negate(is.null), table_list)
   
   # Combine all data frames into one using rbind
-  combined_table <- do.call(rbind, table_list)
+  combined_table <- data.table::rbindlist(table_list, fill = TRUE)
   
   return(combined_table)
 }
