@@ -9,7 +9,7 @@ output: html_document
 project_location <- '~/Library/CloudStorage/OneDrive-JohnsHopkins/Research Projects/CLIF/CLIF_Projects/CLIF_PF-to-SF/federated_summary_analysis'
 
 #Which Sites Participated
-sites <- c("hopkins", "umn", "michigan", "nu", "rush", "ucsf", "mgb", "penn", "ucmc", "ohsu", "sunnybrook")
+sites <- c("hopkins", "umn", "michigan", "nu", "rush", "ucsf", "mgb", "penn", "ucmc", "ohsu", "sunnybrook", "emory")
 
 if (!dir.exists(paste0(project_location, "/tables"))) {
   dir.create(paste0(project_location, "/tables"))
@@ -5079,6 +5079,7 @@ family = binomial(link = "logit")
 tidy_models_list[['sf_sofa_first']] <- tidy_make(sf_glm_sofa_cat_first, "SF - SOFA_first")
 
 #SF_and_PF O2 Cat
+#SF
 sf_pf_glm_cat <- glmmTMB(
   cbind(n_deathhosp28, n_in_group - n_deathhosp28) ~  strata + (1 | site),
 data   = aggregate_mortality_hospital |> 
@@ -5088,8 +5089,19 @@ data   = aggregate_mortality_hospital |>
   mutate(strata = factor(strata, levels = sf_pf_o2_cat, ordered = F)),
 family = binomial(link = "logit")
 )
-tidy_models_list[['sf_pf_o2cat']] <- tidy_make(sf_pf_glm_cat, "SF_PF - O2Cat")
+tidy_models_list[['sf_pf_o2cat']] <- tidy_make(sf_pf_glm_cat, "SF_PF - O2Cat - SF")
 
+#PF
+sf_pf_glm_cat_pf <- glmmTMB(
+  cbind(n_deathhosp28, n_in_group - n_deathhosp28) ~  strata + (1 | site),
+data   = aggregate_mortality_hospital |> 
+  dplyr::filter(strata %in%  pf_o2_cat,
+                analysis=='sf_pf',
+                grepl('first|median', strata_type)==F) |>
+  mutate(strata = factor(strata, levels = pf_o2_cat, ordered = F)),
+family = binomial(link = "logit")
+)
+tidy_models_list[['sf_pf_o2cat_pf']] <- tidy_make(sf_pf_glm_cat, "SF_PF - O2Cat - PF")
 
 #SF_PF_Categorical: Contemporaneously Measured
 sf_pf_glm_cat_contemp <- glmmTMB(
@@ -5105,6 +5117,7 @@ tidy_models_list[['sf_pf_o2cat_contemp']] <-
   tidy_make(sf_pf_glm_cat_contemp, "SF_PF_Contemp - O2Cat")
 
 #SF_PF_SOFA: Both Measured - Lowest of Each
+#SF
 sf_pf_glm_sofa <- glmmTMB(
   cbind(n_deathhosp28, n_in_group - n_deathhosp28) ~ strata + (1 | site),
 data   = aggregate_mortality_hospital |> 
@@ -5116,7 +5129,23 @@ family = binomial(link = "logit")
 )
 
 tidy_models_list[['sf_pf_sofa']] <- 
-  tidy_make(sf_pf_glm_sofa, "SF_PF - SOFA")
+  tidy_make(sf_pf_glm_sofa, "SF_PF - SF SOFA")
+
+#PF
+#SF_PF_SOFA: Both Measured - Lowest of Each
+#SF
+sf_pf_glm_sofa_pf <- glmmTMB(
+  cbind(n_deathhosp28, n_in_group - n_deathhosp28) ~ strata + (1 | site),
+data   = aggregate_mortality_hospital |> 
+  dplyr::filter(strata %in% pf_sofa,
+                analysis=='sf_pf',
+                grepl('first|median', strata_type)==F) |>
+  mutate(strata = factor(strata, levels = pf_sofa, ordered = F)),
+family = binomial(link = "logit")
+)
+
+tidy_models_list[['sf_pf_sofa_PF']] <- 
+  tidy_make(sf_pf_glm_sofa_pf, "SF_PF - PF SOFA")
 
 #SF_PF_SOFA: Contemporaneously Measured
 sf_pf_glm_sofa_contemp <- glmmTMB(
@@ -5335,12 +5364,12 @@ ci_sf_pf_o2_cat <- as.numeric(pROC::ci.auc(roc_sf_pf_o2_cat, method = "bootstrap
 # Weighted Brier score + 95% CI via stratified multinomial bootstrap (aggregated df)
 brier_sf_pf_o2_cat <- compute_weighted_brier(dat_sf_pf_o2_cat, boot_n = BOOT_NUM)
 vals <- bootstrap_val_prob_clustered(roc_df_sf_pf_o2_cat)
-test <- roc.test(roc_sf_pf_o2_cat, roc_sf_o2_cat, method='bootstrap', boot.n=BOOT_NUM)
+#test <- roc.test(roc_sf_pf_o2_cat, roc_sf_o2_cat, method='bootstrap', boot.n=BOOT_NUM)
 
 roc_table <- bind_rows(
   roc_table,
   data.frame(
-  model = "SF_PF_O2_Cat",
+  model = "SF_PF_O2_Cat_SF_Measured",
   model_n_patients = dat_sf_pf_o2_cat$model_n[1],
   model_n_hospitals = dat_sf_pf_o2_cat$model_hospitals[1],
   auc = round(auc_sf_pf_o2_cat, digits=3),
@@ -5352,10 +5381,54 @@ roc_table <- bind_rows(
   ici = round(vals$eavg, 5),
   ici_low = round(vals$ci_lower, 5),
   ici_hi = round(vals$ci_upper, 5),
-  comparison = "SF_PF vs SF: O2 Cat",
-  p.value = test$p.value
+  comparison = "",
+  p.value = NA_real_
 ))
 rm(roc_df_sf_pf_o2_cat)
+
+#Now Do the Same but For When PF is Measured in a group that has both
+dat_sf_pf_o2_cat_pf <- aggregate_mortality_hospital %>%
+  filter(strata %in% pf_o2_cat,
+         analysis=='sf_pf',
+         grepl('first|median', strata_type)==F) 
+dat_sf_pf_o2_cat_pf <- dat_sf_pf_o2_cat_pf |>
+  mutate(pred = predict(sf_pf_glm_cat_pf, newdata = dat_sf_pf_o2_cat_pf, type = "response", re.form = NA),
+         deaths = n_deathhosp28,
+         survivors = n_in_group - deaths,
+         model_n=sum(n_in_group, na.rm=T),
+         model_hospitals=length(unique(hospital_id))) |>
+  filter(!is.na(pred), (deaths + survivors) > 0)
+
+roc_df_sf_pf_o2_cat_pf <- expand_to_patients(dat_sf_pf_o2_cat_pf)
+
+roc_sf_pf_o2_cat_pf <- roc(response = roc_df_sf_pf_o2_cat_pf$label, 
+                        predictor = roc_df_sf_pf_o2_cat_pf$score)
+auc_sf_pf_o2_cat_pf <- auc(roc_sf_pf_o2_cat_pf)
+ci_sf_pf_o2_cat_pf <- as.numeric(pROC::ci.auc(roc_sf_pf_o2_cat_pf, method = "bootstrap", boot.n = BOOT_NUM, boot.stratified = TRUE))
+# Weighted Brier score + 95% CI via stratified multinomial bootstrap (aggregated df)
+brier_sf_pf_o2_cat_pf <- compute_weighted_brier(dat_sf_pf_o2_cat_pf, boot_n = BOOT_NUM)
+vals <- bootstrap_val_prob_clustered(roc_df_sf_pf_o2_cat_pf)
+test <- roc.test(roc_sf_pf_o2_cat_pf, roc_sf_pf_o2_cat, method='bootstrap', boot.n=BOOT_NUM)
+
+roc_table <- bind_rows(
+  roc_table,
+  data.frame(
+  model = "SF_PF_O2_Cat_PF_Measured",
+  model_n_patients = dat_sf_pf_o2_cat_pf$model_n[1],
+  model_n_hospitals = dat_sf_pf_o2_cat_pf$model_hospitals[1],
+  auc = round(auc_sf_pf_o2_cat_pf, digits=3),
+  ci_low = round(ci_sf_pf_o2_cat_pf[1], digits=3),
+  ci_hi = round(ci_sf_pf_o2_cat_pf[3], digits=3),
+  brier       = round(brier_sf_pf_o2_cat_pf$value, 3),
+  brier_low   = round(brier_sf_pf_o2_cat_pf$ci[1], 3),
+  brier_hi    = round(brier_sf_pf_o2_cat_pf$ci[2], 3),
+  ici = round(vals$eavg, 5),
+  ici_low = round(vals$ci_lower, 5),
+  ici_hi = round(vals$ci_upper, 5),
+  comparison = "SF_PF_O2_Cat_SFvsPF",
+  p.value = test$p.value
+))
+rm(roc_df_sf_pf_o2_cat_pf)
 
 #BOth SF and PF Measured Contemporaneously
 #SF O2 Cat
@@ -5404,6 +5477,7 @@ rm(roc_df_sf_pf_o2_contemp_cat)
 
 #BOth SF and PF Available 
 #SOFA
+#SF
 dat_sf_pf_sofa <- aggregate_mortality_hospital %>%
   filter(strata %in% sf_pf_sofa,
          analysis=='sf_pf',
@@ -5425,7 +5499,7 @@ ci_sf_pf_sofa <- as.numeric(pROC::ci.auc(roc_sf_pf_sofa, method = "bootstrap", b
 # Weighted Brier score + 95% CI via stratified multinomial bootstrap (aggregated df)
 brier_sf_pf_sofa <- compute_weighted_brier(dat_sf_pf_sofa, boot_n = BOOT_NUM)
 vals <- bootstrap_val_prob_clustered(roc_df_sf_pf_sofa)
-test <- roc.test(roc_sf_pf_sofa, roc_sf_sofa_cat, method='bootstrap', boot.n=BOOT_NUM)
+#test <- roc.test(roc_sf_pf_sofa, roc_sf_sofa_cat, method='bootstrap', boot.n=BOOT_NUM)
 
 roc_table <- bind_rows(
   roc_table,
@@ -5442,10 +5516,55 @@ roc_table <- bind_rows(
   ici = round(vals$eavg, 5),
   ici_low = round(vals$ci_lower, 5),
   ici_hi = round(vals$ci_upper, 5),
-  comparison = "SF_PF vs SF: SOFA Cat",
-  p.value = test$p.value
+  comparison = "",
+  p.value = NA_real_
 ))
 rm(roc_df_sf_pf_sofa)
+
+#Repeat For PF
+#PF
+dat_sf_pf_sofa_pf <- aggregate_mortality_hospital %>%
+  filter(strata %in% pf_sofa,
+         analysis=='sf_pf',
+         grepl('first|median', strata_type)==F) 
+dat_sf_pf_sofa_pf <- dat_sf_pf_sofa_pf |>
+  mutate(pred = predict(sf_pf_glm_sofa_pf, newdata = dat_sf_pf_sofa_pf, type = "response", re.form = NA),
+         deaths = n_deathhosp28,
+         survivors = n_in_group - deaths,
+         model_n=sum(n_in_group, na.rm=T),
+         model_hospitals=length(unique(hospital_id))) |>
+  filter(!is.na(pred), (deaths + survivors) > 0)
+
+roc_df_sf_pf_sofa_pf <- expand_to_patients(dat_sf_pf_sofa_pf)
+
+roc_sf_pf_sofa_pf <- roc(response = roc_df_sf_pf_sofa_pf$label, 
+                      predictor = roc_df_sf_pf_sofa_pf$score)
+auc_sf_pf_sofa_pf <- auc(roc_sf_pf_sofa_pf)
+ci_sf_pf_sofa_pf <- as.numeric(pROC::ci.auc(roc_sf_pf_sofa_pf, method = "bootstrap", boot.n = BOOT_NUM, stratified = TRUE))
+# Weighted Brier score + 95% CI via stratified multinomial bootstrap (aggregated df)
+brier_sf_pf_sofa_pf <- compute_weighted_brier(dat_sf_pf_sofa_pf, boot_n = BOOT_NUM)
+vals <- bootstrap_val_prob_clustered(roc_df_sf_pf_sofa_pf)
+test <- roc.test(roc_sf_pf_sofa, roc_sf_pf_sofa_pf, method='bootstrap', boot.n=BOOT_NUM)
+
+roc_table <- bind_rows(
+  roc_table,
+  data.frame(
+  model = "SF_PF_SOFA_PF",
+  model_n_patients = dat_sf_pf_sofa_pf$model_n[1],
+  model_n_hospitals = dat_sf_pf_sofa_pf$model_hospitals[1],
+  auc = round(auc_sf_pf_sofa_pf, digits=3),
+  ci_low = round(ci_sf_pf_sofa_pf[1], digits=3),
+  ci_hi = round(ci_sf_pf_sofa_pf[3], digits=3),
+  brier       = round(brier_sf_pf_sofa_pf$value, 3),
+  brier_low   = round(brier_sf_pf_sofa_pf$ci[1], 3),
+  brier_hi    = round(brier_sf_pf_sofa_pf$ci[2], 3),
+  ici = round(vals$eavg, 5),
+  ici_low = round(vals$ci_lower, 5),
+  ici_hi = round(vals$ci_upper, 5),
+  comparison = "SF_PF_PF vs SF_PF_SF: SOFA Cat",
+  p.value = test$p.value
+))
+rm(roc_df_sf_pf_sofa_pf)
 
 #SF and PF COntemporaneously Measured
 #SOFA
@@ -7765,6 +7884,8 @@ ggsave(
   path = paste0(project_location, '/graphs/'))
 
 ```
+
+
 ```{r Export Tidy Models}
 federated_logistic <- rowbind(tidy_models_list, fill=T)
 write_csv(federated_logistic, paste0(project_location, '/tables/federated_logistic_models.csv'))

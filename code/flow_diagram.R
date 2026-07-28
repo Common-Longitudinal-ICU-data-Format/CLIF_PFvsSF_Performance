@@ -126,3 +126,7 @@ rsvg::rsvg_png(tmp,
 
 rsvg::rsvg_pdf(tmp, 
                file=paste0(project_location, '/graphs/consort_diagram.pdf'))
+
+################################
+## Traditional Consort Diagram
+
