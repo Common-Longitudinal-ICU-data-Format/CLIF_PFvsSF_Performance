@@ -4489,13 +4489,19 @@ compute_weighted_brier <- function(df,
     list(
     value = NA_real_, 
     ci = c(NA_real_, NA_real_),
-    brier_scaled = NA_real_,
-    brier_scaled_ci = c(NA_real_, NA_real_)))
+    brier_scale = NA_real_,
+    brier_scale_ci = c(NA_real_, NA_real_)))
   
   brier_val <- (sum(df$deaths * (1 - df$pred)^2, na.rm = TRUE) +
                   sum(df$survivors * df$pred^2,    na.rm = TRUE)) / N_tot
   
-  brier_scaled <-
+  event_rate <- sum(df$deaths, na.rm=T)/N_tot
+  null_brier <- event_rate * (1 - event_rate)
+  scale_brier <- if (null_brier > 0) {
+    1 - brier_val / null_brier
+  } else {
+    NA_real_
+  }
   
   # Cluster bootstrap
   clusters <- unique(df[[cluster_col]])
@@ -4505,6 +4511,7 @@ compute_weighted_brier <- function(df,
   df_by_cluster <- split(df, df[[cluster_col]])
   
   brier_boot <- numeric(boot_n)
+  brier_scaled_boot <- numeric(boot_n)
   
   for (b in seq_len(boot_n)) {
     # Resample clusters with replacement
@@ -4517,14 +4524,31 @@ compute_weighted_brier <- function(df,
     
     brier_boot[b] <- (sum(df_b$deaths * (1 - df_b$pred)^2, na.rm = TRUE) +
                         sum(df_b$survivors * df_b$pred^2,    na.rm = TRUE)) / N_b
+    
+     # Bootstrap null Brier
+    event_rate_b <- sum(df_b$deaths, na.rm = TRUE) / N_b
+    null_brier_b <- event_rate_b * (1 - event_rate_b)
+    
+    # Bootstrap scaled Brier
+    brier_scaled_boot[b] <- if (null_brier_b > 0) {
+      1 - brier_boot[b] / null_brier_b
+    } else {
+      NA_real_
+    }
   }
-  
   
   # Output
   
   list(
     value      = brier_val,
     ci         = as.numeric(quantile(brier_boot, c(0.025, 0.975), na.rm = TRUE)),
+    null_brier = null_brier,
+    brier_scaled = scale_brier,
+    brier_scaled_ci = as.numeric(quantile(
+      brier_scaled_boot, 
+      c(0.025, 0.975), 
+      na.rm = TRUE
+    )),
     n_clusters = n_clusters,
     n_total    = N_tot
   )
@@ -4567,7 +4591,23 @@ expand_to_patients <- function(df) {
 }
 ```
 
-```{r Compute Clustered Integrated Calibration Index}
+```{r Model-Based C-Statistics}
+#Using Methods from Vergouwe et al (PMID:20807737)
+#Will Include this in the Function Below
+
+#Input is expanded dataset (1 row per patient) *for example roc_df_sf
+model_based_c <- function(df, B = 100, cores = 6) {
+  p <- df$score
+  res <- mclapply(1:B, function(i) {
+    ysim <- rbinom(n = length(p), size = 1, prob = p)
+    as.numeric(rcorr.cens(p, ysim)["C Index"])
+  }, mc.cores = cores)
+  
+  mean(unlist(res), na.rm = TRUE)
+}
+```
+
+```{r Compute Clustered Integrated Calibration Index, Standard Deviation of Predictor and Calibration Intercept}
 bootstrap_val_prob_clustered <- function(df, 
                                          cluster_col = "site",
                                          n_boot = 2500, 
@@ -4580,6 +4620,11 @@ bootstrap_val_prob_clustered <- function(df,
   eavg_point <- val['Eavg']
   
   cat(sprintf("E_avg: %.4f\n", eavg_point))
+  
+  sd_pred <- sd(df$score, na.rm=T)
+  
+  calibration_intercept <- val["Intercept"]
+  calibration_slope <- val["Slope"]
   
   # Get clusters
   clusters <- unique(df[[cluster_col]])
@@ -4617,7 +4662,11 @@ bootstrap_val_prob_clustered <- function(df,
     ci_lower = ci[1],
     ci_upper = ci[2],
     boot_values = eavg_boot,
-    n_clusters = n_clusters
+    n_clusters = n_clusters, 
+    sd_pred = sd_pred,
+    calibration_intercept = calibration_intercept,
+    calibration_slope = calibration_slope,
+    model_based_cstat = model_based_c(df, B=100, cores=6)
   )
 }
 ```
@@ -4663,9 +4712,16 @@ roc_table <- data.frame(
   brier       = round(brier_sf$value, 3),
   brier_low   = round(brier_sf$ci[1], 3),
   brier_hi    = round(brier_sf$ci[2], 3),
+  brier_scaled = round(brier_sf$brier_scaled, 3),
+  brier_scaled_low = round(brier_sf$brier_scaled_ci[1], 3),
+  brier_scaled_hi = round(brier_sf$brier_scaled_ci[2], 3),
   ici = round(vals$eavg, 5),
   ici_low = round(vals$ci_lower, 5),
   ici_hi = round(vals$ci_upper, 5),
+  sd_pred = round(vals$sd_pred, 3),
+  calibration_intercept = round(vals$calibration_intercept, 3),
+  calibration_slope = round(vals$calibration_slope, 3),
+  model_based_c = round(vals$model_based_cstat, 3),
   comparison = NA_character_,
   p.value = NA_real_
 )
@@ -4706,9 +4762,16 @@ roc_table <- bind_rows(
     brier       = round(brier_pf$value, 3),
     brier_low   = round(brier_pf$ci[1], 3),
     brier_hi    = round(brier_pf$ci[2], 3),
+    brier_scaled = round(brier_sf$brier_scaled, 3),
+    brier_scaled_low = round(brier_sf$brier_scaled_ci[1], 3),
+    brier_scaled_hi = round(brier_sf$brier_scaled_ci[2], 3),
     ici = round(vals$eavg, 5),
     ici_low = round(vals$ci_lower, 5),
     ici_hi = round(vals$ci_upper, 5),
+    sd_pred = round(vals$sd_pred, 3),
+    calibration_intercept = round(vals$calibration_intercept, 3),     
+    calibration_slope = round(vals$calibration_slope, 3),
+    model_based_c = round(vals$model_based_cstat, 3),
     comparison = "Overall_PFvSF_Linear",
     p.value = test$p.value
   )
@@ -4755,9 +4818,16 @@ roc_table <- bind_rows(
   brier       = round(brier_sf_median$value, 3),
   brier_low   = round(brier_sf_median$ci[1], 3),
   brier_hi    = round(brier_sf_median$ci[2], 3),
+  brier_scaled = round(brier_sf$brier_scaled, 3),
+  brier_scaled_low = round(brier_sf$brier_scaled_ci[1], 3),
+  brier_scaled_hi = round(brier_sf$brier_scaled_ci[2], 3),
   ici = round(vals$eavg, 5),
   ici_low = round(vals$ci_lower, 5),
   ici_hi = round(vals$ci_upper, 5),
+  sd_pred = round(vals$sd_pred, 3),
+  calibration_intercept = round(vals$calibration_intercept, 3),
+  calibration_slope = round(vals$calibration_slope, 3),
+  model_based_c = round(vals$model_based_cstat, 3),
   comparison = "Overall_SF_Lowest_v_Median",
   p.value = test$p.value
 ))
@@ -4798,9 +4868,16 @@ roc_table <- bind_rows(
   brier       = round(brier_sf_first$value, 3),
   brier_low   = round(brier_sf_first$ci[1], 3),
   brier_hi    = round(brier_sf_first$ci[2], 3),
+  brier_scaled = round(brier_sf$brier_scaled, 3),
+  brier_scaled_low = round(brier_sf$brier_scaled_ci[1], 3),
+  brier_scaled_hi = round(brier_sf$brier_scaled_ci[2], 3),
   ici = round(vals$eavg, 5),
   ici_low = round(vals$ci_lower, 5),
   ici_hi = round(vals$ci_upper, 5),
+  sd_pred = round(vals$sd_pred, 3),
+  calibration_intercept = round(vals$calibration_intercept, 3),
+  calibration_slope = round(vals$calibration_slope, 3),
+  model_based_c = round(vals$model_based_cstat, 3),
   comparison = "Overall_SF_Lowest_v_first",
   p.value = test$p.value
 ))
@@ -4839,9 +4916,16 @@ roc_table <- bind_rows(
     brier       = round(brier_pf$value, 3),
     brier_low   = round(brier_pf$ci[1], 3),
     brier_hi    = round(brier_pf$ci[2], 3),
+    brier_scaled = round(brier_sf$brier_scaled, 3),
+    brier_scaled_low = round(brier_sf$brier_scaled_ci[1], 3),
+    brier_scaled_hi = round(brier_sf$brier_scaled_ci[2], 3),
     ici = round(vals$eavg, 5),
     ici_low = round(vals$ci_lower, 5),
     ici_hi = round(vals$ci_upper, 5),
+    sd_pred = round(vals$sd_pred, 3),
+    calibration_intercept = round(vals$calibration_intercept, 3),     
+    calibration_slope = round(vals$calibration_slope, 3),
+    model_based_c = round(vals$model_based_cstat, 3),
     comparison ="Overall_PF_Lowest_v_Median",
     p.value = test$p.value
   )
@@ -4884,9 +4968,16 @@ roc_table <- bind_rows(
     brier       = round(brier_pf$value, 3),
     brier_low   = round(brier_pf$ci[1], 3),
     brier_hi    = round(brier_pf$ci[2], 3),
+    brier_scaled = round(brier_sf$brier_scaled, 3),
+    brier_scaled_low = round(brier_sf$brier_scaled_ci[1], 3),
+    brier_scaled_hi = round(brier_sf$brier_scaled_ci[2], 3),
     ici = round(vals$eavg, 5),
     ici_low = round(vals$ci_lower, 5),
     ici_hi = round(vals$ci_upper, 5),
+    sd_pred = round(vals$sd_pred, 3),
+    calibration_intercept = round(vals$calibration_intercept, 3),     
+    calibration_slope = round(vals$calibration_slope, 3),
+    model_based_c = round(vals$model_based_cstat, 3),
     comparison = "Overall_PF_Lowest_v_first",
     p.value = test$p.value
   )
@@ -5209,9 +5300,16 @@ roc_table <- bind_rows(
   brier       = round(brier_sf_o2_cat$value, 3),
   brier_low   = round(brier_sf_o2_cat$ci[1], 3),
   brier_hi    = round(brier_sf_o2_cat$ci[2], 3),
+  brier_scaled = round(brier_sf$brier_scaled, 3),
+  brier_scaled_low = round(brier_sf$brier_scaled_ci[1], 3),
+  brier_scaled_hi = round(brier_sf$brier_scaled_ci[2], 3),
   ici = round(vals$eavg, 5),
   ici_low = round(vals$ci_lower, 5),
   ici_hi = round(vals$ci_upper, 5),
+  sd_pred = round(vals$sd_pred, 3),
+  calibration_intercept = round(vals$calibration_intercept, 3),
+  calibration_slope = round(vals$calibration_slope, 3),
+  model_based_c = round(vals$model_based_cstat, 3),
   comparison = NA_character_,
   p.value = NA_real_
 ))
@@ -5252,9 +5350,16 @@ roc_table <- bind_rows(
   brier       = round(brier_pf_o2_cat$value, 3),
   brier_low   = round(brier_pf_o2_cat$ci[1], 3),
   brier_hi    = round(brier_pf_o2_cat$ci[2], 3),
+  brier_scaled = round(brier_sf$brier_scaled, 3),
+  brier_scaled_low = round(brier_sf$brier_scaled_ci[1], 3),
+  brier_scaled_hi = round(brier_sf$brier_scaled_ci[2], 3),
   ici = round(vals$eavg, 5),
   ici_low = round(vals$ci_lower, 5),
   ici_hi = round(vals$ci_upper, 5),
+  sd_pred = round(vals$sd_pred, 3),
+  calibration_intercept = round(vals$calibration_intercept, 3),
+  calibration_slope = round(vals$calibration_slope, 3),
+  model_based_c = round(vals$model_based_cstat, 3),
   comparison = "PF vs SF: O2Cat Exposure",
   p.value = test$p.value
 ))
@@ -5296,9 +5401,16 @@ roc_table <- bind_rows(
   brier       = round(brier_sf_sofa_cat$value, 3),
   brier_low   = round(brier_sf_sofa_cat$ci[1], 3),
   brier_hi    = round(brier_sf_sofa_cat$ci[2], 3),
+  brier_scaled = round(brier_sf$brier_scaled, 3),
+  brier_scaled_low = round(brier_sf$brier_scaled_ci[1], 3),
+  brier_scaled_hi = round(brier_sf$brier_scaled_ci[2], 3),
   ici = round(vals$eavg, 5),
   ici_low = round(vals$ci_lower, 5),
   ici_hi = round(vals$ci_upper, 5),
+  sd_pred = round(vals$sd_pred, 3),
+  calibration_intercept = round(vals$calibration_intercept, 3),
+  calibration_slope = round(vals$calibration_slope, 3),
+  model_based_c = round(vals$model_based_cstat, 3),
   comparison = 'SF SOFA vs SF ARDS O2 Cat',
   p.value = test$p.value
 ))
@@ -5340,9 +5452,16 @@ roc_table <- bind_rows(
   brier       = round(brier_pf_sofa_cat$value, 3),
   brier_low   = round(brier_pf_sofa_cat$ci[1], 3),
   brier_hi    = round(brier_pf_sofa_cat$ci[2], 3),
+  brier_scaled = round(brier_sf$brier_scaled, 3),
+  brier_scaled_low = round(brier_sf$brier_scaled_ci[1], 3),
+  brier_scaled_hi = round(brier_sf$brier_scaled_ci[2], 3),
   ici = round(vals$eavg, 5),
   ici_low = round(vals$ci_lower, 5),
   ici_hi = round(vals$ci_upper, 5),
+  sd_pred = round(vals$sd_pred, 3),
+  calibration_intercept = round(vals$calibration_intercept, 3),
+  calibration_slope = round(vals$calibration_slope, 3),
+  model_based_c = round(vals$model_based_cstat, 3),
   comparison = "PF_vs_SF SOFA Comparison",
   p.value = test$p.value
 ))
@@ -5386,9 +5505,16 @@ roc_table <- bind_rows(
   brier       = round(brier_sf_pf_o2_cat$value, 3),
   brier_low   = round(brier_sf_pf_o2_cat$ci[1], 3),
   brier_hi    = round(brier_sf_pf_o2_cat$ci[2], 3),
+  brier_scaled = round(brier_sf$brier_scaled, 3),
+  brier_scaled_low = round(brier_sf$brier_scaled_ci[1], 3),
+  brier_scaled_hi = round(brier_sf$brier_scaled_ci[2], 3),
   ici = round(vals$eavg, 5),
   ici_low = round(vals$ci_lower, 5),
   ici_hi = round(vals$ci_upper, 5),
+  sd_pred = round(vals$sd_pred, 3),
+  calibration_intercept = round(vals$calibration_intercept, 3),
+  calibration_slope = round(vals$calibration_slope, 3),
+  model_based_c = round(vals$model_based_cstat, 3),
   comparison = "",
   p.value = NA_real_
 ))
@@ -5430,9 +5556,16 @@ roc_table <- bind_rows(
   brier       = round(brier_sf_pf_o2_cat_pf$value, 3),
   brier_low   = round(brier_sf_pf_o2_cat_pf$ci[1], 3),
   brier_hi    = round(brier_sf_pf_o2_cat_pf$ci[2], 3),
+  brier_scaled = round(brier_sf$brier_scaled, 3),
+  brier_scaled_low = round(brier_sf$brier_scaled_ci[1], 3),
+  brier_scaled_hi = round(brier_sf$brier_scaled_ci[2], 3),
   ici = round(vals$eavg, 5),
   ici_low = round(vals$ci_lower, 5),
   ici_hi = round(vals$ci_upper, 5),
+  sd_pred = round(vals$sd_pred, 3),
+  calibration_intercept = round(vals$calibration_intercept, 3),
+  calibration_slope = round(vals$calibration_slope, 3),
+  model_based_c = round(vals$model_based_cstat, 3),
   comparison = "SF_PF_O2_Cat_SFvsPF",
   p.value = test$p.value
 ))
@@ -5475,9 +5608,16 @@ roc_table <- bind_rows(
   brier       = round(brier_sf_pf_o2_contemp_cat$value, 3),
   brier_low   = round(brier_sf_pf_o2_contemp_cat$ci[1], 3),
   brier_hi    = round(brier_sf_pf_o2_contemp_cat$ci[2], 3),
+  brier_scaled = round(brier_sf$brier_scaled, 3),
+  brier_scaled_low = round(brier_sf$brier_scaled_ci[1], 3),
+  brier_scaled_hi = round(brier_sf$brier_scaled_ci[2], 3),
   ici = round(vals$eavg, 5),
   ici_low = round(vals$ci_lower, 5),
   ici_hi = round(vals$ci_upper, 5),
+  sd_pred = round(vals$sd_pred, 3),
+  calibration_intercept = round(vals$calibration_intercept, 3),
+  calibration_slope = round(vals$calibration_slope, 3),
+  model_based_c = round(vals$model_based_cstat, 3),
   comparison = "SF_PF Contemporaneously Measured vs SF: O2 Cat",
   p.value = test$p.value
 ))
@@ -5521,9 +5661,16 @@ roc_table <- bind_rows(
   brier       = round(brier_sf_pf_sofa$value, 3),
   brier_low   = round(brier_sf_pf_sofa$ci[1], 3),
   brier_hi    = round(brier_sf_pf_sofa$ci[2], 3),
+  brier_scaled = round(brier_sf$brier_scaled, 3),
+  brier_scaled_low = round(brier_sf$brier_scaled_ci[1], 3),
+  brier_scaled_hi = round(brier_sf$brier_scaled_ci[2], 3),
   ici = round(vals$eavg, 5),
   ici_low = round(vals$ci_lower, 5),
   ici_hi = round(vals$ci_upper, 5),
+  sd_pred = round(vals$sd_pred, 3),
+  calibration_intercept = round(vals$calibration_intercept, 3),
+  calibration_slope = round(vals$calibration_slope, 3),
+  model_based_c = round(vals$model_based_cstat, 3),
   comparison = "",
   p.value = NA_real_
 ))
@@ -5566,9 +5713,16 @@ roc_table <- bind_rows(
   brier       = round(brier_sf_pf_sofa_pf$value, 3),
   brier_low   = round(brier_sf_pf_sofa_pf$ci[1], 3),
   brier_hi    = round(brier_sf_pf_sofa_pf$ci[2], 3),
+  brier_scaled = round(brier_sf$brier_scaled, 3),
+  brier_scaled_low = round(brier_sf$brier_scaled_ci[1], 3),
+  brier_scaled_hi = round(brier_sf$brier_scaled_ci[2], 3),
   ici = round(vals$eavg, 5),
   ici_low = round(vals$ci_lower, 5),
   ici_hi = round(vals$ci_upper, 5),
+  sd_pred = round(vals$sd_pred, 3),
+  calibration_intercept = round(vals$calibration_intercept, 3),
+  calibration_slope = round(vals$calibration_slope, 3),
+  model_based_c = round(vals$model_based_cstat, 3),
   comparison = "SF_PF_PF vs SF_PF_SF: SOFA Cat",
   p.value = test$p.value
 ))
@@ -5611,9 +5765,16 @@ roc_table <- bind_rows(
   brier       = round(brier_sf_pf_sofa_contemp$value, 3),
   brier_low   = round(brier_sf_pf_sofa_contemp$ci[1], 3),
   brier_hi    = round(brier_sf_pf_sofa_contemp$ci[2], 3),
+  brier_scaled = round(brier_sf$brier_scaled, 3),
+  brier_scaled_low = round(brier_sf$brier_scaled_ci[1], 3),
+  brier_scaled_hi = round(brier_sf$brier_scaled_ci[2], 3),
   ici = round(vals$eavg, 5),
   ici_low = round(vals$ci_lower, 5),
   ici_hi = round(vals$ci_upper, 5),
+  sd_pred = round(vals$sd_pred, 3),
+  calibration_intercept = round(vals$calibration_intercept, 3),
+  calibration_slope = round(vals$calibration_slope, 3),
+  model_based_c = round(vals$model_based_cstat, 3),
   comparison = "SF_PF Contemp Meausure vs SF: SOFA Cat",
   p.value = test$p.value
 ))
@@ -5659,9 +5820,16 @@ roc_table <- bind_rows(
   brier       = round(brier_sf_o2_cat$value, 3),
   brier_low   = round(brier_sf_o2_cat$ci[1], 3),
   brier_hi    = round(brier_sf_o2_cat$ci[2], 3),
+  brier_scaled = round(brier_sf$brier_scaled, 3),
+  brier_scaled_low = round(brier_sf$brier_scaled_ci[1], 3),
+  brier_scaled_hi = round(brier_sf$brier_scaled_ci[2], 3),
   ici = round(vals$eavg, 5),
   ici_low = round(vals$ci_lower, 5),
   ici_hi = round(vals$ci_upper, 5),
+  sd_pred = round(vals$sd_pred, 3),
+  calibration_intercept = round(vals$calibration_intercept, 3),
+  calibration_slope = round(vals$calibration_slope, 3),
+  model_based_c = round(vals$model_based_cstat, 3),
   comparison = "Overall_SF_O2_Cat_LowestvFirst",
   p.value = test$p.value
 ))
@@ -5703,9 +5871,16 @@ roc_table <- bind_rows(
   brier       = round(brier_sf_o2_cat$value, 3),
   brier_low   = round(brier_sf_o2_cat$ci[1], 3),
   brier_hi    = round(brier_sf_o2_cat$ci[2], 3),
+  brier_scaled = round(brier_sf$brier_scaled, 3),
+  brier_scaled_low = round(brier_sf$brier_scaled_ci[1], 3),
+  brier_scaled_hi = round(brier_sf$brier_scaled_ci[2], 3),
   ici = round(vals$eavg, 5),
   ici_low = round(vals$ci_lower, 5),
   ici_hi = round(vals$ci_upper, 5),
+  sd_pred = round(vals$sd_pred, 3),
+  calibration_intercept = round(vals$calibration_intercept, 3),
+  calibration_slope = round(vals$calibration_slope, 3),
+  model_based_c = round(vals$model_based_cstat, 3),
   comparison = "Overall_SF_O2_Cat_LowestvMedian",
   p.value = test$p.value
 ))
@@ -5746,9 +5921,16 @@ roc_table <- bind_rows(
   brier       = round(brier_pf_o2_cat$value, 3),
   brier_low   = round(brier_pf_o2_cat$ci[1], 3),
   brier_hi    = round(brier_pf_o2_cat$ci[2], 3),
+  brier_scaled = round(brier_sf$brier_scaled, 3),
+  brier_scaled_low = round(brier_sf$brier_scaled_ci[1], 3),
+  brier_scaled_hi = round(brier_sf$brier_scaled_ci[2], 3),
   ici = round(vals$eavg, 5),
   ici_low = round(vals$ci_lower, 5),
   ici_hi = round(vals$ci_upper, 5),
+  sd_pred = round(vals$sd_pred, 3),
+  calibration_intercept = round(vals$calibration_intercept, 3),
+  calibration_slope = round(vals$calibration_slope, 3),
+  model_based_c = round(vals$model_based_cstat, 3),
   comparison = "PF vs SF: O2Cat LowestvFirst",
   p.value = test$p.value
 ))
@@ -5789,9 +5971,16 @@ roc_table <- bind_rows(
   brier       = round(brier_pf_o2_cat$value, 3),
   brier_low   = round(brier_pf_o2_cat$ci[1], 3),
   brier_hi    = round(brier_pf_o2_cat$ci[2], 3),
+  brier_scaled = round(brier_sf$brier_scaled, 3),
+  brier_scaled_low = round(brier_sf$brier_scaled_ci[1], 3),
+  brier_scaled_hi = round(brier_sf$brier_scaled_ci[2], 3),
   ici = round(vals$eavg, 5),
   ici_low = round(vals$ci_lower, 5),
   ici_hi = round(vals$ci_upper, 5),
+  sd_pred = round(vals$sd_pred, 3),
+  calibration_intercept = round(vals$calibration_intercept, 3),
+  calibration_slope = round(vals$calibration_slope, 3),
+  model_based_c = round(vals$model_based_cstat, 3),
   comparison = "PF vs SF: O2Cat Lowest V Median",
   p.value = test$p.value
 ))
@@ -5833,9 +6022,16 @@ roc_table <- bind_rows(
   brier       = round(brier_sf_sofa_cat$value, 3),
   brier_low   = round(brier_sf_sofa_cat$ci[1], 3),
   brier_hi    = round(brier_sf_sofa_cat$ci[2], 3),
+  brier_scaled = round(brier_sf$brier_scaled, 3),
+  brier_scaled_low = round(brier_sf$brier_scaled_ci[1], 3),
+  brier_scaled_hi = round(brier_sf$brier_scaled_ci[2], 3),
   ici = round(vals$eavg, 5),
   ici_low = round(vals$ci_lower, 5),
   ici_hi = round(vals$ci_upper, 5),
+  sd_pred = round(vals$sd_pred, 3),
+  calibration_intercept = round(vals$calibration_intercept, 3),
+  calibration_slope = round(vals$calibration_slope, 3),
+  model_based_c = round(vals$model_based_cstat, 3),
   comparison = 'SF SOFA vs SF ARDS O2 Cat - Lowest V First',
   p.value = test$p.value
 ))
@@ -5877,9 +6073,16 @@ roc_table <- bind_rows(
   brier       = round(brier_sf_sofa_cat$value, 3),
   brier_low   = round(brier_sf_sofa_cat$ci[1], 3),
   brier_hi    = round(brier_sf_sofa_cat$ci[2], 3),
+  brier_scaled = round(brier_sf$brier_scaled, 3),
+  brier_scaled_low = round(brier_sf$brier_scaled_ci[1], 3),
+  brier_scaled_hi = round(brier_sf$brier_scaled_ci[2], 3),
   ici = round(vals$eavg, 5),
   ici_low = round(vals$ci_lower, 5),
   ici_hi = round(vals$ci_upper, 5),
+  sd_pred = round(vals$sd_pred, 3),
+  calibration_intercept = round(vals$calibration_intercept, 3),
+  calibration_slope = round(vals$calibration_slope, 3),
+  model_based_c = round(vals$model_based_cstat, 3),
   comparison = 'SF SOFA vs SF ARDS O2 Cat - Lowest V Median',
   p.value = test$p.value
 ))
@@ -5921,9 +6124,16 @@ roc_table <- bind_rows(
   brier       = round(brier_pf_sofa_cat$value, 3),
   brier_low   = round(brier_pf_sofa_cat$ci[1], 3),
   brier_hi    = round(brier_pf_sofa_cat$ci[2], 3),
+  brier_scaled = round(brier_sf$brier_scaled, 3),
+  brier_scaled_low = round(brier_sf$brier_scaled_ci[1], 3),
+  brier_scaled_hi = round(brier_sf$brier_scaled_ci[2], 3),
   ici = round(vals$eavg, 5),
   ici_low = round(vals$ci_lower, 5),
   ici_hi = round(vals$ci_upper, 5),
+  sd_pred = round(vals$sd_pred, 3),
+  calibration_intercept = round(vals$calibration_intercept, 3),
+  calibration_slope = round(vals$calibration_slope, 3),
+  model_based_c = round(vals$model_based_cstat, 3),
   comparison = "PF_vs_SF SOFA Comparison: LowestvFirst",
   p.value = test$p.value
 ))
@@ -5965,9 +6175,16 @@ roc_table <- bind_rows(
   brier       = round(brier_pf_sofa_cat$value, 3),
   brier_low   = round(brier_pf_sofa_cat$ci[1], 3),
   brier_hi    = round(brier_pf_sofa_cat$ci[2], 3),
+  brier_scaled = round(brier_sf$brier_scaled, 3),
+  brier_scaled_low = round(brier_sf$brier_scaled_ci[1], 3),
+  brier_scaled_hi = round(brier_sf$brier_scaled_ci[2], 3),
   ici = round(vals$eavg, 5),
   ici_low = round(vals$ci_lower, 5),
   ici_hi = round(vals$ci_upper, 5),
+  sd_pred = round(vals$sd_pred, 3),
+  calibration_intercept = round(vals$calibration_intercept, 3),
+  calibration_slope = round(vals$calibration_slope, 3),
+  model_based_c = round(vals$model_based_cstat, 3),
   comparison = "PF_vs_SF SOFA Comparison: LowestvMedian",
   p.value = test$p.value
 ))
@@ -6067,9 +6284,16 @@ roc_table <- bind_rows(
   brier       = round(brier_both_cat$value, 3),
   brier_low   = round(brier_both_cat$ci[1], 3),
   brier_hi    = round(brier_both_cat$ci[2], 3),
+  brier_scaled = round(brier_sf$brier_scaled, 3),
+  brier_scaled_low = round(brier_sf$brier_scaled_ci[1], 3),
+  brier_scaled_hi = round(brier_sf$brier_scaled_ci[2], 3),
   ici = round(vals$eavg, 5),
   ici_low = round(vals$ci_lower, 5),
   ici_hi = round(vals$ci_upper, 5),
+  sd_pred = round(vals$sd_pred, 3),
+  calibration_intercept = round(vals$calibration_intercept, 3),
+  calibration_slope = round(vals$calibration_slope, 3),
+  model_based_c = round(vals$model_based_cstat, 3),
   comparison = "SF and PF O2 Cat vs SF O2 Cat",
   p.value = test$p.value
 ))
@@ -6127,9 +6351,16 @@ roc_table <- bind_rows(
   brier       = round(brier_both_cat$value, 3),
   brier_low   = round(brier_both_cat$ci[1], 3),
   brier_hi    = round(brier_both_cat$ci[2], 3),
+  brier_scaled = round(brier_sf$brier_scaled, 3),
+  brier_scaled_low = round(brier_sf$brier_scaled_ci[1], 3),
+  brier_scaled_hi = round(brier_sf$brier_scaled_ci[2], 3),
   ici = round(vals$eavg, 5),
   ici_low = round(vals$ci_lower, 5),
   ici_hi = round(vals$ci_upper, 5),
+  sd_pred = round(vals$sd_pred, 3),
+  calibration_intercept = round(vals$calibration_intercept, 3),
+  calibration_slope = round(vals$calibration_slope, 3),
+  model_based_c = round(vals$model_based_cstat, 3),
   comparison = "SF and PF O2 Cat vs Adding Measure Type",
   p.value = test$p.value
 ))
@@ -6188,9 +6419,16 @@ roc_table <- bind_rows(
   brier       = round(brier_both_cat$value, 3),
   brier_low   = round(brier_both_cat$ci[1], 3),
   brier_hi    = round(brier_both_cat$ci[2], 3),
+  brier_scaled = round(brier_sf$brier_scaled, 3),
+  brier_scaled_low = round(brier_sf$brier_scaled_ci[1], 3),
+  brier_scaled_hi = round(brier_sf$brier_scaled_ci[2], 3),
   ici = round(vals$eavg, 5),
   ici_low = round(vals$ci_lower, 5),
   ici_hi = round(vals$ci_upper, 5),
+  sd_pred = round(vals$sd_pred, 3),
+  calibration_intercept = round(vals$calibration_intercept, 3),
+  calibration_slope = round(vals$calibration_slope, 3),
+  model_based_c = round(vals$model_based_cstat, 3),
   comparison = "SF and PF SOFA vs SF SOFA",
   p.value = test$p.value
 ))
@@ -6248,9 +6486,16 @@ roc_table <- bind_rows(
   brier       = round(brier_both_cat$value, 3),
   brier_low   = round(brier_both_cat$ci[1], 3),
   brier_hi    = round(brier_both_cat$ci[2], 3),
+  brier_scaled = round(brier_sf$brier_scaled, 3),
+  brier_scaled_low = round(brier_sf$brier_scaled_ci[1], 3),
+  brier_scaled_hi = round(brier_sf$brier_scaled_ci[2], 3),
   ici = round(vals$eavg, 5),
   ici_low = round(vals$ci_lower, 5),
   ici_hi = round(vals$ci_upper, 5),
+  sd_pred = round(vals$sd_pred, 3),
+  calibration_intercept = round(vals$calibration_intercept, 3),
+  calibration_slope = round(vals$calibration_slope, 3),
+  model_based_c = round(vals$model_based_cstat, 3),
   comparison = "SF and PF O2 Cat vs Adding Measure Type",
   p.value = test$p.value
 ))
@@ -6415,9 +6660,16 @@ if (nrow(roc_df) == 0) {
         brier       = round(brier$value, 2),
         brier_low   = round(brier$ci[1], 2),
         brier_hi    = round(brier$ci[2], 2),
+        brier_scaled = round(brier_sf$brier_scaled, 3),
+        brier_scaled_low = round(brier_sf$brier_scaled_ci[1], 3),
+        brier_scaled_hi = round(brier_sf$brier_scaled_ci[2], 3),
         ici = round(vals$eavg, 5),
         ici_low = round(vals$ci_lower, 5),
         ici_hi = round(vals$ci_upper, 5),
+        sd_pred = round(vals$sd_pred, 3),
+        calibration_intercept = round(vals$calibration_intercept, 3),     
+        calibration_slope = round(vals$calibration_slope, 3),
+        model_based_c = round(vals$model_based_cstat, 3),
         comparison = NA_character_,
         p.value    = NA_real_
       ), fill=T
@@ -6627,9 +6879,16 @@ if (nrow(roc_df) == 0) {
         brier       = round(brier$value, 2),
         brier_low   = round(brier$ci[1], 2),
         brier_hi    = round(brier$ci[2], 2),
+        brier_scaled = round(brier_sf$brier_scaled, 3),
+        brier_scaled_low = round(brier_sf$brier_scaled_ci[1], 3),
+        brier_scaled_hi = round(brier_sf$brier_scaled_ci[2], 3),
         ici = round(vals$eavg, 5),
         ici_low = round(vals$ci_lower, 5),
         ici_hi = round(vals$ci_upper, 5),
+        sd_pred = round(vals$sd_pred, 3),
+        calibration_intercept = round(vals$calibration_intercept, 3),     
+        calibration_slope = round(vals$calibration_slope, 3),
+        model_based_c = round(vals$model_based_cstat, 3),
         comparison = NA_character_,
         p.value    = NA_real_
       ), fill=T
@@ -6824,9 +7083,16 @@ roc_table <- bind_rows(
   brier       = round(brier_both_cat$value, 3),
   brier_low   = round(brier_both_cat$ci[1], 3),
   brier_hi    = round(brier_both_cat$ci[2], 3),
+  brier_scaled = round(brier_sf$brier_scaled, 3),
+  brier_scaled_low = round(brier_sf$brier_scaled_ci[1], 3),
+  brier_scaled_hi = round(brier_sf$brier_scaled_ci[2], 3),
   ici = round(vals$eavg, 5),
   ici_low = round(vals$ci_lower, 5),
   ici_hi = round(vals$ci_upper, 5),
+  sd_pred = round(vals$sd_pred, 3),
+  calibration_intercept = round(vals$calibration_intercept, 3),
+  calibration_slope = round(vals$calibration_slope, 3),
+  model_based_c = round(vals$model_based_cstat, 3),
   comparison = NA_character_,
   p.value = NA_real_
 ))
@@ -6897,9 +7163,16 @@ roc_table <- bind_rows(
   brier       = round(brier_both_cat$value, 3),
   brier_low   = round(brier_both_cat$ci[1], 3),
   brier_hi    = round(brier_both_cat$ci[2], 3),
+  brier_scaled = round(brier_sf$brier_scaled, 3),
+  brier_scaled_low = round(brier_sf$brier_scaled_ci[1], 3),
+  brier_scaled_hi = round(brier_sf$brier_scaled_ci[2], 3),
   ici = round(vals$eavg, 5),
   ici_low = round(vals$ci_lower, 5),
   ici_hi = round(vals$ci_upper, 5),
+  sd_pred = round(vals$sd_pred, 3),
+  calibration_intercept = round(vals$calibration_intercept, 3),
+  calibration_slope = round(vals$calibration_slope, 3),
+  model_based_c = round(vals$model_based_cstat, 3),
   comparison = "SF Compared to PF SOFA vs O2 Cat",
   p.value = as.numeric(test$p.value)
 ))
@@ -7185,9 +7458,16 @@ roc_table <- bind_rows(
   brier       = round(brier_sf_all_o2$value, 3),
   brier_low   = round(brier_sf_all_o2$ci[1], 3),
   brier_hi    = round(brier_sf_all_o2$ci[2], 3),
+  brier_scaled = round(brier_sf$brier_scaled, 3),
+  brier_scaled_low = round(brier_sf$brier_scaled_ci[1], 3),
+  brier_scaled_hi = round(brier_sf$brier_scaled_ci[2], 3),
   ici = round(vals$eavg, 5),
   ici_low = round(vals$ci_lower, 5),
   ici_hi = round(vals$ci_upper, 5),
+  sd_pred = round(vals$sd_pred, 3),
+  calibration_intercept = round(vals$calibration_intercept, 3),
+  calibration_slope = round(vals$calibration_slope, 3),
+  model_based_c = round(vals$model_based_cstat, 3),
   comparison = NA_character_,
   p.value = NA_real_
 ))
@@ -7230,9 +7510,16 @@ roc_table <- bind_rows(
   brier       = round(brier_sf_all_sofa$value, 3),
   brier_low   = round(brier_sf_all_sofa$ci[1], 3),
   brier_hi    = round(brier_sf_all_sofa$ci[2], 3),
+  brier_scaled = round(brier_sf$brier_scaled, 3),
+  brier_scaled_low = round(brier_sf$brier_scaled_ci[1], 3),
+  brier_scaled_hi = round(brier_sf$brier_scaled_ci[2], 3),
   ici = round(vals$eavg, 5),
   ici_low = round(vals$ci_lower, 5),
   ici_hi = round(vals$ci_upper, 5),
+  sd_pred = round(vals$sd_pred, 3),
+  calibration_intercept = round(vals$calibration_intercept, 3),
+  calibration_slope = round(vals$calibration_slope, 3),
+  model_based_c = round(vals$model_based_cstat, 3),
   comparison = 'VS ALL SOFA o2 Cat',
   p.value = test$p.value
 ))
