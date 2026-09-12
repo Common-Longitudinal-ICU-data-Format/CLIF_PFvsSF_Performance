@@ -1,11 +1,4 @@
----
-title: "02_pf_sf_central_federated_analysis"
-author: "Chad H. Hochberg"
-date: "`r Sys.Date()`"
-output: html_document
----
-
-```{r Project Location and Sites}
+## ----Project Location and Sites-----------------------------------------------
 project_location <- '~/Library/CloudStorage/OneDrive-JohnsHopkins/Research Projects/CLIF/CLIF_Projects/CLIF_PF-to-SF/federated_summary_analysis'
 
 #Which Sites Participated
@@ -17,10 +10,9 @@ if (!dir.exists(paste0(project_location, "/tables"))) {
 if (!dir.exists(paste0(project_location, "/graphs"))) {
   dir.create(paste0(project_location, "/graphs"))
 }
-```
 
 
-```{r setup, include=FALSE}
+## ----setup, include=FALSE-----------------------------------------------------
 knitr::opts_chunk$set(echo = TRUE)
 
 #Install Following Libraries For this Project
@@ -92,9 +84,9 @@ lead <- dplyr::lead
 lag <- dplyr::lag
 coalesce <- dplyr::coalesce
 n <- dplyr::n
-```
 
-```{r Prepare to Load Tables Into List}
+
+## ----Prepare to Load Tables Into List-----------------------------------------
 #List of tables without site name to expext
 tables <- c(
   "_arf_per_quarter_hospital.csv",
@@ -152,9 +144,9 @@ tables <- c(
 
 # Combine sites and tables to create full table names
 site_tables <- as.vector(outer(sites, tables, paste, sep = ""))
-```
 
-```{r Open Tables for CSV and RDS}
+
+## ----Open Tables for CSV and RDS----------------------------------------------
 # Create an empty list to store data frames
 site_table_data <- list()
 
@@ -222,10 +214,9 @@ combine_lists <- function(data_list, table_name) {
   
   return(combined_table)
 }
-```
 
 
-```{r Collate Data Function}
+## ----Collate Data Function----------------------------------------------------
 # Function to extract and collate specified tables from the site_table_data list
 #This Will Only Work with Tables with the Same Number of Columns
 collate_tables <- function(table_suffix) {
@@ -277,10 +268,9 @@ combine_lists <- function(data_list, table_name) {
   return(combined_table)
 }
 
-```
 
 
-```{r Pool Data for Consort Diagram}
+## ----Pool Data for Consort Diagram--------------------------------------------
 consort_table <- collate_tables('_consort_data.csv') |>
   distinct()
 
@@ -301,11 +291,9 @@ consort_table <- consort_table |>
 
 write_csv(consort_table, paste0(project_location, '/tables/consort_overall.csv'))
 
-```
 
 
-
-```{r Summary Data and Master Table 1}
+## ----Summary Data and Master Table 1------------------------------------------
 #For Purposes of this Study Will Use Exposure metric (PF defined vs SF Defined)
 
 table1_cat <- collate_tables("_table1_cat_by_exposure.csv") |>
@@ -371,9 +359,9 @@ aggregate_table1_cat <- aggregate_table1_cat |>
   left_join(order, by='variable') |>
   arrange(strata, order_number)
 
-```
 
-```{r Test For Difference in Distribution of Categorical Variables}
+
+## ----Test For Difference in Distribution of Categorical Variables-------------
 #For Table 1
 vars <- c(
   'female',
@@ -464,9 +452,9 @@ table1_cat_paper <- table1_cat_paper |>
   left_join(tab1_chi, by=c('variable', 'rn')) |>
   arrange(order_number, variable) |>
   select(-order_number, -rn)
-```
 
-```{r Now for Continuous Table 1 Generate Weighted Means/SD}
+
+## ----Now for Continuous Table 1 Generate Weighted Means/SD--------------------
 cont_table_function <- function(table_cont) {
   table_cont <- table_cont |>
     group_by(strata, variable) |>
@@ -604,11 +592,9 @@ table1_paper <- readable_table(table1_paper, strata_values, has_continuous=T, ha
 write_csv(table1_paper, paste0(project_location, '/tables/table1_pooled.csv'))
 write_csv(aggregate_table1_cat, paste0(project_location, '/tables/table1_aggregate_categorical.csv'))
 write_csv(table1_cont, paste0(project_location, '/tables/table1_continuous_by_site.csv'))
-```
 
 
-
-```{r Test For Difference in Distribution of Categorical Variables - Table1 Without Undefined}
+## ----Test For Difference in Distribution of Categorical Variables - Table1 Without Undefined----
 #For now Table 1 Purposes This Ignores Clustering by Site
 vars <- c(
   'female',
@@ -659,8 +645,8 @@ tab1_twocat  <- tab1_twocat  |>
   left_join(tab1_chi, by=c('variable', 'rn')) |>
   arrange(order_number, variable) |>
   select(-order_number, -rn)
-```
-```{r Now for Continuous Table 1 Generate Weighted Means/SD - Two Category Only}
+
+## ----Now for Continuous Table 1 Generate Weighted Means/SD - Two Category Only----
 table1_cont_two_cat <- table1_cont |>
   #Combine to SF, PF or Undefined
   mutate(
@@ -714,10 +700,9 @@ table1_paper_twocat <- readable_table(table1_paper_twocat , strata_values, has_c
 
 #Save Tables
 write_csv(table1_paper_twocat, paste0(project_location, '/tables/table1_pooled_noundefined.csv'))
-```
 
 
-```{r Describe SpO2/FiO2 and PaO2/FiO2 Availability - Overall and By Support Category}
+## ----Describe SpO2/FiO2 and PaO2/FiO2 Availability - Overall and By Support Category----
 table2_metrics_exposure <- collate_tables('_table2_o2metrics_cont_by_resp_support.csv') 
   
 
@@ -810,9 +795,9 @@ table2_paper <- readable_table(table2_paper, strata_values, has_continuous=T,has
 
 #Save Tables
 write_csv(table2_paper, paste0(project_location, '/tables/table2_metric_count_resp_support.csv'))
-```
 
-```{r Describe SpO2/FiO2 and PaO2/FiO2 Availability - Overall and By Support Category - no Undefined}
+
+## ----Describe SpO2/FiO2 and PaO2/FiO2 Availability - Overall and By Support Category - no Undefined----
 table2_metrics_exposure <- collate_tables('_table2_o2metrics_cont_by_resp_support_noundefined.csv') 
 table2_working <- cont_table_function(table2_metrics_exposure) 
 
@@ -903,9 +888,9 @@ table2_paper <- readable_table(table2_paper, strata_values, has_continuous=T,has
 
 #Save Tables
 write_csv(table2_paper, paste0(project_location, '/tables/table2_metric_count_resp_support_no_undefined.csv'))
-```
 
-```{r Describe SpO2/FiO2 and PaO2/FiO2 Availability - By Exposure Group}
+
+## ----Describe SpO2/FiO2 and PaO2/FiO2 Availability - By Exposure Group--------
 table2_metrics_exposure <- collate_tables('_table2_o2metrics_cont_by_exposure.csv') 
 table2_working <- cont_table_function(table2_metrics_exposure) 
 
@@ -996,9 +981,9 @@ table2_paper <- readable_table(table2_paper, strata_values, has_continuous=T,has
 
 #Save Tables
 write_csv(table2_paper, paste0(project_location, '/tables/table2_metric_count_by_exposure.csv'))
-```
 
-```{r Describe SpO2/FiO2 and PaO2/FiO2 Availability - By Primary Metric}
+
+## ----Describe SpO2/FiO2 and PaO2/FiO2 Availability - By Primary Metric--------
 table2_metrics_exposure <- collate_tables('_table2_o2metrics_cont_by_primary_metric.csv') 
 table2_working <- cont_table_function(table2_metrics_exposure) 
 
@@ -1089,9 +1074,9 @@ table2_paper <- readable_table(table2_paper, strata_values, has_continuous=T,has
 
 #Save Tables
 write_csv(table2_paper, paste0(project_location, '/tables/table2_metric_count_by_primary_metric.csv'))
-```
 
-```{r Spo2 and PaO2 Counts}
+
+## ----Spo2 and PaO2 Counts-----------------------------------------------------
 #Evaluate Measure Counts Overall and By Respiratory Category
 sf_pf_counts_overall <- collate_tables('_pf_sf_count_table.csv') |>
   group_by(variable, strata, strata_cat) |>
@@ -1278,9 +1263,9 @@ ggsave(
   height = 5,
   units ='in',
   path = paste0(project_location, '/graphs/'))
-```
 
-```{r Plot Admissions Over Time}
+
+## ----Plot Admissions Over Time------------------------------------------------
 admits_by_quarter_hospital <- collate_tables('_arf_per_quarter_hospital.csv') 
 admits_by_quarter <- collate_tables('_arf_per_quarter.csv') 
 
@@ -1374,10 +1359,9 @@ ggsave(
   path = paste0(project_location, '/graphs/'))
 
 rm(quarter_admit_graph)
-```
 
 
-```{r Describe ABG Practices Over Time}
+## ----Describe ABG Practices Over Time-----------------------------------------
 #Dataset with 1 Row per Quarter and Hospital with n_patients and n_abgs
 abgs_by_hospital_quarter <- admits_by_quarter_hospital |>
    dplyr::group_by(hospital_id, study_quarter) |>
@@ -1432,9 +1416,9 @@ abgs_by_hospital <- abgs_by_hospital |>
 write_csv(abgs_by_hospital, paste0(project_location, '/tables/abgs_by_hospital.csv'))
 write_csv(hospital_types, paste0(project_location, '/tables/hospital_types.csv'))
   
-```
 
-```{r Distribution of SF or PF Measures by Hour}
+
+## ----Distribution of SF or PF Measures by Hour--------------------------------
 aggregate_hours <- collate_tables('_aggregate_hours_to_measure.csv') |>
   group_by(exposure_group, hour_measure, variable) |>
   summarise(
@@ -1527,10 +1511,9 @@ contingency_table <- test_hour0 %>%
 chi_result <- chisq.test(contingency_table)
 print(prop.table(contingency_table, margin=1))
 print(chi_result)
-```
 
 
-```{r Contingency Table Oxygenation Category by SF v PF}
+## ----Contingency Table Oxygenation Category by SF v PF------------------------
 oxygenation_agreement <- collate_tables('_table_agreement.csv')
 
 oxygenation_aggregate <- oxygenation_agreement |>
@@ -1596,9 +1579,9 @@ strata_values <- c('Overall', 'pf', 'sf')
 tab_o2_agreement_paper <- readable_table(tab_oxygenation_agreement, strata_values, has_continuous=F,has_categorical=T) 
 
 write_csv(tab_o2_agreement_paper, paste0(project_location, '/tables/table_o2cat_agreement.csv'))
-```
 
-```{r Agreement in Categories When Both SF and PF Available}
+
+## ----Agreement in Categories When Both SF and PF Available--------------------
 oxygenation_agreement_sfpf <- collate_tables('_table_agreement_sf_pf.csv')
 
 oxygenation_aggregate_sfpf <- oxygenation_agreement_sfpf |>
@@ -1642,10 +1625,9 @@ tab_oxygenation_agreement_sf_pf <- oxygenation_aggregate_sfpf |>
          percent_sd=percent) 
 
 write_csv(tab_oxygenation_agreement_sf_pf, paste0(project_location, '/tables/table_o2cat_agreement_sf_pf.csv'))
-```
 
 
-```{r Distribution of n of Patients within Each Category - Heatmap}
+## ----Distribution of n of Patients within Each Category - Heatmap-------------
 heat_map_o2 <- oxygenation_aggregate %>%
 filter(variable %in% c("oxygenation_category", "sofa2_cat"),
        strata %in% c("pf", "sf")) |>
@@ -1849,10 +1831,9 @@ ggsave(
   filename='sofa2_category_distribution_pf_vs_sf_contemporaneous.pdf',
   plot=last_plot(),
   path = paste0(project_location, '/graphs/'))
-```
 
 
-```{r Mortality by SF vs PF Oxygenation Category}
+## ----Mortality by SF vs PF Oxygenation Category-------------------------------
 #Do this Once Other Sites Have Run
 mortality_by_o2 <- collate_tables('_aggregate_by_o2cat.csv') |>
   #Fix strange Expanded Strata Name
@@ -1982,9 +1963,9 @@ table_mortality_paper <- readable_table(table_mortality_paper, strata_values, ha
 
 write_csv(table_mortality_paper, paste0(project_location, '/tables/table_o2cat_mortality.csv'))
 write_csv(table_mortality_long, paste0(project_location, '/tables/table_o2cat_mortality_long.csv'))
-```
 
-```{r Mortality by SF vs PF Oxygenation Category For FIrst and Median Measures}
+
+## ----Mortality by SF vs PF Oxygenation Category For FIrst and Median Measures----
 vars <- c(
   'death_hospice28',
   'death_hospice60'
@@ -2089,10 +2070,9 @@ table_mortality_paper_first <- readable_table(table_mortality_paper_first, strat
 
 write_csv(table_mortality_paper_first, paste0(project_location, '/tables/table_o2cat_mortality_first-median.csv'))
 write_csv(table_mortality_long_first, paste0(project_location, '/tables/table_o2cat_mortality_long_first-median.csv'))
-```
 
 
-```{r Mortality for PF and SF Groups Overall}
+## ----Mortality for PF and SF Groups Overall-----------------------------------
 table_mortality_overall <- table_mortality_long |>
   filter(analysis=='overall' & 
            !grepl('first|median', strata_type, ignore.case=T)) |>
@@ -2125,9 +2105,9 @@ table_mortality_overall <- table_mortality_overall |>
   mutate(chi=prop_result$statistic,
          p.value=round(prop_result$p.value, digits=4))
 write_csv(table_mortality_overall, paste0(project_location, '/tables/table_mortality_overall.csv'))
-```
 
-```{r MH Test Across Strata - O2 Cat}
+
+## ----MH Test Across Strata - O2 Cat-------------------------------------------
 #Redefine the Desired Strata Values Here 
 strata_values <- c(
   'Overall', 
@@ -2304,8 +2284,8 @@ table_mh_tests <- rowbind(table_mh_tests,
   MH2=as.numeric(mh_result$statistic),
   p.value=round(mh_result$p.value, 5)
 ))
-```
-```{r MH Tests Across STrata for SOFA}
+
+## ----MH Tests Across STrata for SOFA------------------------------------------
 tidy_table <- aggregate_table_mortality %>%
   filter(strata %in% strata_values,
          strata!='Overall', 
@@ -2444,10 +2424,9 @@ table_mh_tests <- rowbind(table_mh_tests,
 ))
 
 write_csv(table_mh_tests, paste0(project_location, '/tables/table_mh_tests.csv'))
-```
 
 
-```{r Mortality by O2 Category HeatMap}
+## ----Mortality by O2 Category HeatMap-----------------------------------------
 heat_map_o2_mortality <- aggregate_table_mortality %>%
   filter(strata %in% strata_values,
          strata!='Overall', 
@@ -2841,9 +2820,9 @@ ggsave(
   plot=last_plot(),
   path = paste0(project_location, '/graphs/'))
 
-```
 
-```{r Stratified Mortality by Categorization According to Black, Not Black}
+
+## ----Stratified Mortality by Categorization According to Black, Not Black-----
 #Do this Once Other Sites Have Run
 mortality_by_o2_race <- collate_tables('_aggregate_by_o2cat_race.csv') |>
   #Fix strange Expanded Strata Name
@@ -2966,9 +2945,9 @@ table_mortality_race_paper <- readable_table(table_mortality_race_paper, strata_
 write_csv(table_mortality_race_paper, paste0(project_location, '/tables/table_o2cat_mortality_race.csv'))
 write_csv(table_mortality_long_by_race, paste0(project_location, '/tables/table_o2cat_mortality_race_long.csv'))
 
-```
 
-```{r Mortality Heat Map Stratified by Race}
+
+## ----Mortality Heat Map Stratified by Race------------------------------------
 heat_map_o2_mortality <- aggregate_mortality_race %>%
   filter(strata %in% strata_values,
          strata!='Overall', 
@@ -3087,9 +3066,9 @@ ggsave(
   plot=last_plot(),
   device=cairo_ps,
   path = paste0(project_location, '/graphs/'))
-```
 
-```{r Mortality Heat Map Stratified by Race for SF Both}
+
+## ----Mortality Heat Map Stratified by Race for SF Both------------------------
 #Order Hypoxemia Categories
 cat_levels <- c("not_hypoxemic", "mild_hypoxemia", "moderate_hypoxemia", "severe_hypoxemia")
 rn <- data.frame(
@@ -3281,9 +3260,9 @@ ggsave(
   plot=last_plot(),
   device=cairo_ps,
   path = paste0(project_location, '/graphs/'))
-```
 
-```{r Stratified Mortality by Respiratory Support}
+
+## ----Stratified Mortality by Respiratory Support------------------------------
 #Collate Table Stratified by Respitatory
 mortality_by_o2_resp <- collate_tables('_aggregate_by_o2cat_resp_support.csv') |>
   #Fix strange Expanded Strata Name
@@ -3400,10 +3379,9 @@ table_mortality_resp <- readable_table(table_mortality_resp, strata_values, has_
 
 write_csv(table_mortality_resp, paste0(project_location, '/tables/table_o2cat_mortality_resp_support.csv'))
 write_csv(table_mortality_long_by_resp, paste0(project_location, '/tables/table_o2cat_mortality_resp_support_long.csv'))
-```
 
 
-```{r Heat Map with Mortality by Respiratory Support}
+## ----Heat Map with Mortality by Respiratory Support---------------------------
 heat_map_o2_mortality <- aggregate_mortality_resp %>%
   filter(strata %in% strata_values,
          strata!='Overall',
@@ -3651,10 +3629,9 @@ ggsave(
   width=8,
   units='in')
 
-```
 
 
-```{r Repeat Respiratory Stratified Heat Map with SF Both}
+## ----Repeat Respiratory Stratified Heat Map with SF Both----------------------
 #Order Hypoxemia Categories
 cat_levels <- c("not_hypoxemic", "mild_hypoxemia", "moderate_hypoxemia", "severe_hypoxemia")
 rn <- data.frame(
@@ -3965,9 +3942,9 @@ ggsave(
   filename='o2_sofa_mortality_resp_sf_pf_contemp.svg',
   plot=last_plot(),
   path = paste0(project_location, '/graphs/'))
-```
 
-```{r Summarise RespSupport Free Days by Oxygenation Category}
+
+## ----Summarise RespSupport Free Days by Oxygenation Category------------------
 rsfds_o2_cat <- collate_tables('_table1_cont_by_oxygenation.csv') |>
   filter(variable=='resp_support_free_days28')
 rsfds_sofa <- collate_tables('_table1_cont_by_sofa2.csv') |>
@@ -4040,11 +4017,9 @@ rsfds_sofa <- rsfds_sofa |>
 rm(median_summary)
 write_csv(rsfds_sofa, paste0(project_location, '/tables/rsfds_sofa.csv'))
 rm(rsfds_sofa)
-```
 
 
-
-```{r Function for Calculating Logistic Mixed ICC}
+## ----Function for Calculating Logistic Mixed ICC------------------------------
 icc_manual <- function(model, cluster_col = "site") {
 vc <- VarCorr(model)
 if (is.null(vc$cond)) stop("No conditional VarCorr found in model")
@@ -4057,10 +4032,9 @@ sigma2_u <- as.numeric(vc_cond[[cluster_col]][1])
 icc <- sigma2_u / (sigma2_u + (pi^2 / 3))
 round(icc, 4)
 }
-```
 
 
-```{r Function for glmmTMB Tidyier}
+## ----Function for glmmTMB Tidyier---------------------------------------------
 tidy_make <- function(mod, name, cluster_col='site') {
   fixed <- broom.mixed::tidy(
     mod,
@@ -4086,11 +4060,9 @@ tidy_make <- function(mod, name, cluster_col='site') {
     )
 }
 
-```
 
 
-
-```{r Now Evaluate Discrimination by Fitting Logistic Regression - Contnuous Measure}
+## ----Now Evaluate Discrimination by Fitting Logistic Regression - Contnuous Measure----
 tidy_models_list <- list()
 
 #Include Cubic Spline Terms with 4 Knots
@@ -4466,9 +4438,9 @@ ggsave(
   filename='predicted_deathhospice28_sf_first.pdf',
   plot=last_plot(),
   path = paste0(project_location, '/graphs/'))
-```
 
-```{r Function for Computing Weighted Brier Score From Summary Data}
+
+## ----Function for Computing Weighted Brier Score From Summary Data------------
 #Samples Bootstrap by Hospital for Clustered Boostrap
 compute_weighted_brier <- function(df, 
                                    cluster_col = "hospital_id",
@@ -4558,10 +4530,9 @@ compute_weighted_brier <- function(df,
     n_total    = N_tot
   )
 }
-```
 
 
-```{r Function to Expand to One Row Per Patient with Predictions}
+## ----Function to Expand to One Row Per Patient with Predictions---------------
 expand_to_patients <- function(df) {
   # Determine which column exists: 'value' or 'strata'
   if ("value" %in% names(df)) {
@@ -4594,9 +4565,9 @@ expand_to_patients <- function(df) {
     tidyr::uncount(weights = n) |>
     dplyr::rename(score = pred)
 }
-```
 
-```{r Model-Based C-Statistics}
+
+## ----Model-Based C-Statistics-------------------------------------------------
 #Using Methods from Vergouwe et al (PMID:20807737)
 #Will Include this in the Function Below
 
@@ -4610,9 +4581,9 @@ model_based_c <- function(df, B = 100, cores = 6) {
   
   mean(unlist(res), na.rm = TRUE)
 }
-```
 
-```{r Compute Clustered Integrated Calibration Index, Standard Deviation of Predictor and Calibration Intercept}
+
+## ----Compute Clustered Integrated Calibration Index, Standard Deviation of Predictor and Calibration Intercept----
 bootstrap_val_prob_clustered <- function(df, 
                                          cluster_col = "site",
                                          n_boot = 2500, 
@@ -4675,10 +4646,9 @@ bootstrap_val_prob_clustered <- function(df,
     model_based_cstat = model_based_c(df, B=100, cores=6)
   )
 }
-```
 
 
-```{r AUROC and ROC Curves - Continuous Measures}
+## ----AUROC and ROC Curves - Continuous Measures-------------------------------
 roc_table <- data.frame()
 
 set.seed(3982)
@@ -4784,10 +4754,9 @@ roc_table <- bind_rows(
 ) |>
   arrange(model, comparison)
 rm(roc_df_pf)
-```
 
 
-```{r  AUROC and ROC Curves - Continuous Medians and Firsts}
+## ----AUROC and ROC Curves - Continuous Medians and Firsts---------------------
 set.seed(3982)
 BOOT_NUM <- 2500 #Number of Bootstrap Replicates
 #SF Ratio
@@ -4990,10 +4959,9 @@ roc_table <- bind_rows(
 ) |>
   arrange(model, comparison)
 rm(roc_df_pf)
-```
- 
 
-```{r Logistic Models Using SF or PF Derived Categorical Classifications}
+
+## ----Logistic Models Using SF or PF Derived Categorical Classifications-------
 #Create Vectors of PF, SF and SF_PF derived measures
 pf_o2_cat <- paste0('pf-', c('not_hypoxemic', 'mild_hypoxemia', 'moderate_hypoxemia', 'severe_hypoxemia'))
 sf_o2_cat <- paste0('sf-', c('not_hypoxemic', 'mild_hypoxemia', 'moderate_hypoxemia', 'severe_hypoxemia'))
@@ -5264,9 +5232,9 @@ family = binomial(link = "logit")
 )
 tidy_models_list[['sf_pf_sofa_contemp']] <- 
   tidy_make(sf_pf_glm_sofa_contemp, "SF_PF_Contemp - SOFA")
-```
 
-```{r ROC Analysis for the Categorical Exposure}
+
+## ----ROC Analysis for the Categorical Exposure--------------------------------
 set.seed(3982)
 BOOT_NUM <- 2500 #Number of Bootstrap Replicates
 
@@ -5784,9 +5752,9 @@ roc_table <- bind_rows(
   comparison = "SF_PF Contemp Meausure vs SF: SOFA Cat",
   p.value = test$p.value
 ))
-```
 
-```{r PF and SF Categories Defined by First or Median Measures}
+
+## ----PF and SF Categories Defined by First or Median Measures-----------------
 set.seed(3982)
 BOOT_NUM <- 2500 #Number of Bootstrap Replicates
 
@@ -6195,10 +6163,9 @@ roc_table <- bind_rows(
   p.value = test$p.value
 ))
 rm(roc_df_pf_sofa_cat)
-```
 
 
-```{r Assess Combined Categorical Models with Both SF and PF Included}
+## ----Assess Combined Categorical Models with Both SF and PF Included----------
 set.seed(3982)
 combined_model_df <- aggregate_mortality_hospital |>
   mutate(
@@ -6506,10 +6473,9 @@ roc_table <- bind_rows(
   p.value = test$p.value
 ))
 rm(roc_both_df_sofa_cat_type)
-```
 
 
-```{r Repeat Catgorical ROC With Race}
+## ----Repeat Catgorical ROC With Race------------------------------------------
 set.seed(32284)
 aggregate_categories_race <- collate_tables('_aggregate_by_o2cat_race.csv') |>
   filter(!is.na(new_race_cat),
@@ -6731,10 +6697,9 @@ roc_table <- roc_table |>
 
 #Save ROC Models by Race
 roc_models_by_race <- roc_models
-```
 
 
-```{r ROC Analysis Stratified by Respiratory Support}
+## ----ROC Analysis Stratified by Respiratory Support---------------------------
 set.seed(32284)
 aggregate_categories_resp <- collate_tables('_aggregate_by_o2cat_resp_support.csv') |>
   filter(!is.na(resp_support_category),
@@ -6976,10 +6941,9 @@ roc_table <- roc_table |>
 #Save Roc Models by Resp
 roc_models_by_resp <- roc_models
 rm(roc_models)
-```
 
 
-```{r Modesls with SF and PF Categories AND Measure Type And Support}
+## ----Modesls with SF and PF Categories AND Measure Type And Support-----------
 set.seed(3982)
 combined_model_df <- collate_tables('_aggregate_by_o2cat_resp_support.csv') |>
   mutate(
@@ -7201,9 +7165,9 @@ roc_table <- roc_table |>
       default=comparison
     )
     )
-```
 
-```{r Sensitivity Analysis - Add ABG Propensity by Hospital}
+
+## ----Sensitivity Analysis - Add ABG Propensity by Hospital--------------------
 set.seed(3982)
 mortality_with_abg <- aggregate_mortality_hospital |>
   mutate(
@@ -7302,10 +7266,9 @@ data   = mortality_with_abg |>
 family = binomial(link = "logit")
 )
 tidy_models_list$'both_sofa_type_interaction' <- tidy_make(both_glm_sofa_type_interaction, "Both_SOFA-Type_Interaction")
-```
 
 
-```{r Plot ABG Interaction}
+## ----Plot ABG Interaction-----------------------------------------------------
 ##O2 Cat
 pred_data <- expand.grid(
   log_odds_abg = seq(qlogis(0.1), qlogis(0.8), by = 0.1),  # 10% to 80% ABG
@@ -7390,10 +7353,9 @@ ggsave(
   height=12,
   width=8,
   units='in')
-```
 
 
-```{r Models That Uses All SF Measures}
+## ----Models That Uses All SF Measures-----------------------------------------
 all_sf_model <- combined_model_df |>
   filter(grepl('sf', strata)==T,
          !grepl('contemp', strata)==T)
@@ -7530,10 +7492,9 @@ roc_table <- bind_rows(
   p.value = test$p.value
 ))
 rm(roc_df_sf_all_sofa)
-```
 
 
-```{r Save Tidy Models and ROC Table}
+## ----Save Tidy Models and ROC Table-------------------------------------------
 #Adjust P.Values for Multiple Comparisons in Both Tables
 tidy_all <- bind_rows(tidy_models_list) |>
   mutate(
@@ -7557,10 +7518,9 @@ roc_final <- roc_table |>
   relocate(p.adjust, .after=p.value)
 write_csv(roc_final, paste0(project_location, '/tables/roc_analyses.csv'))
 rm(roc_final)
-```
 
 
-```{r Plot Curves}
+## ----Plot Curves--------------------------------------------------------------
 overall_roc_curve <- list('PaO2/FiO2'= roc_pf, 'SpO2/FiO2'= roc_sf)
 ggroc(overall_roc_curve) +
   geom_abline(slope = 1, intercept = 1, linetype = "dashed") +
@@ -7749,10 +7709,9 @@ ggsave(
   cairo_ps,
   path = paste0(project_location, '/graphs/'))
 
-```
 
 
-```{r Calibration Curves}
+## ----Calibration Curves-------------------------------------------------------
 N_BINS <- 18
 
 #####################################
@@ -8184,16 +8143,14 @@ ggsave(
   device=cairo_ps,
   path = paste0(project_location, '/graphs/'))
 
-```
 
 
-```{r Export Tidy Models}
+## ----Export Tidy Models-------------------------------------------------------
 federated_logistic <- rowbind(tidy_models_list, fill=T)
 write_csv(federated_logistic, paste0(project_location, '/tables/federated_logistic_models.csv'))
-```
 
 
-```{r Univariable Meta-Analysis of Moving from SF to PF}
+## ----Univariable Meta-Analysis of Moving from SF to PF------------------------
 logistic_site_models <- collate_tables('_logistic_models.csv')
 
 #Meta-Analysis: Unadjusted Estimates
@@ -8238,10 +8195,9 @@ dev.off()
 #Meta Analysis
 meta_analyses <- rowbind(meta_list, fill=T)
 write_csv(meta_analyses, paste0(project_location, '/tables/meta_analyses.csv'))
-```
 
 
-```{r Function for Percent Agreeement Table for Patients with Both SF and PF}
+## ----Function for Percent Agreeement Table for Patients with Both SF and PF----
 agreement_rowpct_table <- function(df,
                                    row_var = "strata",
                                    col_var = "level",
@@ -8355,10 +8311,9 @@ agreement_rowpct_table <- function(df,
     table = tab_df
   )
 }
-```
 
 
-```{r Confusion Matrix SF PF into a List}
+## ----Confusion Matrix SF PF into a List---------------------------------------
 confusion_matrices <- collate_tables("_confusion_matric_sf_pf.csv") |>
   filter(grepl('sf_both', variable, ignore.case=T)) 
 
@@ -8385,9 +8340,9 @@ o2_confused <- confusion_matrices |>
 #SOFA Confused
 sofa_confused <- confusion_matrices |>
   filter(grepl('sofa', variable))
-```
 
-```{r Tables for Stratified O2 Cat and SOFA Agreement}
+
+## ----Tables for Stratified O2 Cat and SOFA Agreement--------------------------
 cross_tab_list <- list()
 
 for (name in names(confusion_matrix_list)) {
@@ -8425,5 +8380,4 @@ cross_tab_list[[name]] <- final_table
 master_cross_tab <- data.table::rbindlist(cross_tab_list, fill = TRUE)
 
 write_csv(master_cross_tab, paste0(project_location, '/tables/master_cross_tab.csv'))
-```
 

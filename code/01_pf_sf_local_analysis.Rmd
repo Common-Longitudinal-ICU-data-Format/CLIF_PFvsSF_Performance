@@ -1711,7 +1711,7 @@ for (resp in resp_cat) {
 to_tab <- c(
   'oxygenation_category_sf_both', 
   'o2_cat_sf_pf_contemporary',
-    'oxygenation_category_first_measure',
+  'oxygenation_category_first_measure',
   'sofa2_cat_first_measure'
 )
 
