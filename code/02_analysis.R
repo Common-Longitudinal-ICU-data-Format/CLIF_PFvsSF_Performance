@@ -33,7 +33,8 @@ packages_to_install =
     "rms",
     "metafor",
     "tidyr", 
-    "parallel")
+    "parallel",
+    "psych")
 
 #Can Load For Each Individual RMarkdown
 packages_to_load =
@@ -55,7 +56,8 @@ packages_to_load =
     "patchwork",
     "metafor", 
     "tidyr", 
-    "parallel")
+    "parallel",
+    "psych")
 options(dplyr.summarise.inform = FALSE)
 
 fn_install_if_mi = function(p) {
@@ -4475,7 +4477,7 @@ compute_weighted_brier <- function(df,
   event_rate <- sum(df$deaths, na.rm=T)/N_tot
   null_brier <- event_rate * (1 - event_rate)
   scale_brier <- if (null_brier > 0) {
-    1 - brier_val / null_brier
+    (1 - brier_val / null_brier)*100 #As Percentage
   } else {
     NA_real_
   }
@@ -8295,6 +8297,9 @@ agreement_rowpct_table <- function(df,
   
   tab_df <- dplyr::bind_rows(tab_df, total_row)
   
+  # Weighted kappa
+  kappa_out <- psych::cohen.kappa(mat, w.exp=2)
+  
   # Return
   list(
     summary = list(
@@ -8304,11 +8309,13 @@ agreement_rowpct_table <- function(df,
       upward_n = upward_n,
       upward_pct = upward_pct,
       downward_n = downward_n,
-      downward_pct = downward_pct
+      downward_pct = downward_pct,
+      weighted_kappa = kappa_out$weighted.kappa
     ),
     matrix = mat,
     row_pct = row_pct,
-    table = tab_df
+    table = tab_df,
+    kappa = kappa_out
   )
 }
 
@@ -8370,10 +8377,18 @@ last_row <- nrow(final_table)
 final_table$percent_agreement <- NA_real_
 final_table$upward_percent <- NA_real_
 final_table$downward_percent <- NA_real_
+final_table$weighted_kappa <- NA_character_
 
 final_table$percent_agreement[last_row] <- table_it$summary$exact_pct
 final_table$upward_percent[last_row] <- table_it$summary$upward_pct
 final_table$downward_percent[last_row] <- table_it$summary$downward_pct
+final_table$weighted_kappa[last_row] <-
+  sprintf(
+  "%.3f [%.3f - %.3f]",
+  table_it$kappa$weighted.kappa,
+  table_it$kappa$confid["weighted kappa", "lower"],
+  table_it$kappa$confid["weighted kappa", "upper"]
+)
 cross_tab_list[[name]] <- final_table
 }
 
