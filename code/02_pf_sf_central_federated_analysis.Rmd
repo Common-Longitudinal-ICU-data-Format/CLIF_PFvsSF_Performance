@@ -5,6 +5,11 @@ date: "`r Sys.Date()`"
 output: html_document
 ---
 
+```{r Start Time}
+starting_time <- Sys.time()
+```
+
+
 ```{r Project Location and Sites}
 project_location <- '~/Library/CloudStorage/OneDrive-JohnsHopkins/Research Projects/CLIF/CLIF_Projects/CLIF_PF-to-SF/federated_summary_analysis'
 
@@ -4107,18 +4112,19 @@ plot_df <- censored_continuous %>%
          value<600) 
 # Scale factor to make gray bars visible relative to main bars
 scale_factor <- ((max(plot_df$n_total, na.rm = TRUE) /
-  max(plot_df$censored_cells, na.rm = TRUE))*0.75)/2
+  max(plot_df$censored_cells, na.rm = TRUE))*0.75)/4
 
 ggplot(plot_df, aes(x = value)) +
   geom_col(aes(y = n_total), fill = "steelblue", width = 4) +
   geom_col(aes(y = censored_cells * scale_factor),
-           fill = "gray60", alpha = 0.5, width = 4) +
+           fill = "gray20", alpha = 0.5, width = 4) +
   scale_y_continuous(
     name = "N with PF Value",
+    breaks=seq(0, (max(plot_df$n_total, na.rm = TRUE)+100) , by=100),
     sec.axis = sec_axis(~ . / scale_factor, name = "Censored for Count < 5")
   ) +
   scale_x_continuous(
-    breaks=seq(50, 600, by=50),
+    breaks=seq(50, 600, by=100),
     limits=c(40,600)) +
   labs(x = "PF Value", title = "Distribution of PF values with censored cell counts") +
   theme_minimal()
@@ -4140,19 +4146,21 @@ plot_df <- censored_continuous %>%
          value<=460) 
 # Scale factor to make gray bars visible relative to main bars
 scale_factor <- ((max(plot_df$n_total, na.rm = TRUE) /
-  max(plot_df$censored_cells, na.rm = TRUE))*0.75)/2
+  max(plot_df$censored_cells, na.rm = TRUE))*0.75)/4
 
 ggplot(plot_df, aes(x = value)) +
   geom_col(aes(y = n_total), fill = "steelblue", width = 4) +
   geom_col(aes(y = censored_cells * scale_factor),
-           fill = "gray60", alpha = 0.5, width = 4) +
+           fill = "gray20", alpha = 0.5, width = 4) +
   scale_y_continuous(
     name = "N with SF Value",
+    breaks=seq(0, (max(plot_df$n_total, na.rm = TRUE)+100) , 
+               by=100),
     sec.axis = sec_axis(~ . / scale_factor, name = "Censored for Count < 5")
   ) +
   scale_x_continuous(
-    breaks=seq(80, 460, by=50),
-    limits=c(80,460)) +
+    breaks=seq(80, 460, by=20),
+    limits=c(79,460)) +
   labs(x = "SF Value", title = "Distribution of SF values with censored cell counts") +
   theme_minimal()
 ggsave(
@@ -4267,7 +4275,7 @@ ggsave(
 
 #Run Random Effects Aggregate Logistic Regression for Death/Hospice by Day 28
 #Note Proportion with Weights Gives Equivalent Results to the cbind method
-#Start with Univariable and Hospital Random Effect
+#Start with Univariable and Site Random Effect
 pf_glm_linear <- glmmTMB(
   cbind(n_deathhosp28, n_in_group - n_deathhosp28) ~ 
     rms::rcs(value, 4) + (1 | site),
@@ -4659,8 +4667,8 @@ compute_weighted_brier <- function(df,
     list(
     value = NA_real_, 
     ci = c(NA_real_, NA_real_),
-    brier_scale = NA_real_,
-    brier_scale_ci = c(NA_real_, NA_real_)))
+    brier_scaled = NA_real_,
+    brier_scaled_ci = c(NA_real_, NA_real_)))
   
   brier_val <- (sum(df$deaths * (1 - df$pred)^2, na.rm = TRUE) +
                   sum(df$survivors * df$pred^2,    na.rm = TRUE)) / N_tot
@@ -4933,9 +4941,9 @@ roc_table <- bind_rows(
     brier       = round(brier_pf$value, 3),
     brier_low   = round(brier_pf$ci[1], 3),
     brier_hi    = round(brier_pf$ci[2], 3),
-    brier_scaled = round(brier_sf$brier_scaled, 3),
-    brier_scaled_low = round(brier_sf$brier_scaled_ci[1], 3),
-    brier_scaled_hi = round(brier_sf$brier_scaled_ci[2], 3),
+    brier_scaled = round(brier_pf$brier_scaled, 3),
+    brier_scaled_low = round(brier_pf$brier_scaled_ci[1], 3),
+    brier_scaled_hi = round(brier_pf$brier_scaled_ci[2], 3),
     ici = round(vals$eavg, 5),
     ici_low = round(vals$ci_lower, 5),
     ici_hi = round(vals$ci_upper, 5),
@@ -4989,9 +4997,9 @@ roc_table <- bind_rows(
   brier       = round(brier_sf_median$value, 3),
   brier_low   = round(brier_sf_median$ci[1], 3),
   brier_hi    = round(brier_sf_median$ci[2], 3),
-  brier_scaled = round(brier_sf$brier_scaled, 3),
-  brier_scaled_low = round(brier_sf$brier_scaled_ci[1], 3),
-  brier_scaled_hi = round(brier_sf$brier_scaled_ci[2], 3),
+  brier_scaled = round(brier_sf_median$brier_scaled, 3),
+  brier_scaled_low = round(brier_sf_median$brier_scaled_ci[1], 3),
+  brier_scaled_hi = round(brier_sf_median$brier_scaled_ci[2], 3),
   ici = round(vals$eavg, 5),
   ici_low = round(vals$ci_lower, 5),
   ici_hi = round(vals$ci_upper, 5),
@@ -5039,9 +5047,9 @@ roc_table <- bind_rows(
   brier       = round(brier_sf_first$value, 3),
   brier_low   = round(brier_sf_first$ci[1], 3),
   brier_hi    = round(brier_sf_first$ci[2], 3),
-  brier_scaled = round(brier_sf$brier_scaled, 3),
-  brier_scaled_low = round(brier_sf$brier_scaled_ci[1], 3),
-  brier_scaled_hi = round(brier_sf$brier_scaled_ci[2], 3),
+  brier_scaled = round(brier_sf_first$brier_scaled, 3),
+  brier_scaled_low = round(brier_sf_first$brier_scaled_ci[1], 3),
+  brier_scaled_hi = round(brier_sf_first$brier_scaled_ci[2], 3),
   ici = round(vals$eavg, 5),
   ici_low = round(vals$ci_lower, 5),
   ici_hi = round(vals$ci_upper, 5),
@@ -5087,9 +5095,9 @@ roc_table <- bind_rows(
     brier       = round(brier_pf$value, 3),
     brier_low   = round(brier_pf$ci[1], 3),
     brier_hi    = round(brier_pf$ci[2], 3),
-    brier_scaled = round(brier_sf$brier_scaled, 3),
-    brier_scaled_low = round(brier_sf$brier_scaled_ci[1], 3),
-    brier_scaled_hi = round(brier_sf$brier_scaled_ci[2], 3),
+    brier_scaled = round(brier_pf$brier_scaled, 3),
+    brier_scaled_low = round(brier_pf$brier_scaled_ci[1], 3),
+    brier_scaled_hi = round(brier_pf$brier_scaled_ci[2], 3),
     ici = round(vals$eavg, 5),
     ici_low = round(vals$ci_lower, 5),
     ici_hi = round(vals$ci_upper, 5),
@@ -5139,9 +5147,9 @@ roc_table <- bind_rows(
     brier       = round(brier_pf$value, 3),
     brier_low   = round(brier_pf$ci[1], 3),
     brier_hi    = round(brier_pf$ci[2], 3),
-    brier_scaled = round(brier_sf$brier_scaled, 3),
-    brier_scaled_low = round(brier_sf$brier_scaled_ci[1], 3),
-    brier_scaled_hi = round(brier_sf$brier_scaled_ci[2], 3),
+    brier_scaled = round(brier_pf$brier_scaled, 3),
+    brier_scaled_low = round(brier_pf$brier_scaled_ci[1], 3),
+    brier_scaled_hi = round(brier_pf$brier_scaled_ci[2], 3),
     ici = round(vals$eavg, 5),
     ici_low = round(vals$ci_lower, 5),
     ici_hi = round(vals$ci_upper, 5),
@@ -5529,9 +5537,9 @@ roc_table <- bind_rows(
   brier       = round(brier_sf_o2_cat$value, 3),
   brier_low   = round(brier_sf_o2_cat$ci[1], 3),
   brier_hi    = round(brier_sf_o2_cat$ci[2], 3),
-  brier_scaled = round(brier_sf$brier_scaled, 3),
-  brier_scaled_low = round(brier_sf$brier_scaled_ci[1], 3),
-  brier_scaled_hi = round(brier_sf$brier_scaled_ci[2], 3),
+  brier_scaled = round(brier_sf_o2_cat$brier_scaled, 3),
+  brier_scaled_low = round(brier_sf_o2_cat$brier_scaled_ci[1], 3),
+  brier_scaled_hi = round(brier_sf_o2_cat$brier_scaled_ci[2], 3),
   ici = round(vals$eavg, 5),
   ici_low = round(vals$ci_lower, 5),
   ici_hi = round(vals$ci_upper, 5),
@@ -5579,9 +5587,9 @@ roc_table <- bind_rows(
   brier       = round(brier_pf_o2_cat$value, 3),
   brier_low   = round(brier_pf_o2_cat$ci[1], 3),
   brier_hi    = round(brier_pf_o2_cat$ci[2], 3),
-  brier_scaled = round(brier_sf$brier_scaled, 3),
-  brier_scaled_low = round(brier_sf$brier_scaled_ci[1], 3),
-  brier_scaled_hi = round(brier_sf$brier_scaled_ci[2], 3),
+  brier_scaled = round(brier_pf_o2_cat$brier_scaled, 3),
+  brier_scaled_low = round(brier_pf_o2_cat$brier_scaled_ci[1], 3),
+  brier_scaled_hi = round(brier_pf_o2_cat$brier_scaled_ci[2], 3),
   ici = round(vals$eavg, 5),
   ici_low = round(vals$ci_lower, 5),
   ici_hi = round(vals$ci_upper, 5),
@@ -5630,9 +5638,9 @@ roc_table <- bind_rows(
   brier       = round(brier_sf_sofa_cat$value, 3),
   brier_low   = round(brier_sf_sofa_cat$ci[1], 3),
   brier_hi    = round(brier_sf_sofa_cat$ci[2], 3),
-  brier_scaled = round(brier_sf$brier_scaled, 3),
-  brier_scaled_low = round(brier_sf$brier_scaled_ci[1], 3),
-  brier_scaled_hi = round(brier_sf$brier_scaled_ci[2], 3),
+  brier_scaled = round(brier_sf_sofa_cat$brier_scaled, 3),
+  brier_scaled_low = round(brier_sf_sofa_cat$brier_scaled_ci[1], 3),
+  brier_scaled_hi = round(brier_sf_sofa_cat$brier_scaled_ci[2], 3),
   ici = round(vals$eavg, 5),
   ici_low = round(vals$ci_lower, 5),
   ici_hi = round(vals$ci_upper, 5),
@@ -5681,9 +5689,9 @@ roc_table <- bind_rows(
   brier       = round(brier_pf_sofa_cat$value, 3),
   brier_low   = round(brier_pf_sofa_cat$ci[1], 3),
   brier_hi    = round(brier_pf_sofa_cat$ci[2], 3),
-  brier_scaled = round(brier_sf$brier_scaled, 3),
-  brier_scaled_low = round(brier_sf$brier_scaled_ci[1], 3),
-  brier_scaled_hi = round(brier_sf$brier_scaled_ci[2], 3),
+  brier_scaled = round(brier_pf_sofa_cat$brier_scaled, 3),
+  brier_scaled_low = round(brier_pf_sofa_cat$brier_scaled_ci[1], 3),
+  brier_scaled_hi = round(brier_pf_sofa_cat$brier_scaled_ci[2], 3),
   ici = round(vals$eavg, 5),
   ici_low = round(vals$ci_lower, 5),
   ici_hi = round(vals$ci_upper, 5),
@@ -5734,9 +5742,9 @@ roc_table <- bind_rows(
   brier       = round(brier_sf_pf_o2_cat$value, 3),
   brier_low   = round(brier_sf_pf_o2_cat$ci[1], 3),
   brier_hi    = round(brier_sf_pf_o2_cat$ci[2], 3),
-  brier_scaled = round(brier_sf$brier_scaled, 3),
-  brier_scaled_low = round(brier_sf$brier_scaled_ci[1], 3),
-  brier_scaled_hi = round(brier_sf$brier_scaled_ci[2], 3),
+  brier_scaled = round(brier_sf_pf_o2_cat$brier_scaled, 3),
+  brier_scaled_low = round(brier_sf_pf_o2_cat$brier_scaled_ci[1], 3),
+  brier_scaled_hi = round(brier_sf_pf_o2_cat$brier_scaled_ci[2], 3),
   ici = round(vals$eavg, 5),
   ici_low = round(vals$ci_lower, 5),
   ici_hi = round(vals$ci_upper, 5),
@@ -5785,9 +5793,9 @@ roc_table <- bind_rows(
   brier       = round(brier_sf_pf_o2_cat_pf$value, 3),
   brier_low   = round(brier_sf_pf_o2_cat_pf$ci[1], 3),
   brier_hi    = round(brier_sf_pf_o2_cat_pf$ci[2], 3),
-  brier_scaled = round(brier_sf$brier_scaled, 3),
-  brier_scaled_low = round(brier_sf$brier_scaled_ci[1], 3),
-  brier_scaled_hi = round(brier_sf$brier_scaled_ci[2], 3),
+  brier_scaled = round(brier_sf_pf_o2_cat_pf$brier_scaled, 3),
+  brier_scaled_low = round(brier_sf_pf_o2_cat_pf$brier_scaled_ci[1], 3),
+  brier_scaled_hi = round(brier_sf_pf_o2_cat_pf$brier_scaled_ci[2], 3),
   ici = round(vals$eavg, 5),
   ici_low = round(vals$ci_lower, 5),
   ici_hi = round(vals$ci_upper, 5),
@@ -5823,7 +5831,7 @@ ci_sf_pf_o2_contemp_cat <- as.numeric(pROC::ci.auc(roc_sf_pf_o2_contemp_cat, met
 # Weighted Brier score + 95% CI via stratified multinomial bootstrap (aggregated df)
 brier_sf_pf_o2_contemp_cat <- compute_weighted_brier(dat_sf_pf_o2_contemp_cat, boot_n = BOOT_NUM)
 vals <- bootstrap_val_prob_clustered(roc_df_sf_pf_o2_contemp_cat)
-test <- roc.test(roc_sf_pf_o2_contemp_cat, roc_sf_o2_cat, method='bootstrap', boot.n=BOOT_NUM)
+test <- roc.test(roc_sf_pf_o2_contemp_cat, roc_sf_pf_o2_cat, method='bootstrap', boot.n=BOOT_NUM)
 
 roc_table <- bind_rows(
   roc_table,
@@ -5837,9 +5845,9 @@ roc_table <- bind_rows(
   brier       = round(brier_sf_pf_o2_contemp_cat$value, 3),
   brier_low   = round(brier_sf_pf_o2_contemp_cat$ci[1], 3),
   brier_hi    = round(brier_sf_pf_o2_contemp_cat$ci[2], 3),
-  brier_scaled = round(brier_sf$brier_scaled, 3),
-  brier_scaled_low = round(brier_sf$brier_scaled_ci[1], 3),
-  brier_scaled_hi = round(brier_sf$brier_scaled_ci[2], 3),
+  brier_scaled = round(brier_sf_pf_o2_contemp_cat$brier_scaled, 3),
+  brier_scaled_low = round(brier_sf_pf_o2_contemp_cat$brier_scaled_ci[1], 3),
+  brier_scaled_hi = round(brier_sf_pf_o2_contemp_cat$brier_scaled_ci[2], 3),
   ici = round(vals$eavg, 5),
   ici_low = round(vals$ci_lower, 5),
   ici_hi = round(vals$ci_upper, 5),
@@ -5847,7 +5855,7 @@ roc_table <- bind_rows(
   calibration_intercept = round(vals$calibration_intercept, 3),
   calibration_slope = round(vals$calibration_slope, 3),
   model_based_c = round(vals$model_based_cstat, 3),
-  comparison = "SF_PF Contemporaneously Measured vs SF: O2 Cat",
+  comparison = "SF_PF Contemporaneously Measured vs SF_PF Lowest: O2 Cat",
   p.value = test$p.value
 ))
 rm(roc_df_sf_pf_o2_contemp_cat)
@@ -5890,9 +5898,9 @@ roc_table <- bind_rows(
   brier       = round(brier_sf_pf_sofa$value, 3),
   brier_low   = round(brier_sf_pf_sofa$ci[1], 3),
   brier_hi    = round(brier_sf_pf_sofa$ci[2], 3),
-  brier_scaled = round(brier_sf$brier_scaled, 3),
-  brier_scaled_low = round(brier_sf$brier_scaled_ci[1], 3),
-  brier_scaled_hi = round(brier_sf$brier_scaled_ci[2], 3),
+  brier_scaled = round(brier_sf_pf_sofa$brier_scaled, 3),
+  brier_scaled_low = round(brier_sf_pf_sofa$brier_scaled_ci[1], 3),
+  brier_scaled_hi = round(brier_sf_pf_sofa$brier_scaled_ci[2], 3),
   ici = round(vals$eavg, 5),
   ici_low = round(vals$ci_lower, 5),
   ici_hi = round(vals$ci_upper, 5),
@@ -5942,9 +5950,9 @@ roc_table <- bind_rows(
   brier       = round(brier_sf_pf_sofa_pf$value, 3),
   brier_low   = round(brier_sf_pf_sofa_pf$ci[1], 3),
   brier_hi    = round(brier_sf_pf_sofa_pf$ci[2], 3),
-  brier_scaled = round(brier_sf$brier_scaled, 3),
-  brier_scaled_low = round(brier_sf$brier_scaled_ci[1], 3),
-  brier_scaled_hi = round(brier_sf$brier_scaled_ci[2], 3),
+  brier_scaled = round(brier_sf_pf_sofa_pf$brier_scaled, 3),
+  brier_scaled_low = round(brier_sf_pf_sofa_pf$brier_scaled_ci[1], 3),
+  brier_scaled_hi = round(brier_sf_pf_sofa_pf$brier_scaled_ci[2], 3),
   ici = round(vals$eavg, 5),
   ici_low = round(vals$ci_lower, 5),
   ici_hi = round(vals$ci_upper, 5),
@@ -5994,9 +6002,9 @@ roc_table <- bind_rows(
   brier       = round(brier_sf_pf_sofa_contemp$value, 3),
   brier_low   = round(brier_sf_pf_sofa_contemp$ci[1], 3),
   brier_hi    = round(brier_sf_pf_sofa_contemp$ci[2], 3),
-  brier_scaled = round(brier_sf$brier_scaled, 3),
-  brier_scaled_low = round(brier_sf$brier_scaled_ci[1], 3),
-  brier_scaled_hi = round(brier_sf$brier_scaled_ci[2], 3),
+  brier_scaled = round(brier_sf_pf_sofa_contemp$brier_scaled, 3),
+  brier_scaled_low = round(brier_sf_pf_sofa_contemp$brier_scaled_ci[1], 3),
+  brier_scaled_hi = round(brier_sf_pf_sofa_contemp$brier_scaled_ci[2], 3),
   ici = round(vals$eavg, 5),
   ici_low = round(vals$ci_lower, 5),
   ici_hi = round(vals$ci_upper, 5),
@@ -6004,7 +6012,7 @@ roc_table <- bind_rows(
   calibration_intercept = round(vals$calibration_intercept, 3),
   calibration_slope = round(vals$calibration_slope, 3),
   model_based_c = round(vals$model_based_cstat, 3),
-  comparison = "SF_PF Contemp Meausure vs SF: SOFA Cat",
+  comparison = "SF_PF Contemp Meausure vs SF_PF First: SOFA Cat",
   p.value = test$p.value
 ))
 ```
@@ -6049,9 +6057,9 @@ roc_table <- bind_rows(
   brier       = round(brier_sf_o2_cat$value, 3),
   brier_low   = round(brier_sf_o2_cat$ci[1], 3),
   brier_hi    = round(brier_sf_o2_cat$ci[2], 3),
-  brier_scaled = round(brier_sf$brier_scaled, 3),
-  brier_scaled_low = round(brier_sf$brier_scaled_ci[1], 3),
-  brier_scaled_hi = round(brier_sf$brier_scaled_ci[2], 3),
+  brier_scaled = round(brier_sf_o2_cat$brier_scaled, 3),
+  brier_scaled_low = round(brier_sf_o2_cat$brier_scaled_ci[1], 3),
+  brier_scaled_hi = round(brier_sf_o2_cat$brier_scaled_ci[2], 3),
   ici = round(vals$eavg, 5),
   ici_low = round(vals$ci_lower, 5),
   ici_hi = round(vals$ci_upper, 5),
@@ -6100,9 +6108,9 @@ roc_table <- bind_rows(
   brier       = round(brier_sf_o2_cat$value, 3),
   brier_low   = round(brier_sf_o2_cat$ci[1], 3),
   brier_hi    = round(brier_sf_o2_cat$ci[2], 3),
-  brier_scaled = round(brier_sf$brier_scaled, 3),
-  brier_scaled_low = round(brier_sf$brier_scaled_ci[1], 3),
-  brier_scaled_hi = round(brier_sf$brier_scaled_ci[2], 3),
+  brier_scaled = round(brier_sf_o2_cat$brier_scaled, 3),
+  brier_scaled_low = round(brier_sf_o2_cat$brier_scaled_ci[1], 3),
+  brier_scaled_hi = round(brier_sf_o2_cat$brier_scaled_ci[2], 3),
   ici = round(vals$eavg, 5),
   ici_low = round(vals$ci_lower, 5),
   ici_hi = round(vals$ci_upper, 5),
@@ -6150,9 +6158,9 @@ roc_table <- bind_rows(
   brier       = round(brier_pf_o2_cat$value, 3),
   brier_low   = round(brier_pf_o2_cat$ci[1], 3),
   brier_hi    = round(brier_pf_o2_cat$ci[2], 3),
-  brier_scaled = round(brier_sf$brier_scaled, 3),
-  brier_scaled_low = round(brier_sf$brier_scaled_ci[1], 3),
-  brier_scaled_hi = round(brier_sf$brier_scaled_ci[2], 3),
+  brier_scaled = round(brier_pf_o2_cat$brier_scaled, 3),
+  brier_scaled_low = round(brier_pf_o2_cat$brier_scaled_ci[1], 3),
+  brier_scaled_hi = round(brier_pf_o2_cat$brier_scaled_ci[2], 3),
   ici = round(vals$eavg, 5),
   ici_low = round(vals$ci_lower, 5),
   ici_hi = round(vals$ci_upper, 5),
@@ -6200,9 +6208,9 @@ roc_table <- bind_rows(
   brier       = round(brier_pf_o2_cat$value, 3),
   brier_low   = round(brier_pf_o2_cat$ci[1], 3),
   brier_hi    = round(brier_pf_o2_cat$ci[2], 3),
-  brier_scaled = round(brier_sf$brier_scaled, 3),
-  brier_scaled_low = round(brier_sf$brier_scaled_ci[1], 3),
-  brier_scaled_hi = round(brier_sf$brier_scaled_ci[2], 3),
+  brier_scaled = round(brier_pf_o2_cat$brier_scaled, 3),
+  brier_scaled_low = round(brier_pf_o2_cat$brier_scaled_ci[1], 3),
+  brier_scaled_hi = round(brier_pf_o2_cat$brier_scaled_ci[2], 3),
   ici = round(vals$eavg, 5),
   ici_low = round(vals$ci_lower, 5),
   ici_hi = round(vals$ci_upper, 5),
@@ -6251,9 +6259,9 @@ roc_table <- bind_rows(
   brier       = round(brier_sf_sofa_cat$value, 3),
   brier_low   = round(brier_sf_sofa_cat$ci[1], 3),
   brier_hi    = round(brier_sf_sofa_cat$ci[2], 3),
-  brier_scaled = round(brier_sf$brier_scaled, 3),
-  brier_scaled_low = round(brier_sf$brier_scaled_ci[1], 3),
-  brier_scaled_hi = round(brier_sf$brier_scaled_ci[2], 3),
+  brier_scaled = round(brier_sf_sofa_cat$brier_scaled, 3),
+  brier_scaled_low = round(brier_sf_sofa_cat$brier_scaled_ci[1], 3),
+  brier_scaled_hi = round(brier_sf_sofa_cat$brier_scaled_ci[2], 3),
   ici = round(vals$eavg, 5),
   ici_low = round(vals$ci_lower, 5),
   ici_hi = round(vals$ci_upper, 5),
@@ -6302,9 +6310,9 @@ roc_table <- bind_rows(
   brier       = round(brier_sf_sofa_cat$value, 3),
   brier_low   = round(brier_sf_sofa_cat$ci[1], 3),
   brier_hi    = round(brier_sf_sofa_cat$ci[2], 3),
-  brier_scaled = round(brier_sf$brier_scaled, 3),
-  brier_scaled_low = round(brier_sf$brier_scaled_ci[1], 3),
-  brier_scaled_hi = round(brier_sf$brier_scaled_ci[2], 3),
+  brier_scaled = round(brier_sf_sofa_cat$brier_scaled, 3),
+  brier_scaled_low = round(brier_sf_sofa_cat$brier_scaled_ci[1], 3),
+  brier_scaled_hi = round(brier_sf_sofa_cat$brier_scaled_ci[2], 3),
   ici = round(vals$eavg, 5),
   ici_low = round(vals$ci_lower, 5),
   ici_hi = round(vals$ci_upper, 5),
@@ -6353,9 +6361,9 @@ roc_table <- bind_rows(
   brier       = round(brier_pf_sofa_cat$value, 3),
   brier_low   = round(brier_pf_sofa_cat$ci[1], 3),
   brier_hi    = round(brier_pf_sofa_cat$ci[2], 3),
-  brier_scaled = round(brier_sf$brier_scaled, 3),
-  brier_scaled_low = round(brier_sf$brier_scaled_ci[1], 3),
-  brier_scaled_hi = round(brier_sf$brier_scaled_ci[2], 3),
+  brier_scaled = round(brier_pf_sofa_cat$brier_scaled, 3),
+  brier_scaled_low = round(brier_pf_sofa_cat$brier_scaled_ci[1], 3),
+  brier_scaled_hi = round(brier_pf_sofa_cat$brier_scaled_ci[2], 3),
   ici = round(vals$eavg, 5),
   ici_low = round(vals$ci_lower, 5),
   ici_hi = round(vals$ci_upper, 5),
@@ -6404,9 +6412,9 @@ roc_table <- bind_rows(
   brier       = round(brier_pf_sofa_cat$value, 3),
   brier_low   = round(brier_pf_sofa_cat$ci[1], 3),
   brier_hi    = round(brier_pf_sofa_cat$ci[2], 3),
-  brier_scaled = round(brier_sf$brier_scaled, 3),
-  brier_scaled_low = round(brier_sf$brier_scaled_ci[1], 3),
-  brier_scaled_hi = round(brier_sf$brier_scaled_ci[2], 3),
+  brier_scaled = round(brier_pf_sofa_cat$brier_scaled, 3),
+  brier_scaled_low = round(brier_pf_sofa_cat$brier_scaled_ci[1], 3),
+  brier_scaled_hi = round(brier_pf_sofa_cat$brier_scaled_ci[2], 3),
   ici = round(vals$eavg, 5),
   ici_low = round(vals$ci_lower, 5),
   ici_hi = round(vals$ci_upper, 5),
@@ -6513,9 +6521,9 @@ roc_table <- bind_rows(
   brier       = round(brier_both_cat$value, 3),
   brier_low   = round(brier_both_cat$ci[1], 3),
   brier_hi    = round(brier_both_cat$ci[2], 3),
-  brier_scaled = round(brier_sf$brier_scaled, 3),
-  brier_scaled_low = round(brier_sf$brier_scaled_ci[1], 3),
-  brier_scaled_hi = round(brier_sf$brier_scaled_ci[2], 3),
+  brier_scaled = round(brier_both_cat$brier_scaled, 3),
+  brier_scaled_low = round(brier_both_cat$brier_scaled_ci[1], 3),
+  brier_scaled_hi = round(brier_both_cat$brier_scaled_ci[2], 3),
   ici = round(vals$eavg, 5),
   ici_low = round(vals$ci_lower, 5),
   ici_hi = round(vals$ci_upper, 5),
@@ -6580,9 +6588,9 @@ roc_table <- bind_rows(
   brier       = round(brier_both_cat$value, 3),
   brier_low   = round(brier_both_cat$ci[1], 3),
   brier_hi    = round(brier_both_cat$ci[2], 3),
-  brier_scaled = round(brier_sf$brier_scaled, 3),
-  brier_scaled_low = round(brier_sf$brier_scaled_ci[1], 3),
-  brier_scaled_hi = round(brier_sf$brier_scaled_ci[2], 3),
+  brier_scaled = round(brier_both_cat$brier_scaled, 3),
+  brier_scaled_low = round(brier_both_cat$brier_scaled_ci[1], 3),
+  brier_scaled_hi = round(brier_both_cat$brier_scaled_ci[2], 3),
   ici = round(vals$eavg, 5),
   ici_low = round(vals$ci_lower, 5),
   ici_hi = round(vals$ci_upper, 5),
@@ -6648,9 +6656,9 @@ roc_table <- bind_rows(
   brier       = round(brier_both_cat$value, 3),
   brier_low   = round(brier_both_cat$ci[1], 3),
   brier_hi    = round(brier_both_cat$ci[2], 3),
-  brier_scaled = round(brier_sf$brier_scaled, 3),
-  brier_scaled_low = round(brier_sf$brier_scaled_ci[1], 3),
-  brier_scaled_hi = round(brier_sf$brier_scaled_ci[2], 3),
+  brier_scaled = round(brier_both_cat$brier_scaled, 3),
+  brier_scaled_low = round(brier_both_cat$brier_scaled_ci[1], 3),
+  brier_scaled_hi = round(brier_both_cat$brier_scaled_ci[2], 3),
   ici = round(vals$eavg, 5),
   ici_low = round(vals$ci_lower, 5),
   ici_hi = round(vals$ci_upper, 5),
@@ -6715,9 +6723,9 @@ roc_table <- bind_rows(
   brier       = round(brier_both_cat$value, 3),
   brier_low   = round(brier_both_cat$ci[1], 3),
   brier_hi    = round(brier_both_cat$ci[2], 3),
-  brier_scaled = round(brier_sf$brier_scaled, 3),
-  brier_scaled_low = round(brier_sf$brier_scaled_ci[1], 3),
-  brier_scaled_hi = round(brier_sf$brier_scaled_ci[2], 3),
+  brier_scaled = round(brier_both_cat$brier_scaled, 3),
+  brier_scaled_low = round(brier_both_cat$brier_scaled_ci[1], 3),
+  brier_scaled_hi = round(brier_both_cat$brier_scaled_ci[2], 3),
   ici = round(vals$eavg, 5),
   ici_low = round(vals$ci_lower, 5),
   ici_hi = round(vals$ci_upper, 5),
@@ -6889,9 +6897,9 @@ if (nrow(roc_df) == 0) {
         brier       = round(brier$value, 2),
         brier_low   = round(brier$ci[1], 2),
         brier_hi    = round(brier$ci[2], 2),
-        brier_scaled = round(brier_sf$brier_scaled, 3),
-        brier_scaled_low = round(brier_sf$brier_scaled_ci[1], 3),
-        brier_scaled_hi = round(brier_sf$brier_scaled_ci[2], 3),
+        brier_scaled = round(brier$brier_scaled, 3),
+        brier_scaled_low = round(brier$brier_scaled_ci[1], 3),
+        brier_scaled_hi = round(brier$brier_scaled_ci[2], 3),
         ici = round(vals$eavg, 5),
         ici_low = round(vals$ci_lower, 5),
         ici_hi = round(vals$ci_upper, 5),
@@ -7108,9 +7116,9 @@ if (nrow(roc_df) == 0) {
         brier       = round(brier$value, 2),
         brier_low   = round(brier$ci[1], 2),
         brier_hi    = round(brier$ci[2], 2),
-        brier_scaled = round(brier_sf$brier_scaled, 3),
-        brier_scaled_low = round(brier_sf$brier_scaled_ci[1], 3),
-        brier_scaled_hi = round(brier_sf$brier_scaled_ci[2], 3),
+        brier_scaled = round(brier$brier_scaled, 3),
+        brier_scaled_low = round(brier$brier_scaled_ci[1], 3),
+        brier_scaled_hi = round(brier$brier_scaled_ci[2], 3),
         ici = round(vals$eavg, 5),
         ici_low = round(vals$ci_lower, 5),
         ici_hi = round(vals$ci_upper, 5),
@@ -7312,9 +7320,9 @@ roc_table <- bind_rows(
   brier       = round(brier_both_cat$value, 3),
   brier_low   = round(brier_both_cat$ci[1], 3),
   brier_hi    = round(brier_both_cat$ci[2], 3),
-  brier_scaled = round(brier_sf$brier_scaled, 3),
-  brier_scaled_low = round(brier_sf$brier_scaled_ci[1], 3),
-  brier_scaled_hi = round(brier_sf$brier_scaled_ci[2], 3),
+  brier_scaled = round(brier_both_cat$brier_scaled, 3),
+  brier_scaled_low = round(brier_both_cat$brier_scaled_ci[1], 3),
+  brier_scaled_hi = round(brier_both_cat$brier_scaled_ci[2], 3),
   ici = round(vals$eavg, 5),
   ici_low = round(vals$ci_lower, 5),
   ici_hi = round(vals$ci_upper, 5),
@@ -7392,9 +7400,9 @@ roc_table <- bind_rows(
   brier       = round(brier_both_cat$value, 3),
   brier_low   = round(brier_both_cat$ci[1], 3),
   brier_hi    = round(brier_both_cat$ci[2], 3),
-  brier_scaled = round(brier_sf$brier_scaled, 3),
-  brier_scaled_low = round(brier_sf$brier_scaled_ci[1], 3),
-  brier_scaled_hi = round(brier_sf$brier_scaled_ci[2], 3),
+  brier_scaled = round(brier_both_cat$brier_scaled, 3),
+  brier_scaled_low = round(brier_both_cat$brier_scaled_ci[1], 3),
+  brier_scaled_hi = round(brier_both_cat$brier_scaled_ci[2], 3),
   ici = round(vals$eavg, 5),
   ici_low = round(vals$ci_lower, 5),
   ici_hi = round(vals$ci_upper, 5),
@@ -7687,9 +7695,9 @@ roc_table <- bind_rows(
   brier       = round(brier_sf_all_o2$value, 3),
   brier_low   = round(brier_sf_all_o2$ci[1], 3),
   brier_hi    = round(brier_sf_all_o2$ci[2], 3),
-  brier_scaled = round(brier_sf$brier_scaled, 3),
-  brier_scaled_low = round(brier_sf$brier_scaled_ci[1], 3),
-  brier_scaled_hi = round(brier_sf$brier_scaled_ci[2], 3),
+  brier_scaled = round(brier_sf_all_o2$brier_scaled, 3),
+  brier_scaled_low = round(brier_sf_all_o2$brier_scaled_ci[1], 3),
+  brier_scaled_hi = round(brier_sf_all_o2$brier_scaled_ci[2], 3),
   ici = round(vals$eavg, 5),
   ici_low = round(vals$ci_lower, 5),
   ici_hi = round(vals$ci_upper, 5),
@@ -7739,9 +7747,9 @@ roc_table <- bind_rows(
   brier       = round(brier_sf_all_sofa$value, 3),
   brier_low   = round(brier_sf_all_sofa$ci[1], 3),
   brier_hi    = round(brier_sf_all_sofa$ci[2], 3),
-  brier_scaled = round(brier_sf$brier_scaled, 3),
-  brier_scaled_low = round(brier_sf$brier_scaled_ci[1], 3),
-  brier_scaled_hi = round(brier_sf$brier_scaled_ci[2], 3),
+  brier_scaled = round(brier_sf_all_sofa$brier_scaled, 3),
+  brier_scaled_low = round(brier_sf_all_sofa$brier_scaled_ci[1], 3),
+  brier_scaled_hi = round(brier_sf_all_sofa$brier_scaled_ci[2], 3),
   ici = round(vals$eavg, 5),
   ici_low = round(vals$ci_lower, 5),
   ici_hi = round(vals$ci_upper, 5),
@@ -8669,4 +8677,504 @@ master_cross_tab <- data.table::rbindlist(cross_tab_list, fill = TRUE)
 
 write_csv(master_cross_tab, paste0(project_location, '/tables/master_cross_tab.csv'))
 ```
+
+```{r Leave One Site Out as a Cross Validation}
+leave_one_site_out_auc <- function(data,
+                                   metric = "pf",
+                                   variable_name = "measure_value_5",
+                                   exposure_type = "continuous",
+                                   boot_n = BOOT_NUM,
+                                   model_name='pf_continuous') {
+  
+  dat0 <- data %>%
+    dplyr::filter(
+      primary_metric == metric,
+      variable == variable_name
+    ) %>%
+    dplyr::mutate(
+      n_survivehosp28 = n_in_group - n_deathhosp28
+    )
+  
+  if (exposure_type == "categorical") {
+    dat0 <- dat0 %>%
+      dplyr::mutate(value = factor(value))
+  }
+  
+  sites <- sort(unique(dat0$site))
+  
+  fold_results <- purrr::map(sites, function(s) {
+    
+    message("Holding out site: ", s)
+    
+    train_dat <- dat0 %>% dplyr::filter(site != s)
+    test_dat  <- dat0 %>% dplyr::filter(site == s)
+    
+    # For categorical exposure, make sure train/test factor levels match
+    if (exposure_type == "categorical") {
+      train_dat <- train_dat %>%
+        dplyr::mutate(value = factor(value))
+      
+      test_dat <- test_dat %>%
+        dplyr::mutate(value = factor(value, levels = levels(train_dat$value)))
+    }
+    
+    # Skip if held-out site has no events or no non-events
+    events_test <- sum(test_dat$n_deathhosp28, na.rm = TRUE)
+    nonevents_test <- sum(test_dat$n_survivehosp28, na.rm = TRUE)
+    n_test <- sum(test_dat$n_in_group, na.rm = TRUE)
+    
+    if (events_test == 0 || nonevents_test == 0) {
+      
+      auc_row <- tibble::tibble(
+        site = s,
+        n = n_test,
+        events = events_test,
+        auc = NA_real_,
+        ci_low = NA_real_,
+        ci_high = NA_real_
+      )
+      
+      test_dat <- test_dat %>%
+        dplyr::mutate(
+          pred = NA_real_,
+          deaths = n_deathhosp28,
+          survivors = n_in_group - deaths,
+          heldout_site = s
+        )
+      
+      return(list(
+        auc_row = auc_row,
+        test_dat = test_dat,
+        roc_dat = NULL
+      ))
+    }
+    
+    # Fit model on all other sites
+    if (exposure_type == "continuous") {
+      
+      fit <- glmmTMB::glmmTMB(
+        cbind(n_deathhosp28, n_survivehosp28) ~ 
+          rms::rcs(value, 4) + (1 | site),
+        data = train_dat,
+        family = binomial(link = "logit")
+      )
+      
+    } else if (exposure_type == "categorical") {
+      
+      fit <- glmmTMB::glmmTMB(
+        cbind(n_deathhosp28, n_survivehosp28) ~ 
+          value + (1 | site),
+        data = train_dat,
+        family = binomial(link = "logit")
+      )
+      
+    } else {
+      stop("exposure_type must be 'continuous' or 'categorical'")
+    }
+    
+    # Predict in held-out site using the LOSO-fitted model
+    test_dat <- test_dat %>%
+      dplyr::mutate(
+        pred = predict(
+          fit,
+          newdata = test_dat,
+          type = "response",
+          allow.new.levels = TRUE
+        ),
+        deaths = n_deathhosp28,
+        survivors = n_in_group - deaths,
+        heldout_site = s
+      ) %>%
+      dplyr::filter(!is.na(pred), (deaths + survivors) > 0)
+    
+    # Expand held-out aggregate rows to patient-level labels/scores
+    roc_dat <- expand_to_patients(test_dat) %>%
+      dplyr::mutate(site = s)
+    
+    if (length(unique(roc_dat$label)) < 2) {
+      
+      auc_row <- tibble::tibble(
+        site = s,
+        n = nrow(roc_dat),
+        events = sum(roc_dat$label == 1),
+        auc = NA_real_,
+        ci_low = NA_real_,
+        ci_high = NA_real_
+      )
+      
+      return(list(
+        auc_row = auc_row,
+        test_dat = test_dat,
+        roc_dat = roc_dat
+      ))
+    }
+    
+    roc_obj <- pROC::roc(
+      response = roc_dat$label,
+      predictor = roc_dat$score,
+      quiet = TRUE,
+      direction = "<"
+    )
+    
+    ci_obj <- pROC::ci.auc(
+      roc_obj,
+      method = "bootstrap",
+      boot.n = boot_n,
+      boot.stratified = TRUE
+    )
+    
+    auc_row <- tibble::tibble(
+      site = s,
+      n = nrow(roc_dat),
+      events = sum(roc_dat$label == 1),
+      auc = as.numeric(pROC::auc(roc_obj)),
+      ci_low = as.numeric(ci_obj[1]),
+      ci_high = as.numeric(ci_obj[3])
+    )
+    
+    list(
+      auc_row = auc_row,
+      test_dat = test_dat,
+      roc_dat = roc_dat
+    )
+  })
+  
+  auc_table <- purrr::map_dfr(fold_results, "auc_row")
+  test_data <- purrr::map_dfr(fold_results, "test_dat")
+  roc_data  <- purrr::map_dfr(fold_results, "roc_dat")
+  
+  overall_cv_auc <- pROC::roc(
+      response = roc_data$label,
+      predictor = roc_data$score,
+      quiet = TRUE,
+      direction = "<"
+    )
+    
+    ci_obj <- pROC::ci.auc(
+      overall_cv_auc,
+      method = "bootstrap",
+      boot.n = boot_n,
+      boot.stratified = TRUE
+    )
+  
+  auc_table <- bind_rows(auc_table,
+    data.frame(
+    site='Overall',
+    n = sum(auc_table$n, na.rm=T),
+    events = sum(auc_table$events, na.rm=T),
+    auc = as.numeric(pROC::auc(overall_cv_auc)),
+    ci_low = as.numeric(ci_obj[1]),
+    ci_high = as.numeric(ci_obj[3])
+  )) |>
+    mutate(model_name=model_name) |>
+    relocate(model_name, .before=site)
+  
+  list(
+    auc_table = auc_table,
+    test_data = test_data,
+    roc_data = roc_data
+  )
+}
+
+```
+
+
+```{r Model Performance by Site}
+#Will do this Analysis for the Primary Linear and Category Analyses
+leave_one_pf <- leave_one_site_out_auc(
+  data = aggregate_continuous_hospital,
+  metric = "pf",
+  variable_name = "measure_value_5",
+  exposure_type = "continuous",
+  model_name = 'pf_continuous'
+)
+
+leave_one_sf <- leave_one_site_out_auc(
+  data = aggregate_continuous_hospital,
+  metric = "sf",
+  variable_name = "measure_value_5",
+  exposure_type = "continuous",
+  model_name = 'sf_continuous'
+)
+
+#NOw for O2 Categories
+#SF
+temp_o2_cat <- aggregate_mortality_hospital %>%
+  filter(strata %in% sf_o2_cat,
+         analysis=='overall',
+         grepl('first', strata_type)==T) |>
+  mutate(
+         primary_metric='sf_o2_cat', 
+         value=strata,
+         variable='keep') |>
+  distinct()
+
+leave_one_sf_o2_cat <- leave_one_site_out_auc(
+  data = temp_o2_cat,
+  metric = "sf_o2_cat",
+  variable_name = "keep",
+  exposure_type = "categorical",
+  model_name = 'sf_o2_cat'
+)
+
+#PF
+temp_o2_cat <- aggregate_mortality_hospital %>%
+  filter(strata %in% pf_o2_cat,
+         analysis=='overall',
+         grepl('first', strata_type)==T) |>
+  mutate(
+         primary_metric='pf_o2_cat', 
+         value=strata,
+         variable='keep') |>
+  distinct()
+
+leave_one_pf_o2_cat <- leave_one_site_out_auc(
+  data = temp_o2_cat,
+  metric = "pf_o2_cat",
+  variable_name = "keep",
+  exposure_type = "categorical",
+  model_name = 'pf_o2_cat'
+)
+
+#SF SOFA
+temp_o2_cat <- aggregate_mortality_hospital %>%
+  filter(strata %in% sf_sofa,
+         analysis=='overall',
+         grepl('first|median', strata_type)==F) |>
+  mutate(
+         primary_metric='sf_sofa', 
+         value=strata,
+         variable='keep') |>
+  distinct()
+
+leave_one_sf_sofa <- leave_one_site_out_auc(
+  data = temp_o2_cat,
+  metric = "sf_sofa",
+  variable_name = "keep",
+  exposure_type = "categorical",
+  model_name = 'sf_sofa'
+)
+
+#PF SOFA
+temp_o2_cat <- aggregate_mortality_hospital %>%
+  filter(strata %in% pf_sofa,
+         analysis=='overall',
+         grepl('first|median', strata_type)==F) |>
+  mutate(
+         primary_metric='pf_sofa', 
+         value=strata,
+         variable='keep') |>
+  distinct()
+
+leave_one_pf_sofa <- leave_one_site_out_auc(
+  data = temp_o2_cat,
+  metric = "pf_sofa",
+  variable_name = "keep",
+  exposure_type = "categorical",
+  model_name = 'pf_sofa'
+)
+
+#Merge AUC Tables Together
+cv_auc_master <- bind_rows(
+  leave_one_pf_o2_cat$auc_table,
+  leave_one_sf_o2_cat$auc_table,
+  leave_one_pf_sofa$auc_table,
+  leave_one_sf_sofa$auc_table,
+  leave_one_pf$auc_table,
+  leave_one_sf$auc_table)
+```
+
+
+```{r Site-Level Heterogeneity}
+calc_i2_auc <- function(dat) {
+  
+  dat_meta <- dat %>%
+    filter(
+      site != "Overall",
+      !is.na(auc),
+      !is.na(ci_low),
+      !is.na(ci_high)
+    ) %>%
+    mutate(
+      logit_auc = qlogis(auc),
+      logit_low = qlogis(ci_low),
+      logit_high = qlogis(ci_high),
+      se_logit_auc = (logit_high - logit_low) / (2 * 1.96), #Estimate standard error from the boostrapped confidence interval
+      vi = se_logit_auc^2
+    )
+  
+  if (nrow(dat_meta) < 2) {
+    return(tibble(
+      i2 = NA_real_,
+      tau2 = NA_real_,
+      q = NA_real_,
+      q_p = NA_real_,
+      pooled_auc = NA_real_,
+      pooled_low = NA_real_,
+      pooled_high = NA_real_
+    ))
+  }
+  
+  fit <- metafor::rma(
+    yi = logit_auc,
+    vi = vi,
+    data = dat_meta,
+    method = "REML"
+  )
+  
+  pred <- predict(fit, transf = plogis)
+  
+  tibble(
+    i2 = fit$I2,
+    tau2 = fit$tau2,
+    q = fit$QE,
+    q_p = fit$QEp,
+    pooled_auc = pred$pred,
+    pooled_low = pred$ci.lb,
+    pooled_high = pred$ci.ub
+  )
+}
+
+i2_by_model <- cv_auc_master %>%
+  group_by(model_name) %>%
+  group_modify(~ calc_i2_auc(.x)) %>%
+  ungroup()
+
+cv_auc_master_with_i2 <- cv_auc_master |>
+  left_join(i2_by_model)
+
+write_csv(cv_auc_master_with_i2, paste0(project_location, '/tables/cv_auc_master.csv'))
+```
+
+
+```{r Forest Plots of CV AUCs}
+#Labels for Sites in the Graph
+site_labs <- c(
+  "nu"         = "12",
+  "mgb"        = "11",
+  "hopkins"    = "10",
+  "penn"       = "9",
+  "ucmc"       = "8",
+  "emory"      = "7",
+  "umn"        = "6",
+  "sunnybrook" = "5",
+  "michigan"   = "4",
+  "ohsu"       = "3",
+  "rush"       = "2",
+  "ucsf"       = "1"
+)
+
+#Model Labels for Facet
+model_labs <- c(
+  "pf_continuous" = "PF Ratio, Continuous",
+  "sf_continuous" = "SF Ratio, Continuous",
+  "pf_o2_cat"     = "PF-Defined ARDS Criteria",
+  "sf_o2_cat"     = "SF-Defined ARDS Criteria",
+  "pf_sofa"       = "PF-Defined SOFA-2 Score",
+  "sf_sofa"       = "SF-Defined SOFA-2 Score"
+)
+
+model_order <- c(
+  "pf_o2_cat"     = "PF-Defined ARDS Criteria",
+  "sf_o2_cat"     = "SF-Defined ARDS Criteria",
+  "pf_sofa"       = "PF-Defined SOFA-2 Score",
+  "sf_sofa"       = "SF-Defined SOFA-2 Score",
+  "pf_continuous" = "PF Ratio, Continuous",
+  "sf_continuous" = "SF Ratio, Continuous"
+)
+
+plot_df <- cv_auc_master_with_i2 %>%
+  filter(site != "Overall") %>%
+  select(model_name, site, auc, ci_low, ci_high, i2, n) |>
+  mutate(model_name)
+
+# One overall CV AUC per model
+overall_df <- cv_auc_master_with_i2 %>%
+  filter(site == "Overall") %>%
+  select(model_name, cv_auc_overall = auc, n) 
+
+# Optional: I2 labels per model
+i2_df <- plot_df %>%
+  distinct(model_name, i2) %>%
+  mutate(
+    i2_label = paste0("I² = ", round(i2, 1), "%")
+  )
+
+plot_df <- plot_df %>%
+  left_join(i2_df, by = c("model_name", "i2")) |>
+  mutate(
+    model_label = recode(model_name, !!!model_labs),
+    model_label = factor(model_label, levels = model_order),
+    site_name = recode(site, !!!site_labs)
+  )
+
+annot_df <- plot_df %>%
+  distinct(model_name, i2) %>%
+  mutate(
+    label = paste0("I² = ", round(i2, 1), "%"),
+    x = 0.79,
+    y = Inf
+  ) |>
+  mutate(
+    model_label = recode(model_name, !!!model_labs),
+    model_label = factor(model_label, levels = model_order)
+  )
+
+ggplot(plot_df,
+       aes(x = auc, y = reorder(site, auc))) +
+  geom_vline(
+    data = overall_df,
+    aes(xintercept = cv_auc_overall),
+    linetype = "dashed",
+    color = "#661c22",
+    linewidth = 0.7,
+    inherit.aes = FALSE
+  ) +
+  geom_point(aes(size = n), alpha = 0.8) +
+  geom_errorbarh(aes(xmin = ci_low, xmax = ci_high), height = 0.2) +
+  geom_text(
+    data = annot_df,
+    aes(x = x, y = y, label = label),
+    inherit.aes = FALSE,
+    hjust = 1,
+    vjust = 1.5,
+    size = 3.5
+  ) +
+  facet_wrap(~ model_name, scales = "free_y") +
+  coord_cartesian(xlim = c(0.45, 0.80), clip = "off") +
+  labs(
+    x = "Site-specific held-out AUROC",
+    y = "Site",
+    size = "N",
+    title = "Site-specific AUROC with overall leave-one-site-out cross-validated AUC",
+    subtitle = "Dashed vertical line = pooled cross-validated AUROC"
+  ) +
+  theme_bw()
+
+ggsave(
+  filename='cv_aucs.pdf',
+  plot=last_plot(),
+  device=cairo_pdf,
+  width = 16,
+  height = 7.44,
+  units ='in',
+  path = paste0(project_location, '/graphs/'))
+ggsave(
+  filename='cv_aucs.svg',
+  plot=last_plot(),
+  device=cairo_ps,
+  width = 16,
+  height = 7.44,
+  units ='in',
+  path = paste0(project_location, '/graphs/'))
+```
+
+
+```{r END}
+ending_time <- Sys.time()
+time_to_run <- as.numeric(difftime(ending_time, starting_time, units = "hours"))
+cat('\nCongratulations, this project has finished running!\n',
+    'This script ran in:', round(time_to_run, 2), 'hours')
+```
+
 
