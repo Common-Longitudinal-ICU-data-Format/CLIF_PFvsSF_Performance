@@ -4957,6 +4957,7 @@ roc_table <- bind_rows(
 ) |>
   arrange(model, comparison)
 rm(roc_df_pf)
+gc()
 ```
 
 
@@ -5163,6 +5164,7 @@ roc_table <- bind_rows(
 ) |>
   arrange(model, comparison)
 rm(roc_df_pf)
+gc()
 ```
  
 
@@ -5495,6 +5497,7 @@ family = binomial(link = "logit")
 )
 tidy_models_list[['sf_pf_sofa_contemp']] <- 
   tidy_make(sf_pf_glm_sofa_contemp, "SF_PF_Contemp - SOFA")
+gc()
 ```
 
 ```{r ROC Analysis for the Categorical Exposure}
