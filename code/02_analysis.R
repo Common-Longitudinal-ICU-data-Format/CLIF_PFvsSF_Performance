@@ -1415,7 +1415,17 @@ hospital_types <- collate_tables('_hospital_categories.csv')
 abgs_by_hospital <- abgs_by_hospital |>
   full_join(hospital_types, by=c('hospital_id', 'site'))
 
+#Also Summarize by Site
+abgs_by_site <- abgs_by_hospital |>
+  group_by(site) |>
+  dplyr::reframe(
+    n_patients=sum(n_patients, na.rm=T), 
+    patients_with_abg=sum(patients_with_abg, na.rm=T),
+    percent_with_abg=(round(patients_with_abg/n_patients, 4))*100
+  )
+
 write_csv(abgs_by_hospital, paste0(project_location, '/tables/abgs_by_hospital.csv'))
+write_csv(abgs_by_site, paste0(project_location, '/tables/abgs_by_site.csv'))
 write_csv(hospital_types, paste0(project_location, '/tables/hospital_types.csv'))
   
 
@@ -1848,8 +1858,16 @@ aggregate_table_mortality <- mortality_by_o2 |>
     n_total=sum(n, na.rm=T),
     n_miss=sum(miss, na.rm=T),
     count=sum(freq,na.rm=T),
-    percent=count/(n_total-n_miss)
+    percent=count/(n_total-n_miss),
+    censored_cells=sum(less_than_5, na.rm=T)
   ) 
+
+#Define How Many Small Cell Categories Were Censored
+censored_cells <- aggregate_table_mortality |>
+  filter(level==1, variable=='death_hospice28') |>
+  select(analysis, strata_type, strata, n_total, censored_cells) |>
+  arrange(analysis, strata_type, strata)
+write_csv(censored_cells, paste0(project_location, '/tables/censored_cells_mortality_categories.csv'))
 
 #First Comparison of PF and SF Defined Strata
 #Order of Variables
@@ -2286,6 +2304,7 @@ table_mh_tests <- rowbind(table_mh_tests,
   MH2=as.numeric(mh_result$statistic),
   p.value=round(mh_result$p.value, 5)
 ))
+
 
 ## ----MH Tests Across STrata for SOFA------------------------------------------
 tidy_table <- aggregate_table_mortality %>%
@@ -2842,8 +2861,16 @@ aggregate_mortality_race <- mortality_by_o2_race |>
     n_total=sum(n, na.rm=T),
     n_miss=sum(miss, na.rm=T),
     count=sum(freq,na.rm=T),
-    percent=count/(n_total-n_miss)
+    percent=count/(n_total-n_miss), 
+    censored_cells=sum(less_than_5, na.rm=T)
   ) 
+
+#Define How Many Small Cell Categories Were Censored
+censored_cells <- aggregate_mortality_race |>
+  filter(level==1, variable=='death_hospice28') |>
+  select(analysis, strata_type, strata, black, n_total, censored_cells) |>
+  arrange(analysis, strata_type, strata)
+write_csv(censored_cells, paste0(project_location, '/tables/censored_cells_mortality_categories_race.csv'))
 
 aggregate_mortality_race  <- aggregate_mortality_race  |>
   left_join(order, by='variable') |>
@@ -3277,8 +3304,16 @@ aggregate_mortality_resp <- mortality_by_o2_resp |>
     n_total=sum(n, na.rm=T),
     n_miss=sum(miss, na.rm=T),
     count=sum(freq,na.rm=T),
-    percent=count/(n_total-n_miss)
+    percent=count/(n_total-n_miss),
+    censored_cells=sum(less_than_5, na.rm=T)
   ) 
+
+#Define How Many Small Cell Categories Were Censored
+censored_cells <- aggregate_mortality_resp |>
+  filter(level==1, variable=='death_hospice28') |>
+  select(analysis, strata_type, strata, resp_support_category, n_total, censored_cells) |>
+  arrange(analysis, strata_type, strata)
+write_csv(censored_cells, paste0(project_location, '/tables/censored_cells_mortality_categories_resp.csv'))
 
 aggregate_mortality_resp  <- aggregate_mortality_resp  |>
   left_join(order, by='variable') |>
@@ -4021,6 +4056,92 @@ write_csv(rsfds_sofa, paste0(project_location, '/tables/rsfds_sofa.csv'))
 rm(rsfds_sofa)
 
 
+## ----Censored Cells for Contiuous Measures------------------------------------
+censored_continuous <- collate_tables("_aggregate_outcomes.csv") |>
+  filter(variable=='measure_value_5') |>
+  group_by(primary_metric, strata, strata_cat, analysis, resp_support_category, new_race_cat, value) |>
+  dplyr::reframe(
+    n_total=sum(n_in_group, na.rm=T),
+    censored_cells=sum(less_than_5, na.rm=T)
+  )
+
+#Save Large Table with Every Combination
+write_csv(censored_continuous, paste0(project_location, '/tables/censored_continuous_all.csv'))
+
+#Focus on Primary Analysis
+censored_continuous <- censored_continuous |>
+  filter(primary_metric %in% c('pf', 'sf'),
+         strata_cat=='Overall')
+write_csv(censored_continuous, paste0(project_location, '/tables/censored_continuous_primary_only.csv'))
+
+#Histogram of the count distribution by PF or SF value incluing # of censored cells
+#### 
+#PF
+#####
+# Filter overall summary or whichever subset you want
+plot_df <- censored_continuous %>%
+  filter(primary_metric=='pf',
+         value<600) 
+# Scale factor to make gray bars visible relative to main bars
+scale_factor <- ((max(plot_df$n_total, na.rm = TRUE) /
+  max(plot_df$censored_cells, na.rm = TRUE))*0.75)/2
+
+ggplot(plot_df, aes(x = value)) +
+  geom_col(aes(y = n_total), fill = "steelblue", width = 4) +
+  geom_col(aes(y = censored_cells * scale_factor),
+           fill = "gray60", alpha = 0.5, width = 4) +
+  scale_y_continuous(
+    name = "N with PF Value",
+    sec.axis = sec_axis(~ . / scale_factor, name = "Censored for Count < 5")
+  ) +
+  scale_x_continuous(
+    breaks=seq(50, 600, by=50),
+    limits=c(40,600)) +
+  labs(x = "PF Value", title = "Distribution of PF values with censored cell counts") +
+  theme_minimal()
+ggsave(
+  filename='pf_censored_cells.pdf',
+  plot=last_plot(),
+  path = paste0(project_location, '/graphs/'))
+ggsave(
+  filename='pf_censored_cells.svg',
+  plot=last_plot(),
+  path = paste0(project_location, '/graphs/'))
+
+#### 
+#SF
+#####
+# Filter overall summary or whichever subset you want
+plot_df <- censored_continuous %>%
+  filter(primary_metric=='sf',
+         value<=460) 
+# Scale factor to make gray bars visible relative to main bars
+scale_factor <- ((max(plot_df$n_total, na.rm = TRUE) /
+  max(plot_df$censored_cells, na.rm = TRUE))*0.75)/2
+
+ggplot(plot_df, aes(x = value)) +
+  geom_col(aes(y = n_total), fill = "steelblue", width = 4) +
+  geom_col(aes(y = censored_cells * scale_factor),
+           fill = "gray60", alpha = 0.5, width = 4) +
+  scale_y_continuous(
+    name = "N with SF Value",
+    sec.axis = sec_axis(~ . / scale_factor, name = "Censored for Count < 5")
+  ) +
+  scale_x_continuous(
+    breaks=seq(80, 460, by=50),
+    limits=c(80,460)) +
+  labs(x = "SF Value", title = "Distribution of SF values with censored cell counts") +
+  theme_minimal()
+ggsave(
+  filename='sf_censored_cells.pdf',
+  plot=last_plot(),
+  path = paste0(project_location, '/graphs/'))
+ggsave(
+  filename='sf_censored_cells.svg',
+  plot=last_plot(),
+  path = paste0(project_location, '/graphs/'))
+
+
 ## ----Function for Calculating Logistic Mixed ICC------------------------------
 icc_manual <- function(model, cluster_col = "site") {
 vc <- VarCorr(model)
@@ -4442,6 +4563,48 @@ ggsave(
   path = paste0(project_location, '/graphs/'))
 
 
+## ----Analysis Where we Allow Slopes to Vary-----------------------------------
+random_slope_tidyier <- function(mod, mod_name='name') {
+  df <- broom.mixed::tidy(
+             mod,
+             conf.int = TRUE,
+             exponentiate = FALSE) 
+  df <- df |>
+    mutate(model=mod_name)
+  return(df)
+}
+
+tidy_models_random_slopes <- list()
+
+#PF with Random Slopes
+pf_glm_linear_rnd_slope <- glmmTMB(
+  cbind(n_deathhosp28, n_in_group - n_deathhosp28) ~ 
+    rms::rcs(value, 4) + (1 + value | site),
+  data = dplyr::filter(aggregate_continuous_hospital,
+                       primary_metric == "pf",
+                       variable == "measure_value_5"),
+  family = binomial(link="logit")
+)
+
+tidy_models_random_slopes[['pf_only_rnd_slope']] <- random_slope_tidyier(
+  pf_glm_linear_rnd_slope, mod_name='PF Continous w Random Slopes'
+)
+
+#SF with Random Slopes
+sf_glm_linear_rnd_slope <- glmmTMB(
+  cbind(n_deathhosp28, n_in_group - n_deathhosp28) ~ 
+    rms::rcs(value, 4) + (1 + value | site),
+  data = dplyr::filter(aggregate_continuous_hospital,
+                       primary_metric == "sf",
+                       variable == "measure_value_5"),
+  family = binomial(link="logit")
+)
+
+tidy_models_random_slopes[['sf_only_rnd_slope']] <- random_slope_tidyier(
+  pf_glm_linear_rnd_slope, mod_name='SF Continous w Random Slopes'
+)
+
+
 ## ----Function for Computing Weighted Brier Score From Summary Data------------
 #Samples Bootstrap by Hospital for Clustered Boostrap
 compute_weighted_brier <- function(df, 
@@ -4510,7 +4673,7 @@ compute_weighted_brier <- function(df,
     
     # Bootstrap scaled Brier
     brier_scaled_boot[b] <- if (null_brier_b > 0) {
-      1 - brier_boot[b] / null_brier_b
+      (1 - brier_boot[b] / null_brier_b)*100
     } else {
       NA_real_
     }
@@ -5003,6 +5166,21 @@ family = binomial(link = "logit")
 )
 tidy_models_list[['pf_o2_cat']] <- tidy_make(pf_glm_o2_cat, "PF - O2Cat")
 
+#Categorical with Random Slopes
+pf_glm_o2_cat_rand <- glmmTMB(
+  cbind(n_deathhosp28, n_in_group - n_deathhosp28) ~
+    strata + (1 + strata || site),
+data   = aggregate_mortality_hospital |> 
+  dplyr::filter(strata %in%  pf_o2_cat,
+                analysis=='overall',
+                grepl('first|median', strata_type)==F) |>
+  mutate(strata = factor(strata, levels = pf_o2_cat, ordered = F)),
+family = binomial(link = "logit")
+)
+tidy_models_random_slopes[['pf_o2cat_rnd_slope']] <- random_slope_tidyier(
+  pf_glm_o2_cat_rand, mod_name='PF O2 Cat w Random Slopes'
+)
+
 #Median Measure
 pf_glm_o2_cat_median <- glmmTMB(
   cbind(n_deathhosp28, n_in_group - n_deathhosp28) ~
@@ -5043,6 +5221,21 @@ family = binomial(link = "logit")
 )
 
 tidy_models_list[['pf_sofa_cat']] <- tidy_make(pf_glm_sofa_cat, "PF - SOFA")
+
+#SOFA Cat but With Random Slopes
+pf_glm_sofa_cat_rnd <- glmmTMB(
+  cbind(n_deathhosp28, n_in_group - n_deathhosp28) ~ 
+    strata + (1 + strata || site),
+data   = aggregate_mortality_hospital |> 
+  dplyr::filter(strata %in%  pf_sofa,
+                analysis=='overall',
+                grepl('first|median', strata_type)==F) |>
+  mutate(strata = factor(strata, levels = pf_sofa, ordered = F)),
+family = binomial(link = "logit")
+)
+tidy_models_random_slopes[['pf_glm_sofa_cat_rnd']] <- random_slope_tidyier(
+  pf_glm_sofa_cat_rnd, mod_name='PF Sofa Cat w Random Slopes'
+)
 
 #Median
 pf_glm_sofa_cat_median <- glmmTMB(
@@ -5086,6 +5279,20 @@ family = binomial(link = "logit")
 )
 tidy_models_list[['sf_o2_cat']] <- tidy_make(sf_glm_o2_cat, "SF - O2Cat")
 
+#Now with Random SLopes
+sf_glm_o2_cat_rnd <- glmmTMB(
+  cbind(n_deathhosp28, n_in_group - n_deathhosp28) ~ 
+    strata + (1 + strata || site),
+data   = aggregate_mortality_hospital |> 
+  dplyr::filter(strata %in%  sf_o2_cat,
+                analysis == 'overall',
+                grepl('first|median', strata_type)==F) |>
+  mutate(strata = factor(strata, levels = sf_o2_cat, ordered = F)),
+family = binomial(link = "logit")
+)
+tidy_models_random_slopes[['sf_glm_o2_cat_rnd']] <- random_slope_tidyier(
+   sf_glm_o2_cat_rnd, mod_name='SF O2 Cat w Random Slopes')
+
 #SF Categories - Median Measure
 sf_glm_o2_cat_median <- glmmTMB(
   cbind(n_deathhosp28, n_in_group - n_deathhosp28) ~ 
@@ -5126,6 +5333,20 @@ data   = aggregate_mortality_hospital |>
 family = binomial(link = "logit")
 )
 tidy_models_list[['sf_sofa']] <- tidy_make(sf_glm_sofa_cat, "SF - SOFA")
+
+#Now with Random Slopes
+sf_glm_sofa_cat_rnd <- glmmTMB(
+  cbind(n_deathhosp28, n_in_group - n_deathhosp28) ~ 
+    strata + (1 + strata || site),
+data   = aggregate_mortality_hospital |> 
+  dplyr::filter(strata %in%  sf_sofa,
+                analysis=='overall',
+                grepl('first|median', strata_type)==F) |>
+  mutate(strata = factor(strata, levels = sf_sofa, ordered = F)),
+family = binomial(link = "logit")
+)
+tidy_models_random_slopes[['sf_glm_sofa_cat_rnd']] <- random_slope_tidyier(
+    sf_glm_sofa_cat_rnd , mod_name='SF SOFA Cat w Random Slopes')
 
 #Sofa Median
 sf_glm_sofa_cat_median <- glmmTMB(
@@ -8197,6 +8418,13 @@ dev.off()
 #Meta Analysis
 meta_analyses <- rowbind(meta_list, fill=T)
 write_csv(meta_analyses, paste0(project_location, '/tables/meta_analyses.csv'))
+
+#Random Slopes Models
+random_slopes_models <- rowbind(tidy_models_random_slopes, fill=T) |>
+  mutate(estimate=round(estimate, 4)) |>
+  relocate(model, .before = effect)
+write_csv(random_slopes_models, paste0(project_location, '/tables/random_slopes_models.csv'))
+
 
 
 ## ----Function for Percent Agreeement Table for Patients with Both SF and PF----
