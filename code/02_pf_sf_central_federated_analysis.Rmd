@@ -9071,17 +9071,17 @@ site_labs <- c(
 model_labs <- c(
   "pf_continuous" = "PF Ratio, Continuous",
   "sf_continuous" = "SF Ratio, Continuous",
-  "pf_o2_cat"     = "PF-Defined ARDS Criteria",
-  "sf_o2_cat"     = "SF-Defined ARDS Criteria",
+  "pf_o2_cat"     = "PF-Defined ARDS Severity Criteria",
+  "sf_o2_cat"     = "SF-Defined ARDS Severity Criteria",
   "pf_sofa"       = "PF-Defined SOFA-2 Score",
   "sf_sofa"       = "SF-Defined SOFA-2 Score"
 )
 
 model_order <- c(
-  "pf_o2_cat"     = "PF-Defined ARDS Criteria",
+  "pf_o2_cat"     = "PF-Defined ARDS Severity Criteria",
   "pf_sofa"       = "PF-Defined SOFA-2 Score",
   "pf_continuous" = "PF Ratio, Continuous",
-  "sf_o2_cat"     = "SF-Defined ARDS Criteria",
+  "sf_o2_cat"     = "SF-Defined ARDS Severity Criteria",
   "sf_sofa"       = "SF-Defined SOFA-2 Score",
   "sf_continuous" = "SF Ratio, Continuous"
 )

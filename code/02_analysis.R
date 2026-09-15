@@ -9022,18 +9022,18 @@ site_labs <- c(
 model_labs <- c(
   "pf_continuous" = "PF Ratio, Continuous",
   "sf_continuous" = "SF Ratio, Continuous",
-  "pf_o2_cat"     = "PF-Defined ARDS Criteria",
-  "sf_o2_cat"     = "SF-Defined ARDS Criteria",
+  "pf_o2_cat"     = "PF-Defined ARDS Severity Criteria",
+  "sf_o2_cat"     = "SF-Defined ARDS Severity Criteria",
   "pf_sofa"       = "PF-Defined SOFA-2 Score",
   "sf_sofa"       = "SF-Defined SOFA-2 Score"
 )
 
 model_order <- c(
-  "pf_o2_cat"     = "PF-Defined ARDS Criteria",
-  "sf_o2_cat"     = "SF-Defined ARDS Criteria",
+  "pf_o2_cat"     = "PF-Defined ARDS Severity Criteria",
   "pf_sofa"       = "PF-Defined SOFA-2 Score",
-  "sf_sofa"       = "SF-Defined SOFA-2 Score",
   "pf_continuous" = "PF Ratio, Continuous",
+  "sf_o2_cat"     = "SF-Defined ARDS Severity Criteria",
+  "sf_sofa"       = "SF-Defined SOFA-2 Score",
   "sf_continuous" = "SF Ratio, Continuous"
 )
 
@@ -9045,7 +9045,10 @@ plot_df <- cv_auc_master_with_i2 %>%
 # One overall CV AUC per model
 overall_df <- cv_auc_master_with_i2 %>%
   filter(site == "Overall") %>%
-  select(model_name, cv_auc_overall = auc, n) 
+  select(model_name, cv_auc_overall = auc, n) |>
+  mutate(
+    model_label = recode(model_name, !!!model_labs),
+    model_label = factor(model_label, levels = model_order))
 
 # Optional: I2 labels per model
 i2_df <- plot_df %>%
@@ -9059,7 +9062,8 @@ plot_df <- plot_df %>%
   mutate(
     model_label = recode(model_name, !!!model_labs),
     model_label = factor(model_label, levels = model_order),
-    site_name = recode(site, !!!site_labs)
+      site_name = recode(site, !!!site_labs),
+    site_name = factor(site_name, levels = as.character(12:1))
   )
 
 annot_df <- plot_df %>%
@@ -9075,7 +9079,7 @@ annot_df <- plot_df %>%
   )
 
 ggplot(plot_df,
-       aes(x = auc, y = reorder(site, auc))) +
+       aes(x = auc, y = site_name)) +
   geom_vline(
     data = overall_df,
     aes(xintercept = cv_auc_overall),
@@ -9094,13 +9098,13 @@ ggplot(plot_df,
     vjust = 1.5,
     size = 3.5
   ) +
-  facet_wrap(~ model_name, scales = "free_y") +
+  facet_wrap(~ model_label, scales = "free_y") +
   coord_cartesian(xlim = c(0.45, 0.80), clip = "off") +
   labs(
     x = "Site-specific held-out AUROC",
     y = "Site",
     size = "N",
-    title = "Site-specific AUROC with overall leave-one-site-out cross-validated AUC",
+    title = "Site-specific AUROC with overall leave-one-site-out cross-validated AUROC",
     subtitle = "Dashed vertical line = pooled cross-validated AUROC"
   ) +
   theme_bw()
