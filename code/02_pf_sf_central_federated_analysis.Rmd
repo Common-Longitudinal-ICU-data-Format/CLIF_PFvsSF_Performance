@@ -8514,8 +8514,8 @@ write_csv(random_slopes_models, paste0(project_location, '/tables/random_slopes_
 
 ```{r Function for Percent Agreeement Table for Patients with Both SF and PF}
 agreement_rowpct_table <- function(df,
-                                   row_var = "strata",
-                                   col_var = "level",
+                                   row_var = "level", #Rows are SF - Level
+                                   col_var = "strata", #Columns are PF - Strata
                                    count_var = "count",
                                    levels_order,
                                    row_label = "PF_category",
@@ -8568,8 +8568,8 @@ agreement_rowpct_table <- function(df,
   
   for (i in seq_along(levels_order)) {
     for (j in seq_along(levels_order)) {
-      if (i < j) upward_n <- upward_n + mat[i, j]
-      if (i > j) downward_n <- downward_n + mat[i, j]
+      if (i < j) downward_n <- downward_n + mat[j, i] 
+      if (i > j) upward_n <- upward_n + mat[j, i]
     }
   }
   
@@ -8671,10 +8671,10 @@ for (name in names(confusion_matrix_list)) {
   if (grepl("oxygenation", name)) {
     this_level <- c("not_hypoxemic", "mild_hypoxemia",
                     "moderate_hypoxemia", "severe_hypoxemia")
-    row_lab <- "Rows are PF Defined"
+    row_lab <- "Columns PF; Rows SF"
   } else {
     this_level <- c("0", "1", "2", "3", "4")
-    row_lab <- "Rows are PF Defined"
+    row_lab <- "Columns PF; Rows SF"
   }
   
   table_it <- agreement_rowpct_table(
