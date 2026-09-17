@@ -1428,6 +1428,36 @@ abgs_by_site <- abgs_by_hospital |>
     percent_with_abg=(round(patients_with_abg/n_patients, 4))*100
   )
 
+#Plot ABG by Site
+plot <- ggplot(abgs_by_site, 
+        aes(x=reorder(factor(site), percent_with_abg), y=(percent_with_abg/100))) +
+   geom_point(aes(size=n_patients)) +
+   scale_x_discrete(labels = NULL,
+                      name = 'CLIF Site') +
+   scale_y_continuous(
+     breaks=seq(0.5, 1, by=0.1), limits = c(0.5,1), labels = scales::percent,
+     name = '% of Patients with \n Arterial Blood Gas') +
+   scale_fill_viridis_d('Hospital') +
+   theme_minimal()
+
+ggsave(
+  filename='abg_per_site.pdf',
+  plot=last_plot(),
+  device=cairo_pdf,
+  width = 8,
+  height = 5,
+  units ='in',
+  path = paste0(project_location, '/graphs/'))
+ggsave(
+  filename='abg_per_site.svg',
+  plot=last_plot(),
+  device=cairo_pdf,
+  width = 8,
+  height = 5,
+  units ='in',
+  path = paste0(project_location, '/graphs/'))
+
+
 write_csv(abgs_by_hospital, paste0(project_location, '/tables/abgs_by_hospital.csv'))
 write_csv(abgs_by_site, paste0(project_location, '/tables/abgs_by_site.csv'))
 write_csv(hospital_types, paste0(project_location, '/tables/hospital_types.csv'))
