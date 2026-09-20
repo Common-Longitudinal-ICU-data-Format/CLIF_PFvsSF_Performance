@@ -2727,6 +2727,54 @@ write_csv(cumulative_models_o2_outcome,
           paste0(project_location, '/proj_output/', site, '_cumulative_models_o2_outcome.csv'))
 ```
 
+```{r Within Patient Data on Variation in PF and SF}
+patient_pf_sf <- data_list$resp_first_24_long.parquet |>
+  select(hospital_block_id, eligible_measure_by_time, eligible_spo2, pf_ratio, spo2, fio2_carried, fio2_set) |>
+  inner_join(analytic_cohort %>% select(hospital_block_id, primary_metric), by = 'hospital_block_id') |>
+  mutate(sf=if_else(eligible_spo2==1 & eligible_measure_by_time==1, spo2/fio2_carried, NA_real_)) |>
+  collect() |>
+  filter(eligible_measure_by_time==1) 
+
+overall_pf_sf_variation <- patient_pf_sf |>
+  summarise(
+    count_sf=sum(!is.na(sf)),
+    mean_sf=mean(sf, na.rm=T), 
+    sd_sf=sd(sf, na.rm=T),
+    coef_var_sf=(sd_sf/mean_sf)*100,
+    count_pf=sum(!is.na(pf_ratio)),
+    mean_pf=mean(pf_ratio, na.rm=T), 
+    sd_pf=sd(pf_ratio, na.rm=T),
+    coef_var_pf=(sd_pf/mean_pf)*100,
+    .by = 'hospital_block_id'
+  ) |>
+  left_join(analytic_cohort %>% select(hospital_block_id, primary_metric)) |>
+  mutate(
+    one_pf=as.integer(count_pf==1),
+    one_sf=as.integer(count_sf==1))
+
+to_tab <- c(
+  'mean_sf',
+  'sd_sf',
+  'coef_var_sf',
+  'mean_pf',
+  'sd_pf',
+  'coef_var_pf', 
+  'one_pf', 
+  'one_sf')
+
+table_coef <- CreateTableOne(
+  data=overall_pf_sf_variation, 
+  vars=to_tab, 
+  strata='primary_metric', 
+  addOverall = T)
+
+summary(table_coef)
+
+table_list <- tab_decomp(table_coef)
+write_csv(table_list$continuous, paste0(project_location, '/proj_output/', site, '_table_cont_win_patient_pf_sf.csv'))
+```
+
+
 ```{r}
 cat('This code is DONE!!! Thank you for your support for this CLIF project!')
 ```
