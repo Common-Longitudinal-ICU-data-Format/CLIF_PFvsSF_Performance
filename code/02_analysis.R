@@ -708,6 +708,76 @@ table1_paper_twocat <- readable_table(table1_paper_twocat , strata_values, has_c
 write_csv(table1_paper_twocat, paste0(project_location, '/tables/table1_pooled_noundefined.csv'))
 
 
+## ----Repeat Table 1 by 3 Categories PF, SF and PF-SF--------------------------
+table1_cont_three_cat <- table1_cont |>
+  #Combine to SF, PF or Undefined
+  mutate(
+    strata=fcase(
+      grepl('undefined', strata), 'undefined',
+      default = strata)
+    ) |>
+  filter(strata!='undefined')
+
+table1_working <- cont_table_function(table1_cont_three_cat) 
+
+#Function for Weighted ANOVA from Summary Data
+
+group_p_values <- weighted_anova_pval(table1_working)
+
+table1_cont_paper_threecat <- table1_working |>
+  left_join(group_p_values, by='variable') |>
+  select(strata, variable, weighted_mean, weighted_sd, f_stat, p.value, overall_n) |>
+  filter(strata!='Overall') |>
+  distinct() |>
+  rename(
+    n_total=overall_n,
+    count_mean=weighted_mean,
+    percent_sd=weighted_sd
+  ) |>
+  pivot_wider(
+    names_from=c(strata),
+    names_glue="{strata}_{.value}",
+    values_from=c(n_total, count_mean, percent_sd)) 
+
+
+#Save Tables
+write_csv(table1_cont_paper_threecat , paste0(project_location, '/tables/table1_pooled_noundefined_wsf_pf.csv'))
+rm(table1_cont_paper_threecat)
+
+
+## ----Weighted Median and IQR for Continuous Table 1 and Oxygenation Metrics----
+table1_medians <- cont_table_function(table1_cont) |>
+  mutate(
+    wt_median=round(sum(median*weights, na.rm=T), 3),
+    wt_p25=round(sum(p25*weights, na.rm=T), 3),
+    wt_p75=round(sum(p75*weights, na.rm=T), 3),
+    var_n=sum(value_n, na.rm=T),
+    .by=c(strata, variable)
+  ) |>
+  filter(dplyr::row_number()==1, .by = c(strata, variable)) |>
+  select(strata, variable, overall_n, var_n, wt_median, wt_p25, wt_p75)
+
+table2_metrics_exposure <- collate_tables('_table2_o2metrics_cont_by_exposure.csv') 
+
+table2_medians <- cont_table_function(table2_metrics_exposure) |>
+  mutate(
+    wt_median=round(sum(median*weights, na.rm=T), 3),
+    wt_p25=round(sum(p25*weights, na.rm=T), 3),
+    wt_p75=round(sum(p75*weights, na.rm=T), 3),
+    var_n=sum(value_n, na.rm=T),
+    .by=c(strata, variable)
+  ) |>
+  filter(dplyr::row_number()==1, .by = c(strata, variable)) |>
+  select(strata, variable, overall_n, var_n, wt_median, wt_p25, wt_p75)
+
+#Save Tables
+write_csv(table1_medians, paste0(project_location, '/tables/table1_pooled_medians.csv'))
+write_csv(table2_medians, paste0(project_location, '/tables/table2_pooled_medians.csv'))
+
+rm(table1_medians, table2_medians)
+
+
+
 ## ----Describe SpO2/FiO2 and PaO2/FiO2 Availability - Overall and By Support Category----
 table2_metrics_exposure <- collate_tables('_table2_o2metrics_cont_by_resp_support.csv') 
   
