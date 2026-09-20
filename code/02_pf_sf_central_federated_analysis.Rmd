@@ -154,7 +154,8 @@ tables <- c(
   "_table2_o2metrics_cont_by_sofa.csv",
   "_hospital_categories.csv",
   "_logistic_models.csv", 
-  "_confusion_matric_sf_pf.csv"
+  "_confusion_matric_sf_pf.csv",
+  "_table_cont_win_patient_pf_sf.csv"
 )
 
 # Combine sites and tables to create full table names
